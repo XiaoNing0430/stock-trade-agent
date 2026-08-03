@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a2b">
+  <meta name="description" content="连接真实 A 股行情的选股、交易计划和盯盘工作台">
+  <title>Atlas 交易工作台</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/lucide@0.468.0"></script>
+</head>
+<body>
+  <div id="app" v-cloak class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">A</div>
+        <div class="brand-copy">
+          <strong>Atlas</strong>
+          <span>交易工作台</span>
+        </div>
+      </div>
+
+      <div class="market-switcher" aria-label="市场">
+        <div class="market-switcher-copy">
+          <span class="live-dot"></span>
+          <div>
+            <strong>A股市场</strong>
+            <span>实时行情代理</span>
+          </div>
+        </div>
+        <span class="market-state">{{ marketStatus }}</span>
+      </div>
+
+      <nav class="primary-nav" aria-label="主导航">
+        <button
+          v-for="item in navItems"
+          :key="item.id"
+          class="nav-item"
+          :class="{ 'is-active': view === item.id }"
+          type="button"
+          @click="switchView(item.id)"
+        >
+          <i :data-lucide="item.icon" aria-hidden="true"></i>
+          <span>{{ item.label }}</span>
+          <em v-if="item.id === 'monitor' && unreadAlerts" class="nav-count">{{ unreadAlerts }}</em>
+        </button>
+      </nav>
+
+      <div class="sidebar-section-label">数据连接</div>
+      <div class="sidebar-data-note">
+        <span class="status-dot" :class="dataState"></span>
+        <div>
+          <strong>{{ providerLabel }}</strong>
+          <span>{{ dataStatusText }}</span>
+        </div>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="sidebar-note">
+        <div class="sidebar-note-icon">
+          <i data-lucide="shield-check" aria-hidden="true"></i>
+        </div>
+        <div>
+          <strong>先计划，再执行</strong>
+          <span>真实行情只负责触发规则，不替你做决定。</span>
+        </div>
+      </div>
+
+      <div class="user-profile">
+        <div class="avatar">林</div>
+        <div class="user-copy">
+          <strong>林默</strong>
+          <span>个人工作区</span>
+        </div>
+        <button class="icon-button icon-button-dark" type="button" aria-label="打开用户菜单" data-tooltip="用户菜单">
+          <i data-lucide="more-horizontal" aria-hidden="true"></i>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-context">
+          <span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>
+          <div class="topbar-title-row">
+            <h1>{{ currentViewMeta.title }}</h1>
+            <span class="demo-badge" :class="{ 'demo-badge-stale': dataState !== 'live' }">
+              <span class="live-dot"></span>{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情' : '行情连接中' }}
+            </span>
+          </div>
+          <p>{{ currentViewMeta.subtitle }}</p>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="global-search">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <input v-model.trim="globalSearch" type="search" placeholder="搜索股票代码或名称" aria-label="搜索股票代码或名称" @keydown.enter="searchSymbol">
+            <kbd>/</kbd>
+          </div>
+          <button class="icon-button" type="button" aria-label="桌面提醒设置" data-tooltip="桌面提醒" @click="requestNotifications">
+            <i data-lucide="bell" aria-hidden="true"></i>
+            <span v-if="unreadAlerts" class="notification-dot"></span>
+          </button>
+          <button class="topbar-date" type="button" data-tooltip="刷新行情" @click="refreshAll()">
+            <i data-lucide="refresh-cw" aria-hidden="true" :class="{ spinning: loading }"></i>
+            <span>{{ lastUpdatedLabel }}</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="content-area">
+        <section v-if="view === 'overview'" class="view-panel is-active">
+          <div class="view-heading">
+            <div>
+              <span class="section-kicker">REAL-TIME DESK</span>
+              <h2>先看盘面，再决定今天的动作</h2>
+              <p class="heading-note">报价、指数和日线都来自实时行情代理；收盘后会停留在最后成交价。</p>
+            </div>
+            <div class="view-heading-actions">
+              <span class="data-updated"><span class="live-dot"></span>{{ fetchedLabel }}</span>
+              <button class="button button-primary" type="button" @click="switchView('screener')">
+                <i data-lucide="scan-search" aria-hidden="true"></i>
+                开始选股
+              </button>
+            </div>
+          </div>
+
+          <div v-if="errorMessage" class="connection-banner">
+            <i data-lucide="triangle-alert" aria-hidden="true"></i>
+            <span>{{ errorMessage }}</span>
+            <button class="text-button" type="button" @click="refreshAll()">重试</button>
+          </div>
+
+          <div class="overview-layout">
+            <section class="market-board surface">
+              <div class="surface-heading">
+                <div>
+                  <span class="section-kicker">MARKET PULSE</span>
+                  <h3>盘面温度</h3>
+                </div>
+                <button class="icon-button" type="button" aria-label="打开盯盘中心" data-tooltip="盯盘中心" @click="switchView('monitor')">
+                  <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+                </button>
+              </div>
+
+              <div v-if="indices.length" class="index-grid">
+                <div v-for="index in indices" :key="index.code" class="index-item">
+                  <div class="index-item-head">
+                    <span>{{ index.name }}</span>
+                    <i data-lucide="activity" aria-hidden="true"></i>
+                  </div>
+                  <strong class="index-item-value">{{ formatNumber(index.price) }}</strong>
+                  <div class="index-item-foot">
+                    <span>{{ index.market }}</span>
+                    <span :class="trendClass(index.change)">{{ formatPct(index.change) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="empty-state compact-empty">
+                <i data-lucide="loader-circle" aria-hidden="true"></i>
+                <strong>正在读取指数</strong>
+                <span>行情代理返回后会显示最新价。</span>
+              </div>
+
+              <div class="market-chart-wrap">
+                <div class="chart-heading">
+                  <div>
+                    <span class="chart-label">上证指数 · 近 40 个交易日</span>
+                    <strong>{{ selectedIndex ? formatNumber(selectedIndex.price) : '--' }}</strong>
+                  </div>
+                  <span :class="trendClass(selectedIndex?.change)">{{ selectedIndex ? formatPct(selectedIndex.change) : '--' }}</span>
+                </div>
+                <div class="market-chart" v-html="chartSvg(indexHistory.map(item => item.close), '#ef6d53', '上证指数近 40 个交易日走势')"></div>
+              </div>
+
+              <div class="market-breadth">
+                <div class="breadth-label">
+                  <span>已加载候选池涨跌</span>
+                  <strong>{{ breadth.up }} / {{ breadth.down }}</strong>
+                </div>
+                <div class="breadth-bar" aria-label="已加载候选池上涨家数与下跌家数">
+                  <span class="breadth-up" :style="{ width: `${breadth.upRatio}%` }"></span>
+                  <span class="breadth-flat" :style="{ width: `${breadth.flatRatio}%` }"></span>
+                  <span class="breadth-down" :style="{ width: `${breadth.downRatio}%` }"></span>
+                </div>
+                <div class="breadth-legend">
+                  <span><i class="legend-dot up"></i>上涨 {{ breadth.up }}</span>
+                  <span><i class="legend-dot flat"></i>平盘 {{ breadth.flat }}</span>
+                  <span><i class="legend-dot down"></i>下跌 {{ breadth.down }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="pulse-summary surface">
+              <div class="surface-heading">
+                <div>
+                  <span class="section-kicker">TODAY'S FOCUS</span>
+                  <h3>今天该看什么</h3>
+                </div>
+                <span class="focus-date">{{ todayLabel }}</span>
+              </div>
+              <div class="focus-list">
+                <div class="focus-item">
+                  <span class="focus-number">1</span>
+                  <div class="focus-copy"><strong>筛选结果</strong><span>{{ filteredRows.length }} 只股票满足当前条件。</span></div>
+                </div>
+                <div class="focus-item">
+                  <span class="focus-number">2</span>
+                  <div class="focus-copy"><strong>执行计划</strong><span>{{ activePlans.length }} 份计划正在等待价格触发。</span></div>
+                </div>
+                <div class="focus-item">
+                  <span class="focus-number">3</span>
+                  <div class="focus-copy"><strong>待处理提醒</strong><span>{{ unreadAlerts }} 条提醒需要确认。</span></div>
+                </div>
+              </div>
+              <div class="focus-footer">
+                <span>数据刷新周期</span>
+                <strong>15 秒</strong>
+              </div>
+            </section>
+          </div>
+
+          <div class="content-grid content-grid-main">
+            <section class="watchlist-panel surface">
+              <div class="surface-heading">
+                <div>
+                  <span class="section-kicker">WATCHLIST</span>
+                  <h3>自选股</h3>
+                </div>
+                <div class="inline-actions">
+                  <span class="muted-count">{{ watchlistCodes.length }} 只股票</span>
+                  <button class="text-button" type="button" @click="switchView('monitor')">查看盯盘 <i data-lucide="arrow-right" aria-hidden="true"></i></button>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>股票</th>
+                      <th class="text-end">最新价</th>
+                      <th class="text-end">涨跌幅</th>
+                      <th>计划状态</th>
+                      <th class="text-end">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="stock in watchlistQuotes" :key="stock.code" class="clickable-row" @click="selectStock(stock.code)">
+                      <td>
+                        <div class="stock-cell">
+                          <span class="stock-dot stock-dot-coral">{{ stock.name.slice(0, 1) }}</span>
+                          <div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.market }}</span></div>
+                        </div>
+                      </td>
+                      <td class="text-end">{{ formatNullable(stock.price) }}</td>
+                      <td class="text-end" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</td>
+                      <td><span :class="['signal-chip', signalClass(stock)]">{{ signalText(stock) }}</span></td>
+                      <td class="text-end">
+                        <button class="table-action" type="button" aria-label="为该股票制定计划" data-tooltip="制定计划" @click.stop="createPlan(stock.code)">
+                          <i data-lucide="clipboard-pen-line" aria-hidden="true"></i>
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="!watchlistQuotes.length"><td colspan="5"><div class="empty-state"><strong>还没有自选股</strong><span>去选股器添加一只股票。</span></div></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="quick-screen-panel surface">
+              <div class="surface-heading">
+                <div>
+                  <span class="section-kicker">QUICK SCREEN</span>
+                  <h3>今日机会</h3>
+                </div>
+                <span class="strategy-label">{{ presetName }}</span>
+              </div>
+              <div class="quick-screen-summary">
+                <strong>{{ filteredRows.length }}</strong>
+                <span>只股票通过初筛</span>
+              </div>
+              <div class="mini-stock-list">
+                <div v-for="stock in filteredRows.slice(0, 4)" :key="stock.code" class="mini-stock-item" @click="selectStock(stock.code)">
+                  <span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span>
+                  <div class="mini-stock-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · 量比 {{ formatNullable(stock.volumeRatio, 2) }}</span></div>
+                  <span class="mini-stock-change" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</span>
+                </div>
+                <div v-if="!filteredRows.length" class="empty-state compact-empty"><span>当前条件下暂无结果。</span></div>
+              </div>
+              <button class="button button-secondary button-full" type="button" @click="switchView('screener')">
+                <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
+                调整筛选条件
+              </button>
+            </section>
+          </div>
+
+          <section class="activity-panel surface">
+            <div class="surface-heading">
+              <div>
+                <span class="section-kicker">ALERT FEED</span>
+                <h3>提醒动态</h3>
+              </div>
+              <button class="text-button" type="button" @click="switchView('monitor')">打开提醒中心 <i data-lucide="arrow-up-right" aria-hidden="true"></i></button>
+            </div>
+            <div class="activity-list">
+              <div v-for="alert in alerts.slice(0, 4)" :key="alert.id" class="activity-item">
+                <div :class="['activity-icon', alert.kind === 'alert' ? 'alert' : alert.kind === 'success' ? 'success' : '']">
+                  <i :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : 'bell-ring'" aria-hidden="true"></i>
+                </div>
+                <div class="activity-copy"><strong>{{ alert.title }}</strong><span>{{ alert.message }}</span></div>
+                <span class="activity-time">{{ alert.time }}</span>
+              </div>
+              <div v-if="!alerts.length" class="empty-state compact-empty"><span>还没有提醒动态。</span></div>
+            </div>
+          </section>
+        </section>
+
+        <section v-else-if="view === 'screener'" class="view-panel is-active">
+          <div class="view-heading">
+            <div>
+              <span class="section-kicker">SCREENING LAB</span>
+              <h2>用真实行情筛出值得研究的标的</h2>
+              <p class="heading-note">筛选字段来自行情列表：涨跌幅、PE、PB、量比和换手率。</p>
+            </div>
+            <div class="view-heading-actions">
+              <span class="scan-time">行情列表 {{ screenerUpdatedLabel }}</span>
+              <button class="button button-primary" type="button" @click="scanNow">
+                <i data-lucide="play" aria-hidden="true"></i>
+                重新扫描
+              </button>
+            </div>
+          </div>
+
+          <div class="screener-layout">
+            <section class="filter-panel surface">
+              <div class="surface-heading">
+                <div>
+                  <span class="section-kicker">STRATEGY</span>
+                  <h3>筛选策略</h3>
+                </div>
+                <i data-lucide="sparkles" class="heading-icon" aria-hidden="true"></i>
+              </div>
+              <div class="preset-list">
+                <button v-for="preset in presets" :key="preset.name" class="preset-item" :class="{ 'is-active': presetName === preset.name }" type="button" @click="applyPreset(preset)">
+                  <span :class="['preset-icon', preset.iconClass]"><i :data-lucide="preset.icon" aria-hidden="true"></i></span>
+                  <span><strong>{{ preset.name }}</strong><small>{{ preset.description }}</small></span>
+                  <i data-lucide="check" class="preset-check" aria-hidden="true"></i>
+                </button>
+              </div>
+
+              <div class="filter-divider"></div>
+              <div class="filter-fields">
+                <label class="field"><span>市场</span><select v-model="filters.market"><option value="全部">全部 A 股</option><option value="沪A">沪 A</option><option value="深A">深 A</option><option value="科创板">科创板</option></select></label>
+                <label class="field"><span>搜索</span><input v-model.trim="filters.search" type="search" placeholder="代码 / 名称"></label>
+                <label class="field"><span>PE ≤ <strong>{{ filters.peMax }}</strong></span><input v-model.number="filters.peMax" type="range" min="5" max="120" step="1"></label>
+                <label class="field"><span>PB ≤ <strong>{{ filters.pbMax }}</strong></span><input v-model.number="filters.pbMax" type="range" min="0.5" max="20" step="0.5"></label>
+                <label class="field"><span>量比 ≥ <strong>{{ filters.volumeMin.toFixed(2) }}</strong></span><input v-model.number="filters.volumeMin" type="range" min="0.2" max="8" step="0.1"></label>
+                <label class="field"><span>涨幅 ≥ <strong>{{ filters.changeMin.toFixed(1) }}%</strong></span><input v-model.number="filters.changeMin" type="range" min="-10" max="10" step="0.1"></label>
+              </div>
+              <div class="filter-footer">
+                <span class="filter-hint"><i data-lucide="info" aria-hidden="true"></i>实时字段缺失时不会用模拟值补齐</span>
+                <button class="button button-secondary" type="button" @click="resetFilters">重置</button>
+              </div>
+            </section>
+
+            <section class="results-panel surface">
+              <div class="surface-heading results-heading">
+                <div>
+                  <span class="section-kicker">RESULTS</span>
+                  <h3><span>{{ filteredRows.length }}</span> 只股票符合条件</h3>
+                </div>
+                <div class="results-actions">
+                  <span class="muted-count">候选池 {{ screenTotal.toLocaleString() }} 只</span>
+                  <button class="icon-button" type="button" aria-label="导出筛选结果" data-tooltip="导出结果" @click="exportResults">
+                    <i data-lucide="download" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="result-insight">
+                <div class="insight-icon"><i data-lucide="lightbulb" aria-hidden="true"></i></div>
+                <div><strong>{{ presetName }}</strong><span>{{ presetDescription }}</span></div>
+              </div>
+              <div class="table-responsive results-table-wrap">
+                <table class="data-table data-table-dense">
+                  <thead><tr><th>股票</th><th class="text-end">现价</th><th class="text-end">涨跌幅</th><th class="text-end">PE</th><th class="text-end">PB</th><th class="text-end">量比</th><th class="text-end">换手率</th><th>信号</th><th class="text-end">操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="stock in filteredRows" :key="stock.code" class="clickable-row" @click="selectStock(stock.code)">
+                      <td><div class="stock-cell"><span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.market }}</span></div></div></td>
+                      <td class="text-end">{{ formatNullable(stock.price) }}</td>
+                      <td class="text-end" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</td>
+                      <td class="text-end">{{ formatNullable(stock.pe, 1) }}</td>
+                      <td class="text-end">{{ formatNullable(stock.pb, 2) }}</td>
+                      <td class="text-end">{{ formatNullable(stock.volumeRatio, 2) }}</td>
+                      <td class="text-end">{{ formatNullable(stock.turnoverRate, 2) }}%</td>
+                      <td><span :class="['signal-chip', signalClass(stock)]">{{ signalText(stock) }}</span></td>
+                      <td class="text-end"><button class="table-action" type="button" :aria-label="isWatched(stock.code) ? '移出自选' : '加入自选'" :data-tooltip="isWatched(stock.code) ? '移出自选' : '加入自选'" @click.stop="toggleWatch(stock.code)"><i :data-lucide="isWatched(stock.code) ? 'star-off' : 'star'" aria-hidden="true"></i></button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="loading && !filteredRows.length" class="empty-state"><i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取真实行情</strong><span>行情列表返回后会显示筛选结果。</span></div>
+              <div v-else-if="!filteredRows.length" class="empty-state"><i data-lucide="search-x" aria-hidden="true"></i><strong>没有找到符合条件的股票</strong><span>可以放宽 PE、PB 或涨幅条件再试一次。</span></div>
+            </section>
+          </div>
+
+          <section class="selected-stock-panel surface">
+            <div class="selected-stock-summary">
+              <div class="selected-stock-identity">
+                <div class="stock-avatar">{{ selectedStock?.name?.slice(0, 1) || '—' }}</div>
+                <div>
+                  <div class="stock-name-line"><h3>{{ selectedStock?.name || '选择一只股票' }}</h3><span class="ticker-code">{{ selectedStock ? `${selectedStock.code} · ${selectedStock.market}` : '从筛选结果中选择' }}</span></div>
+                  <span class="stock-sector">{{ selectedStock ? `PE ${formatNullable(selectedStock.pe, 1)} · PB ${formatNullable(selectedStock.pb, 2)}` : '暂无报价' }}</span>
+                </div>
+              </div>
+              <div class="selected-stock-quote"><strong>{{ formatNullable(selectedStock?.price) }}</strong><span :class="trendClass(selectedStock?.change)">{{ formatPctNullable(selectedStock?.change) }}</span></div>
+              <div class="selected-stock-metrics">
+                <div><span>开盘</span><strong>{{ formatNullable(selectedStock?.open) }}</strong></div>
+                <div><span>最高 / 最低</span><strong>{{ formatNullable(selectedStock?.high) }} / {{ formatNullable(selectedStock?.low) }}</strong></div>
+                <div><span>成交额</span><strong>{{ formatAmount(selectedStock?.amount) }}</strong></div>
+              </div>
+              <div class="selected-stock-actions">
+                <button class="button button-secondary" type="button" @click="toggleWatch(selectedCode)"><i :data-lucide="isWatched(selectedCode) ? 'star-off' : 'star'" aria-hidden="true"></i>{{ isWatched(selectedCode) ? '移出自选' : '加入自选' }}</button>
+                <button class="button button-primary" type="button" @click="createPlan(selectedCode)"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i>制定计划</button>
+              </div>
+            </div>
+            <div class="stock-detail-chart" v-html="chartSvg(selectedHistory.map(item => item.close), '#3b6fb6', `${selectedStock?.name || '股票'}近期走势`)"></div>
+          </section>
+        </section>
+
+        <section v-else-if="view === 'plans'" class="view-panel is-active">
+          <div class="view-heading">
+            <div><span class="section-kicker">TRADE PLAN</span><h2>把想法写成可以执行的规则</h2><p class="heading-note">一份计划至少要有入场、止损、目标和仓位。</p></div>
+            <div class="view-heading-actions"><span class="plan-count"><strong>{{ activePlans.length }}</strong> 份执行中</span><button class="button button-secondary" type="button" @click="switchView('monitor')"><i data-lucide="radar" aria-hidden="true"></i>去盯盘</button></div>
+          </div>
+          <div class="plan-layout">
+            <section class="plan-form-panel surface">
+              <div class="surface-heading"><div><span class="section-kicker">NEW PLAN</span><h3>创建交易计划</h3></div><span class="draft-status">{{ draftDirty ? '未保存' : '草稿' }}</span></div>
+              <form @submit.prevent="savePlan">
+                <div class="form-grid">
+                  <label class="field field-wide"><span>标的</span><select v-model="draft.code" required><option v-for="stock in planOptions" :key="stock.code" :value="stock.code">{{ stock.name }} · {{ stock.code }}</option></select></label>
+                  <label class="field"><span>方向</span><select v-model="draft.direction"><option value="buy">买入计划</option><option value="sell">卖出计划</option></select></label>
+                  <label class="field"><span>有效期</span><select v-model="draft.validity"><option value="今日">今日</option><option value="本周内">本周内</option><option value="本月内">本月内</option></select></label>
+                  <label class="field"><span>计划价</span><div class="number-input"><input v-model.number="draft.entry" type="number" min="0.01" step="0.01" required><span>元</span></div></label>
+                  <label class="field"><span>止损价</span><div class="number-input"><input v-model.number="draft.stop" type="number" min="0.01" step="0.01" required><span>元</span></div></label>
+                  <label class="field"><span>目标价</span><div class="number-input"><input v-model.number="draft.target" type="number" min="0.01" step="0.01" required><span>元</span></div></label>
+                  <label class="field"><span>账户资金</span><div class="number-input"><input v-model.number="draft.capital" type="number" min="1000" step="1000" required><span>元</span></div></label>
+                  <label class="field"><span>计划仓位 <strong>{{ draft.position }}%</strong></span><input v-model.number="draft.position" type="range" min="5" max="100" step="5"></label>
+                </div>
+                <label class="field field-note"><span>交易逻辑</span><textarea v-model.trim="draft.note" rows="3" placeholder="例如：放量突破平台，回踩不破 5 日线再执行。"></textarea></label>
+                <div class="risk-preview">
+                  <div class="risk-preview-heading"><span>计划测算</span><span class="muted-inline">按 100 股整数倍计算</span></div>
+                  <div class="risk-metrics"><div><span>盈亏比</span><strong>{{ planMetrics.rr.toFixed(2) }}</strong></div><div><span>预计股数</span><strong>{{ planMetrics.shares.toLocaleString() }} 股</strong></div><div><span>单笔最大风险</span><strong>{{ formatMoney(planMetrics.risk) }}</strong></div></div>
+                  <div class="risk-bar"><span :style="{ width: `${Math.min(100, Math.max(8, planMetrics.rr / 3 * 100))}%` }"></span></div>
+                </div>
+                <div class="form-footer"><span class="form-footnote"><i data-lucide="lock-keyhole" aria-hidden="true"></i>计划只保存在本地浏览器</span><button class="button button-primary" type="submit"><i data-lucide="save" aria-hidden="true"></i>保存计划</button></div>
+              </form>
+            </section>
+
+            <section class="plans-list-panel surface">
+              <div class="surface-heading"><div><span class="section-kicker">ACTIVE PLANS</span><h3>执行中的计划</h3></div><button class="icon-button" type="button" aria-label="刷新计划状态" data-tooltip="刷新计划" @click="refreshAll()"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></div>
+              <div class="plan-list">
+                <article v-for="plan in activePlans" :key="plan.id" class="plan-card">
+                  <div class="plan-card-head"><div class="plan-card-identity"><span class="stock-dot stock-dot-coral">{{ quoteFor(plan.code)?.name?.slice(0, 1) || plan.code.slice(0, 1) }}</span><div><strong>{{ quoteFor(plan.code)?.name || plan.code }}</strong><span>{{ plan.code }} · {{ plan.direction === 'buy' ? '买入计划' : '卖出计划' }}</span></div></div><span :class="['plan-status', plan.status === '已触发' ? 'plan-status-triggered' : '']">{{ plan.status }}</span></div>
+                  <div class="plan-card-body"><div class="plan-card-metric"><span>计划价</span><strong>{{ formatNumber(plan.entry) }}</strong></div><div class="plan-card-metric"><span>止损</span><strong>{{ formatNumber(plan.stop) }}</strong></div><div class="plan-card-metric"><span>目标</span><strong>{{ formatNumber(plan.target) }}</strong></div><div class="plan-card-metric"><span>盈亏比</span><strong>{{ calculateRr(plan).toFixed(2) }}</strong></div></div>
+                  <div class="plan-card-foot"><span>{{ plan.validity }} · {{ calculateShares(plan).toLocaleString() }} 股</span><div class="plan-card-actions"><button type="button" @click="monitorPlan(plan)">盯盘</button><button type="button" @click="archivePlan(plan.id)">归档</button></div></div>
+                </article>
+              </div>
+              <div v-if="!activePlans.length" class="empty-state"><i data-lucide="clipboard-plus" aria-hidden="true"></i><strong>还没有交易计划</strong><span>先写下一个你愿意执行的交易剧本。</span></div>
+            </section>
+          </div>
+        </section>
+
+        <section v-else-if="view === 'monitor'" class="view-panel is-active">
+          <div class="view-heading">
+            <div><span class="section-kicker">MONITORING CENTER</span><h2>盯住规则，不盯住情绪</h2><p class="heading-note">真实报价触发计划条件时，提醒会出现在这里。</p></div>
+            <div class="view-heading-actions"><div class="monitor-toggle-wrap"><span class="toggle-label" :style="{ color: monitorEnabled ? 'var(--green)' : 'var(--muted)' }">{{ monitorEnabled ? '盯盘已开启' : '盯盘已暂停' }}</span><label class="toggle"><input v-model="monitorEnabled" type="checkbox"><span class="toggle-track"><span></span></span></label></div><button class="button button-secondary" type="button" @click="scanNow"><i data-lucide="radar" aria-hidden="true"></i>立即扫描</button></div>
+          </div>
+          <div class="monitor-summary-row">
+            <div class="monitor-stat"><span class="monitor-stat-label">监控标的</span><strong>{{ watchlistCodes.length }}</strong><span>只</span></div>
+            <div class="monitor-stat"><span class="monitor-stat-label">待处理提醒</span><strong>{{ unreadAlerts }}</strong><span>条</span></div>
+            <div class="monitor-stat"><span class="monitor-stat-label">下一次扫描</span><strong>{{ monitorEnabled ? '15 秒' : '已暂停' }}</strong><span>自动</span></div>
+            <div class="monitor-stat monitor-stat-source"><span class="monitor-stat-label">行情源</span><strong><span class="live-dot"></span>{{ providerLabel }}</strong><span>{{ fetchedLabel }}</span></div>
+          </div>
+          <div class="monitor-layout">
+            <section class="monitor-table-panel surface">
+              <div class="surface-heading"><div><span class="section-kicker">LIVE WATCH</span><h3>盯盘列表</h3></div><button class="text-button" type="button" @click="switchView('screener')">添加标的 <i data-lucide="plus" aria-hidden="true"></i></button></div>
+              <div class="table-responsive">
+                <table class="data-table monitor-table">
+                  <thead><tr><th>股票</th><th class="text-end">最新价</th><th class="text-end">涨跌幅</th><th>计划价</th><th>止损 / 目标</th><th>状态</th><th class="text-end">操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="stock in watchlistQuotes" :key="stock.code" class="clickable-row" @click="selectStock(stock.code)">
+                      <td><div class="stock-cell"><span class="stock-dot stock-dot-coral">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.market }}</span></div></div></td>
+                      <td class="text-end">{{ formatNullable(stock.price) }}</td>
+                      <td class="text-end" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</td>
+                      <td><span v-if="planFor(stock.code)" class="price-levels"><span><i class="entry-dot"></i>{{ formatNumber(planFor(stock.code).entry) }}</span></span><span v-else class="muted-count">未设定</span></td>
+                      <td><span v-if="planFor(stock.code)" class="price-levels"><span><i class="stop-dot"></i>{{ formatNumber(planFor(stock.code).stop) }}</span><span><i class="target-dot"></i>{{ formatNumber(planFor(stock.code).target) }}</span></span><span v-else class="muted-count">先创建计划</span></td>
+                      <td><span :class="['signal-chip', signalClass(stock)]">{{ signalText(stock) }}</span></td>
+                      <td class="text-end"><button class="table-action" type="button" aria-label="移出自选" data-tooltip="移出自选" @click.stop="toggleWatch(stock.code)"><i data-lucide="x" aria-hidden="true"></i></button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="!watchlistQuotes.length" class="empty-state"><i data-lucide="radar" aria-hidden="true"></i><strong>盯盘列表是空的</strong><span>从选股器加入一只股票，再为它设定价格规则。</span></div>
+            </section>
+            <section class="alerts-panel surface">
+              <div class="surface-heading"><div><span class="section-kicker">ALERTS</span><h3>提醒队列</h3></div><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button></div>
+              <div class="alert-list">
+                <div v-for="alert in alerts" :key="alert.id" class="alert-item" :class="{ unread: !alert.read }">
+                  <div :class="['alert-icon', alert.kind === 'success' ? 'success' : alert.kind === 'info' ? 'info' : '']"><i :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : 'bell-ring'" aria-hidden="true"></i></div>
+                  <div class="alert-copy"><strong>{{ alert.title }}</strong><span>{{ alert.message }}</span><div class="alert-meta"><span>{{ alert.time }}</span><button class="text-button" type="button" @click="markAlertRead(alert.id)">{{ alert.read ? '已读' : '标记已读' }}</button></div></div>
+                </div>
+                <div v-if="!alerts.length" class="empty-state"><i data-lucide="bell-off" aria-hidden="true"></i><strong>提醒队列为空</strong><span>行情触发条件后会出现在这里。</span></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <footer class="app-footer">
+          <span>Atlas Trading Desk · A 股真实行情工作台</span>
+          <span>行情接口：{{ providerLabel }} · 研究工具不构成投资建议</span>
+        </footer>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script src="app.js"></script>
+</body>
+</html>
