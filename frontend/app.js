@@ -191,6 +191,8 @@ createApp({
     const draftWatchSuppressed = ref(true);
     const refreshTimer = ref(null);
     const lastToastTimer = ref(null);
+    const workspaceSynced = ref(false);
+    const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
       direction: 'buy',
@@ -345,15 +347,60 @@ createApp({
       } catch (error) {
         // Storage is optional; real quotes continue to work without it.
       }
+      scheduleWorkspaceSync();
     }
 
-    async function requestJson(url) {
-      const response = await fetch(url, { cache: 'no-store' });
+    async function requestJson(url, options = {}) {
+      const response = await fetch(url, {
+        cache: 'no-store',
+        ...options,
+        headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || `行情接口返回 ${response.status}`);
+        throw new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
       }
       return payload;
+    }
+
+    function workspacePayload() {
+      return {
+        watchlist: watchlistCodes.value,
+        plans: plans.value,
+        alerts: alerts.value
+      };
+    }
+
+    function scheduleWorkspaceSync() {
+      if (!workspaceSynced.value) return;
+      clearTimeout(workspaceSyncTimer.value);
+      workspaceSyncTimer.value = setTimeout(async () => {
+        try {
+          await requestJson('/api/workspace', {
+            method: 'PUT',
+            body: JSON.stringify(workspacePayload())
+          });
+        } catch (error) {
+          // Browser storage remains a fallback while the persistence service reconnects.
+        }
+      }, 350);
+    }
+
+    async function loadWorkspace() {
+      try {
+        const remote = await requestJson('/api/workspace');
+        const hasRemoteData = (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
+        if (hasRemoteData) {
+          watchlistCodes.value = remote.watchlist || [];
+          plans.value = remote.plans || [];
+          alerts.value = remote.alerts || [];
+        }
+      } catch (error) {
+        // Existing local state is intentionally retained for first-run or offline use.
+      } finally {
+        workspaceSynced.value = true;
+        persist();
+      }
     }
 
     function mergeMarket(payload) {
@@ -776,6 +823,7 @@ createApp({
     });
 
     onMounted(async () => {
+      await loadWorkspace();
       draftWatchSuppressed.value = false;
       hydrateDraft();
       await refreshAll();
@@ -793,7 +841,10 @@ createApp({
       });
     });
 
-    onBeforeUnmount(() => clearInterval(refreshTimer.value));
+    onBeforeUnmount(() => {
+      clearInterval(refreshTimer.value);
+      clearTimeout(workspaceSyncTimer.value);
+    });
 
     return {
       navItems,

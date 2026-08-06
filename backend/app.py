@@ -1,20 +1,32 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.data_source import load_history, load_market, load_screener
+from backend.storage import get_workspace, initialize_storage, save_workspace, storage_status
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Atlas Stock Trade Agent")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            initialize_storage()
+            app.state.storage_ready = True
+        except Exception as exc:
+            app.state.storage_ready = False
+            app.state.storage_error = str(exc)
+        yield
+
+    app = FastAPI(title="Atlas Stock Trade Agent", lifespan=lifespan)
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
 
     @app.get("/api/health")
@@ -25,7 +37,22 @@ def create_app() -> FastAPI:
             "serverTime": int(time.time() * 1000),
             "mode": "separated",
             "universeSize": 50,
+            "storage": storage_status(),
         }
+
+    @app.get("/api/workspace")
+    def workspace(workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            return get_workspace(workspace_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
+
+    @app.put("/api/workspace")
+    def update_workspace(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            return save_workspace(payload, workspace_id)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
 
     @app.get("/api/market")
     def market(codes: str = Query(default="")):
@@ -64,4 +91,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
