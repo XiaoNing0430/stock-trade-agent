@@ -21,7 +21,40 @@ def test_fetch_text_decodes_tencent_gbk_response(monkeypatch):
 
 def test_shanghai_etf_code_maps_to_shanghai_quote_symbol():
     assert data_source.tencent_symbol("588000") == "sh588000"
-    assert data_source.market_for_code("588000") == "沪A"
+    classification = data_source.classify_code("588000")
+    assert classification == {
+        "exchange": "上交所",
+        "board": "科创板ETF",
+        "securityType": "ETF",
+        "market": "科创板ETF",
+    }
+
+
+def test_stock_codes_are_classified_by_exchange_and_board():
+    assert data_source.classify_code("600519") == {
+        "exchange": "上交所",
+        "board": "沪深主板",
+        "securityType": "股票",
+        "market": "沪深主板",
+    }
+    assert data_source.classify_code("300750") == {
+        "exchange": "深交所",
+        "board": "创业板",
+        "securityType": "股票",
+        "market": "创业板",
+    }
+    assert data_source.classify_code("688981") == {
+        "exchange": "上交所",
+        "board": "科创板",
+        "securityType": "股票",
+        "market": "科创板",
+    }
+    assert data_source.classify_code("830799") == {
+        "exchange": "北交所",
+        "board": "北交所",
+        "securityType": "股票",
+        "market": "北交所",
+    }
 
 
 def test_parse_quote_body_keeps_fields_used_by_screener():
@@ -46,6 +79,9 @@ def test_parse_quote_body_keeps_fields_used_by_screener():
 
     assert quote["code"] == "600519"
     assert quote["name"] == "贵州茅台"
+    assert quote["exchange"] == "上交所"
+    assert quote["board"] == "沪深主板"
+    assert quote["securityType"] == "股票"
     assert quote["price"] == 2060.90
     assert quote["volumeRatio"] == 1.42
     assert quote["turnoverRate"] == 0.34

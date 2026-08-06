@@ -57,23 +57,73 @@ def tencent_symbol(code: str) -> str:
         return "sz399001"
     if code == "399006":
         return "sz399006"
-    if code.startswith(("5", "6")):
-        return f"sh{code}"
-    if code.startswith(("0", "3")):
-        return f"sz{code}"
+    exchange = classify_code(code)["exchange"]
+    prefix = {"上交所": "sh", "深交所": "sz", "北交所": "bj"}.get(exchange, "sz")
+    return f"{prefix}{code}"
+
+
+def classify_code(code: str) -> dict[str, str]:
+    code = code.strip()
     if code.startswith(("4", "8")):
-        return f"bj{code}"
-    return f"sz{code}"
+        return {
+            "exchange": "北交所",
+            "board": "北交所",
+            "securityType": "股票",
+            "market": "北交所",
+        }
+    if code.startswith("68"):
+        return {
+            "exchange": "上交所",
+            "board": "科创板",
+            "securityType": "股票",
+            "market": "科创板",
+        }
+    if code.startswith("30"):
+        return {
+            "exchange": "深交所",
+            "board": "创业板",
+            "securityType": "股票",
+            "market": "创业板",
+        }
+    if code.startswith("5"):
+        board = "科创板ETF" if code.startswith("588") else "沪市ETF"
+        return {
+            "exchange": "上交所",
+            "board": board,
+            "securityType": "ETF",
+            "market": board,
+        }
+    if code.startswith(("15", "16", "18")):
+        return {
+            "exchange": "深交所",
+            "board": "深市ETF",
+            "securityType": "ETF",
+            "market": "深市ETF",
+        }
+    if code.startswith("6"):
+        return {
+            "exchange": "上交所",
+            "board": "沪深主板",
+            "securityType": "股票",
+            "market": "沪深主板",
+        }
+    if code.startswith(("0", "1", "2", "3")):
+        return {
+            "exchange": "深交所",
+            "board": "沪深主板",
+            "securityType": "股票",
+            "market": "沪深主板",
+        }
+    return {
+        "exchange": "未知",
+        "board": "未知",
+        "securityType": "未知",
+        "market": "未知",
+    }
 
 
 def market_for_code(code: str) -> str:
-    if code.startswith("68"):
-        return "科创板"
-    if code.startswith(("5", "6")):
-        return "沪A"
-    if code.startswith(("4", "8")):
-        return "北交所"
-    return "深A"
+    return classify_code(code)["market"]
 
 
 def fetch_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -102,7 +152,7 @@ def parse_quote_body(symbol: str, body: str) -> dict[str, Any] | None:
     return {
         "code": code,
         "name": values[1] or code,
-        "market": market_for_code(code),
+        **classify_code(code),
         "price": price,
         "change": numeric(values[32]),
         "changeAmount": numeric(values[31]),
@@ -186,6 +236,9 @@ def load_market(codes: list[str]) -> dict[str, Any]:
             name, market = index_names[quote["code"]]
             quote["name"] = name
             quote["market"] = market
+            quote["exchange"] = "上交所" if quote["code"] == "000001" else "深交所"
+            quote["board"] = "指数"
+            quote["securityType"] = "指数"
             indices.append(quote)
     order = {code: index for index, code in enumerate(dict.fromkeys(quote_codes))}
     stock_quotes.sort(key=lambda quote: order.get(quote["code"], 999))

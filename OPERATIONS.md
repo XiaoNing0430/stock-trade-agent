@@ -35,6 +35,12 @@ python server.py
 
 当前行情源是 Tencent public quote API。页面不会用模拟价格补齐缺失报价；接口失败时会显示缓存或异常状态。
 
+股票分类由代码规则生成并随行情返回：
+
+- `exchange`：上交所、深交所、北交所。
+- `board`：沪深主板、创业板、科创板、北交所，以及沪市/深市 ETF。
+- `securityType`：股票、ETF、指数。
+
 FastAPI Swagger 文档：
 
 ```text

@@ -250,7 +250,7 @@
                       <td>
                         <div class="stock-cell">
                           <span class="stock-dot stock-dot-coral">{{ stock.name.slice(0, 1) }}</span>
-                          <div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.market }}</span></div>
+                          <div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.exchange }} · {{ stock.board }}</span></div>
                         </div>
                       </td>
                       <td class="text-end">{{ formatNullable(stock.price) }}</td>
@@ -351,7 +351,8 @@
 
               <div class="filter-divider"></div>
               <div class="filter-fields">
-                <label class="field"><span>市场</span><select v-model="filters.market"><option value="全部">全部 A 股</option><option value="沪A">沪 A</option><option value="深A">深 A</option><option value="科创板">科创板</option></select></label>
+                <label class="field"><span>交易所</span><select v-model="filters.exchange"><option value="全部">全部交易所</option><option value="上交所">上交所</option><option value="深交所">深交所</option><option value="北交所">北交所</option></select></label>
+                <label class="field"><span>板块</span><select v-model="filters.market"><option value="全部">全部板块</option><option value="沪深主板">沪深主板</option><option value="创业板">创业板</option><option value="科创板">科创板</option><option value="北交所">北交所</option><option value="沪市ETF">沪市 ETF</option><option value="深市ETF">深市 ETF</option><option value="科创板ETF">科创板 ETF</option></select></label>
                 <label class="field"><span>搜索</span><input v-model.trim="filters.search" type="search" placeholder="代码 / 名称"></label>
                 <label class="field"><span>PE ≤ <strong>{{ filters.peMax }}</strong></span><input v-model.number="filters.peMax" type="range" min="5" max="120" step="1"></label>
                 <label class="field"><span>PB ≤ <strong>{{ filters.pbMax }}</strong></span><input v-model.number="filters.pbMax" type="range" min="0.5" max="20" step="0.5"></label>
@@ -386,7 +387,7 @@
                   <thead><tr><th>股票</th><th class="text-end">现价</th><th class="text-end">涨跌幅</th><th class="text-end">PE</th><th class="text-end">PB</th><th class="text-end">量比</th><th class="text-end">换手率</th><th>信号</th><th class="text-end">操作</th></tr></thead>
                   <tbody>
                     <tr v-for="stock in filteredRows" :key="stock.code" class="clickable-row" @click="selectStock(stock.code)">
-                      <td><div class="stock-cell"><span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.market }}</span></div></div></td>
+                      <td><div class="stock-cell"><span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.exchange }} · {{ stock.board }}</span></div></div></td>
                       <td class="text-end">{{ formatNullable(stock.price) }}</td>
                       <td class="text-end" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</td>
                       <td class="text-end">{{ formatNullable(stock.pe, 1) }}</td>
@@ -409,7 +410,7 @@
               <div class="selected-stock-identity">
                 <div class="stock-avatar">{{ selectedStock?.name?.slice(0, 1) || '—' }}</div>
                 <div>
-                  <div class="stock-name-line"><h3>{{ selectedStock?.name || '选择一只股票' }}</h3><span class="ticker-code">{{ selectedStock ? `${selectedStock.code} · ${selectedStock.market}` : '从筛选结果中选择' }}</span></div>
+                  <div class="stock-name-line"><h3>{{ selectedStock?.name || '选择一只股票' }}</h3><span class="ticker-code">{{ selectedStock ? `${selectedStock.code} · ${selectedStock.exchange} · ${selectedStock.board}` : '从筛选结果中选择' }}</span></div>
                   <span class="stock-sector">{{ selectedStock ? `PE ${formatNullable(selectedStock.pe, 1)} · PB ${formatNullable(selectedStock.pb, 2)}` : '暂无报价' }}</span>
                 </div>
               </div>
@@ -490,7 +491,7 @@
                   <thead><tr><th>股票</th><th class="text-end">最新价</th><th class="text-end">涨跌幅</th><th>计划价</th><th>止损 / 目标</th><th>状态</th><th class="text-end">操作</th></tr></thead>
                   <tbody>
                     <tr v-for="stock in watchlistQuotes" :key="stock.code" class="clickable-row" @click="selectStock(stock.code)">
-                      <td><div class="stock-cell"><span class="stock-dot stock-dot-coral">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.market }}</span></div></div></td>
+                      <td><div class="stock-cell"><span class="stock-dot stock-dot-coral">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · {{ stock.exchange }} · {{ stock.board }}</span></div></div></td>
                       <td class="text-end">{{ formatNullable(stock.price) }}</td>
                       <td class="text-end" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</td>
                       <td><span v-if="planFor(stock.code)" class="price-levels"><span><i class="entry-dot"></i>{{ formatNumber(planFor(stock.code).entry) }}</span></span><span v-else class="muted-count">未设定</span></td>

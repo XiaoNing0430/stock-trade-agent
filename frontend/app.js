@@ -12,6 +12,7 @@ const {
 const STORAGE_KEY = 'atlas-stock-desk-v2';
 const DEFAULT_WATCHLIST = ['600519', '300750', '601318', '600036', '000858', '002594'];
 const DEFAULT_FILTERS = {
+  exchange: '全部',
   market: '全部',
   search: '',
   peMax: 80,
@@ -209,6 +210,13 @@ createApp({
       errors: []
     });
     const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
+    if (saved.filters?.market === '沪A') {
+      filters.exchange = '上交所';
+      filters.market = '全部';
+    } else if (saved.filters?.market === '深A') {
+      filters.exchange = '深交所';
+      filters.market = '全部';
+    }
 
     const navItems = NAV_ITEMS;
     const presets = PRESETS;
@@ -249,7 +257,9 @@ createApp({
       return quote || {
         code,
         name: code,
-        market: 'A股',
+        exchange: '未知',
+        board: '未知',
+        market: '未知',
         price: null,
         change: null,
         volumeRatio: null
@@ -261,7 +271,13 @@ createApp({
         if (stock?.code) map.set(stock.code, stock);
       });
       if (!map.has(selectedCode.value)) {
-        map.set(selectedCode.value, { code: selectedCode.value, name: selectedCode.value, market: 'A股' });
+        map.set(selectedCode.value, {
+          code: selectedCode.value,
+          name: selectedCode.value,
+          exchange: '未知',
+          board: '未知',
+          market: '未知'
+        });
       }
       return [...map.values()];
     });
@@ -273,6 +289,7 @@ createApp({
     const filteredRows = computed(() => {
       const query = String(filters.search || '').toLowerCase();
       return screenRows.value
+        .filter((row) => filters.exchange === '全部' || row.exchange === filters.exchange)
         .filter((row) => filters.market === '全部' || row.market === filters.market)
         .filter((row) => !query || `${row.code}${row.name}`.toLowerCase().includes(query))
         .filter((row) => row.pe !== null && row.pe <= Number(filters.peMax))
@@ -738,7 +755,7 @@ createApp({
       return `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`;
     }
 
-    watch(() => filters.market, () => {
+    watch(() => [filters.exchange, filters.market], () => {
       persist();
       if (!loading.value) scanNow();
     });
