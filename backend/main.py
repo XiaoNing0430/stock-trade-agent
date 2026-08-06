@@ -1,8 +1,8 @@
-"""Local development entrypoint for the FastAPI + Vue 3 application."""
-
 import os
 
 import uvicorn
+
+from backend.app import app, create_app
 
 
 def main():

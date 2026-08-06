@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`stock-trade-agent` 是一个面向 A 股的本地交易研究工作台，当前支持真实行情选股、制定交易计划、盯盘和提醒。前端使用 Vue 3，后端使用 `server.py` 作为本地静态文件服务和行情代理。
+`stock-trade-agent` 是一个面向 A 股的本地交易研究工作台，当前支持真实行情选股、制定交易计划、盯盘和提醒。项目采用前后端分离目录：`frontend/` 使用 Vue 3，`backend/` 使用 FastAPI；开发入口 `server.py` 只负责启动 uvicorn。
 
 ## 运行项目
 
@@ -35,10 +35,16 @@ python server.py
 
 当前行情源是 Tencent public quote API。页面不会用模拟价格补齐缺失报价；接口失败时会显示缓存或异常状态。
 
+FastAPI Swagger 文档：
+
+```text
+http://127.0.0.1:4173/docs
+```
+
 ## 本地验证
 
 ```powershell
-node --check app.js
+node --check frontend/app.js
 ```
 
 服务启动后验证接口：
