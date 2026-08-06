@@ -57,7 +57,7 @@ def tencent_symbol(code: str) -> str:
         return "sz399001"
     if code == "399006":
         return "sz399006"
-    if code.startswith("6"):
+    if code.startswith(("5", "6")):
         return f"sh{code}"
     if code.startswith(("0", "3")):
         return f"sz{code}"
@@ -69,7 +69,7 @@ def tencent_symbol(code: str) -> str:
 def market_for_code(code: str) -> str:
     if code.startswith("68"):
         return "科创板"
-    if code.startswith("6"):
+    if code.startswith(("5", "6")):
         return "沪A"
     if code.startswith(("4", "8")):
         return "北交所"

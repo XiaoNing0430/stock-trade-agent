@@ -19,6 +19,11 @@ def test_fetch_text_decodes_tencent_gbk_response(monkeypatch):
     assert "~贵州茅台~" in text
 
 
+def test_shanghai_etf_code_maps_to_shanghai_quote_symbol():
+    assert data_source.tencent_symbol("588000") == "sh588000"
+    assert data_source.market_for_code("588000") == "沪A"
+
+
 def test_parse_quote_body_keeps_fields_used_by_screener():
     values = [""] * 54
     values[1] = "贵州茅台"
