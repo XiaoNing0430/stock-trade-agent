@@ -2657,6 +2657,20 @@ textarea:focus-visible {
   }
 }
 
+@media (max-width: 1180px) {
+  .screener-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .filter-panel {
+    order: 1;
+  }
+
+  .results-panel {
+    order: 2;
+  }
+}
+
 @media (max-width: 900px) {
   .topbar {
     align-items: flex-start;
@@ -2672,17 +2686,8 @@ textarea:focus-visible {
     width: auto;
   }
 
-  .screener-layout,
   .plan-layout {
     grid-template-columns: 1fr;
-  }
-
-  .filter-panel {
-    order: 2;
-  }
-
-  .results-panel {
-    order: 1;
   }
 
   .monitor-summary-row {
