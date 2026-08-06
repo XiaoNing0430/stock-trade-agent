@@ -1584,8 +1584,10 @@ textarea:focus-visible {
 
 .field select,
 .field input[type="number"],
+.field input[type="search"],
 .field textarea {
   width: 100%;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-soft);
@@ -1595,7 +1597,8 @@ textarea:focus-visible {
 }
 
 .field select,
-.field input[type="number"] {
+.field input[type="number"],
+.field input[type="search"] {
   height: 34px;
   padding: 0 9px;
 }
@@ -1609,6 +1612,7 @@ textarea:focus-visible {
 
 .field select:focus,
 .field input[type="number"]:focus,
+.field input[type="search"]:focus,
 .field textarea:focus,
 .table-search:focus-within,
 .global-search:focus-within,
@@ -1618,7 +1622,11 @@ textarea:focus-visible {
 }
 
 .field input[type="range"] {
+  display: block;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 3px 0 0;
   accent-color: var(--coral);
 }
 
