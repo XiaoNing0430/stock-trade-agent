@@ -45,11 +45,14 @@ html {
   font-size: 15px;
   line-height: 1.5;
   text-rendering: optimizeLegibility;
+  height: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100%;
+  overflow: hidden;
   background: var(--canvas);
 }
 
@@ -75,7 +78,8 @@ textarea:focus-visible {
 .app-shell {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
 }
 
 .sidebar {
@@ -385,6 +389,10 @@ textarea:focus-visible {
 }
 
 .main-area {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -580,6 +588,9 @@ textarea:focus-visible {
 }
 
 .content-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   max-width: 1640px;
   margin: 0 auto;
   padding: 32px 38px 28px;
@@ -591,6 +602,48 @@ textarea:focus-visible {
 
 .view-panel.is-active {
   display: block;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screener-view {
+  display: flex !important;
+  flex-direction: column;
+  overflow: hidden !important;
+}
+
+.screener-view .view-heading {
+  flex: 0 0 auto;
+}
+
+.screener-view .screener-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 14px;
+}
+
+.screener-view .filter-panel,
+.screener-view .results-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.screener-view .filter-panel {
+  overflow-y: auto;
+}
+
+.screener-view .results-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screener-view .selected-stock-panel {
+  flex: 0 0 210px;
+  min-height: 0;
 }
 
 .view-heading {
@@ -2662,6 +2715,10 @@ textarea:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .screener-view .screener-layout {
+    grid-template-rows: minmax(220px, 1fr) minmax(260px, 1fr);
+  }
+
   .filter-panel {
     order: 1;
   }
@@ -2696,8 +2753,14 @@ textarea:focus-visible {
 }
 
 @media (max-width: 680px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
+    height: auto;
     display: block;
+    min-height: 100vh;
   }
 
   .sidebar {
@@ -2757,7 +2820,9 @@ textarea:focus-visible {
   }
 
   .main-area {
+    height: auto;
     min-width: 0;
+    min-height: 0;
   }
 
   .topbar {
@@ -2770,7 +2835,30 @@ textarea:focus-visible {
   }
 
   .content-area {
+    overflow: visible;
     padding: 22px 16px 25px;
+  }
+
+  .view-panel.is-active,
+  .screener-view {
+    height: auto;
+    overflow: visible !important;
+  }
+
+  .screener-view .screener-layout {
+    display: block;
+    height: auto;
+    margin-bottom: 18px;
+  }
+
+  .screener-view .filter-panel,
+  .screener-view .results-panel,
+  .screener-view .results-table-wrap {
+    overflow: visible;
+  }
+
+  .screener-view .selected-stock-panel {
+    flex: none;
   }
 
   .view-heading {
