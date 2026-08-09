@@ -2386,10 +2386,24 @@ textarea:focus-visible {
 }
 
 .strategy-row {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
   padding: 11px 0;
   border-bottom: 1px solid var(--line);
+}
+
+.strategy-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.strategy-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .strategy-row:last-child {

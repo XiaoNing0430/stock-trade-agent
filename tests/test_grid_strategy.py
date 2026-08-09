@@ -43,8 +43,31 @@ def test_trend_grid_uses_rise_to_buy_and_fall_to_sell():
     assert "趋势网格" in result["assumptions"]
 
 
+def test_a_share_t_plus_one_blocks_same_day_grid_sell():
+    bars = [
+        {"date": "2026-01-02", "close": 10, "low": 10, "high": 10},
+        {"date": "2026-01-03", "close": 10, "low": 8.9, "high": 11.1},
+    ]
+
+    result = backtest_grid(bars, lower=8, upper=12, grid_count=8, capital=100000, settlement_days=1)
+
+    initial_shares = 5000
+    same_day_sells = sum(trade["shares"] for trade in result["trades"] if trade["side"] == "sell")
+    assert same_day_sells <= initial_shares
+
+
+def test_cost_model_applies_stock_sell_tax_but_not_etf_tax():
+    stock = backtest_grid(sample_bars(), 8, 12, 4, 100000, security_type="股票")
+    etf = backtest_grid(sample_bars(), 8, 12, 4, 100000, security_type="ETF")
+
+    stock_sell_fees = sum(trade["fee"] for trade in stock["trades"] if trade["side"] == "sell")
+    etf_sell_fees = sum(trade["fee"] for trade in etf["trades"] if trade["side"] == "sell")
+    assert stock_sell_fees > etf_sell_fees
+
+
 def test_optimize_grid_returns_ranked_candidates():
     candidates = optimize_grid(sample_bars(), capital=100000, fee_bps=3)
 
     assert len(candidates) >= 3
+    assert "inSampleMetrics" in candidates[0]
     assert candidates[0]["metrics"]["endEquity"] >= candidates[-1]["metrics"]["endEquity"]

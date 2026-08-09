@@ -72,6 +72,7 @@ class GridStrategy(Base):
     fee_bps: Mapped[float] = mapped_column(Float, default=3)
     mode: Mapped[str] = mapped_column(String(16), default="classic")
     lookback: Mapped[int] = mapped_column(Integer, default=120)
+    settlement_days: Mapped[int] = mapped_column(Integer, default=1)
     schedule: Mapped[str] = mapped_column(String(32), default="manual")
     status: Mapped[str] = mapped_column(String(32), default="草稿")
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -107,6 +108,7 @@ def initialize_storage() -> None:
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS mode VARCHAR(16) NOT NULL DEFAULT 'classic'"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS lookback INTEGER NOT NULL DEFAULT 120"))
+        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS settlement_days INTEGER NOT NULL DEFAULT 1"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS last_backtest_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS latest_metrics JSONB"))
@@ -248,6 +250,7 @@ def _grid_strategy_dict(strategy: GridStrategy) -> dict[str, Any]:
         "feeBps": strategy.fee_bps,
         "mode": strategy.mode,
         "lookback": strategy.lookback,
+        "settlementDays": strategy.settlement_days,
         "schedule": strategy.schedule,
         "status": strategy.status,
         "nextRunAt": strategy.next_run_at.isoformat() if strategy.next_run_at else None,
@@ -283,6 +286,7 @@ def save_grid_strategy(payload: dict[str, Any], workspace_id: str = "default") -
         strategy.fee_bps = float(payload.get("feeBps", 3))
         strategy.mode = str(payload.get("mode", "classic"))
         strategy.lookback = int(payload.get("lookback", 120))
+        strategy.settlement_days = int(payload.get("settlementDays", 1))
         strategy.schedule = str(payload.get("schedule", "manual"))
         strategy.status = str(payload.get("status", "启用"))
     with SessionLocal() as session:
@@ -297,12 +301,25 @@ def list_grid_strategies(workspace_id: str = "default") -> list[dict[str, Any]]:
         return [_grid_strategy_dict(row) for row in rows]
 
 
+def get_grid_strategy(strategy_id: str) -> dict[str, Any] | None:
+    with SessionLocal() as session:
+        strategy = session.get(GridStrategy, strategy_id)
+        return _grid_strategy_dict(strategy) if strategy else None
+
+
 def list_scheduled_grid_strategies() -> list[dict[str, Any]]:
     with SessionLocal() as session:
         rows = session.scalars(
             select(GridStrategy).where(GridStrategy.status == "启用", GridStrategy.schedule == "daily")
         ).all()
         return [_grid_strategy_dict(row) for row in rows]
+
+
+def set_grid_next_run(strategy_id: str, next_run_at: datetime | None) -> None:
+    with SessionLocal.begin() as session:
+        strategy = session.get(GridStrategy, strategy_id)
+        if strategy:
+            strategy.next_run_at = next_run_at
 
 
 def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default") -> None:

@@ -207,6 +207,7 @@ createApp({
       note: ''
     });
     const gridDraft = reactive({
+      id: '',
       code: selectedCode.value,
       name: '',
       lookback: 120,
@@ -216,6 +217,7 @@ createApp({
       capital: 100000,
       feeBps: 3,
       mode: 'classic',
+      settlementDays: 1,
       schedule: 'daily'
     });
     const gridLoading = ref(false);
@@ -748,7 +750,10 @@ createApp({
           body: JSON.stringify({ ...gridDraft, save })
         });
         gridResult.value = payload;
-        if (payload.strategy) await loadGridStrategies();
+        if (payload.strategy) {
+          gridDraft.id = payload.strategy.id;
+          await loadGridStrategies();
+        }
         showToast(save ? '网格策略已保存并记录回测' : '网格回测完成');
       } catch (error) {
         showToast(error.message || '网格回测失败', 'error');
@@ -785,6 +790,39 @@ createApp({
         gridStrategies.value = payload.strategies || [];
       } catch (error) {
         gridStrategies.value = [];
+      }
+    }
+
+    function loadGridStrategy(strategy) {
+      Object.assign(gridDraft, {
+        id: strategy.id,
+        code: strategy.code,
+        name: strategy.name,
+        lookback: strategy.lookback,
+        gridCount: strategy.gridCount,
+        lower: strategy.lower,
+        upper: strategy.upper,
+        capital: strategy.capital,
+        feeBps: strategy.feeBps,
+        mode: strategy.mode,
+        settlementDays: strategy.settlementDays,
+        schedule: strategy.schedule
+      });
+      gridSuggestion.value = null;
+      gridResult.value = null;
+      showToast(`已载入 ${strategy.name}`);
+    }
+
+    async function toggleGridStrategy(strategy) {
+      const status = strategy.status === '启用' ? '暂停' : '启用';
+      try {
+        await requestJson(`/api/grid/strategies/${encodeURIComponent(strategy.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status })
+        });
+        await loadGridStrategies();
+      } catch (error) {
+        showToast(error.message || '更新策略状态失败', 'error');
       }
     }
 
@@ -960,6 +998,8 @@ createApp({
       gridResult,
       gridCandidates,
       gridStrategies,
+      loadGridStrategy,
+      toggleGridStrategy,
       draftDirty,
       filters,
       screenTotal,
