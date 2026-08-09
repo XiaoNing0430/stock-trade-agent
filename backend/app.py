@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.data_source import load_history, load_market, load_screener
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
+from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler
 from backend.storage import (
     get_workspace,
     initialize_storage,
@@ -30,11 +31,13 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         try:
             initialize_storage()
+            start_scheduler()
             app.state.storage_ready = True
         except Exception as exc:
             app.state.storage_ready = False
             app.state.storage_error = str(exc)
         yield
+        stop_scheduler()
 
     app = FastAPI(title="Atlas Stock Trade Agent", lifespan=lifespan)
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
@@ -99,7 +102,7 @@ def create_app() -> FastAPI:
             code = str(payload["code"])
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
             history = load_history(code, limit=max(20, min(int(payload.get("lookback", 120)), 240)))
-            return {"code": code, "history": history, "suggestion": suggest_grid(history, grid_count)}
+            return {"code": code, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 
@@ -112,14 +115,16 @@ def create_app() -> FastAPI:
             capital = float(payload.get("capital", 100000))
             fee_bps = float(payload.get("feeBps", 3))
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
-            suggestion = suggest_grid(history, grid_count)
+            mode = str(payload.get("mode", "classic"))
+            suggestion = suggest_grid(history, grid_count, capital, mode)
             lower = float(payload.get("lower") or suggestion["lower"])
             upper = float(payload.get("upper") or suggestion["upper"])
-            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps)
-            response = {"code": code, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback}, **result}
+            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps, mode)
+            response = {"code": code, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback, "mode": mode}, **result}
             if payload.get("save"):
-                strategy = save_grid_strategy({"id": payload.get("id") or f"grid-{uuid4().hex}", "code": code, "name": payload.get("name"), "lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "schedule": payload.get("schedule", "manual"), "status": "启用"}, workspace_id)
+                strategy = save_grid_strategy({"id": payload.get("id") or f"grid-{uuid4().hex}", "code": code, "name": payload.get("name"), "lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "mode": mode, "lookback": lookback, "schedule": payload.get("schedule", "manual"), "status": "启用"}, workspace_id)
                 save_grid_backtest(strategy["id"], code, response["config"], result, workspace_id)
+                schedule_strategy(strategy)
                 response["strategy"] = strategy
             return response
         except Exception as exc:
@@ -131,7 +136,7 @@ def create_app() -> FastAPI:
             code = str(payload["code"])
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
             history = load_history(code, limit=lookback)
-            return {"code": code, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)))}
+            return {"code": code, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 

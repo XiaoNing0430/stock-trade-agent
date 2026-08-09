@@ -438,16 +438,18 @@
             <section class="grid-config-panel surface">
               <div class="surface-heading"><div><span class="section-kicker">CONFIGURATION</span><h3>网格参数</h3></div><span class="draft-status">{{ gridLoading ? '计算中' : '日线回测' }}</span></div>
               <div class="form-grid">
-                <label class="field field-wide"><span>股票或 ETF 代码</span><input v-model.trim="gridDraft.code" inputmode="numeric" maxlength="6" placeholder="例如 588000"></label>
+                <label class="field field-wide"><span>股票或 ETF 代码</span><input v-model.trim="gridDraft.code" inputmode="numeric" maxlength="6" placeholder="例如 588000" @keydown.enter.prevent="previewGrid"></label>
                 <label class="field"><span>历史窗口</span><select v-model.number="gridDraft.lookback"><option :value="60">60 个交易日</option><option :value="120">120 个交易日</option><option :value="240">240 个交易日</option></select></label>
                 <label class="field"><span>网格数量</span><input v-model.number="gridDraft.gridCount" type="number" min="2" max="30"></label>
+                <label class="field"><span>执行模式</span><select v-model="gridDraft.mode"><option value="classic">经典：跌买涨卖</option><option value="trend">趋势：涨买跌卖</option></select></label>
+                <label class="field"><span>回测频率</span><select v-model="gridDraft.schedule"><option value="daily">每日盘后 15:20</option><option value="manual">仅手动回测</option></select></label>
                 <label class="field"><span>区间下沿</span><div class="number-input"><input v-model.number="gridDraft.lower" type="number" min="0.01" step="0.01"><span>元</span></div></label>
                 <label class="field"><span>区间上沿</span><div class="number-input"><input v-model.number="gridDraft.upper" type="number" min="0.01" step="0.01"><span>元</span></div></label>
                 <label class="field"><span>投入资金</span><div class="number-input"><input v-model.number="gridDraft.capital" type="number" min="1000" step="1000"><span>元</span></div></label>
                 <label class="field"><span>双边费率</span><div class="number-input"><input v-model.number="gridDraft.feeBps" type="number" min="0" step="0.1"><span>BP</span></div></label>
                 <label class="field field-wide"><span>策略名称</span><input v-model.trim="gridDraft.name" placeholder="例如 科创50ETF 区间网格"></label>
               </div>
-              <div class="form-footer"><span class="form-footnote"><i data-lucide="info" aria-hidden="true"></i>按 100 股整数倍、日内先低后高模拟</span><button class="button button-primary" type="button" :disabled="gridLoading" @click="previewGrid"><i data-lucide="sparkles" aria-hidden="true"></i>自动建议区间</button></div>
+              <div class="form-footer"><span class="form-footnote"><i data-lucide="info" aria-hidden="true"></i>多策略独立保存，按 100 股整数倍回测</span><button class="button button-primary" type="button" :disabled="gridLoading" @click="previewGrid"><i data-lucide="sparkles" aria-hidden="true"></i>生成策略建议</button></div>
             </section>
             <section class="grid-result-panel surface">
               <div class="surface-heading"><div><span class="section-kicker">BACKTEST RESULT</span><h3>回测表现</h3></div><button class="icon-button" type="button" aria-label="运行网格回测" data-tooltip="运行回测" :disabled="gridLoading" @click="backtestGrid()"><i data-lucide="play" aria-hidden="true"></i></button></div>
@@ -456,12 +458,17 @@
                 <div class="grid-levels"><span v-for="level in gridResult.levels" :key="level">{{ formatNumber(level) }}</span></div>
                 <p class="heading-note grid-assumption">{{ gridResult.assumptions }}</p>
               </div>
+              <div v-else-if="gridSuggestion" class="grid-result-body">
+                <div class="grid-metrics"><div><span>基准价</span><strong>{{ formatNumber(gridSuggestion.referencePrice) }}</strong></div><div><span>每格金额</span><strong>{{ formatMoney(gridSuggestion.perGridAmount) }}</strong></div><div><span>上涨触发</span><strong>{{ gridSuggestion.upTriggerPct.toFixed(2) }}%</strong></div><div><span>下跌触发</span><strong>{{ gridSuggestion.downTriggerPct.toFixed(2) }}%</strong></div></div>
+                <div class="grid-rules"><span>{{ gridSuggestion.buyRule }}</span><span>{{ gridSuggestion.sellRule }}</span><span>每次约 {{ gridSuggestion.lotSize }} 股</span><span>建议投入 {{ formatMoney(gridSuggestion.suggestedCapital) }}</span></div>
+                <div class="grid-levels"><span v-for="level in gridSuggestion.levels" :key="level">{{ formatNumber(level) }}</span></div>
+              </div>
               <div v-else class="empty-state"><i data-lucide="grid-3x3" aria-hidden="true"></i><strong>尚未运行回测</strong><span>先自动建议区间，或手动输入上下沿后运行。</span></div>
             </section>
           </div>
           <div v-if="gridCandidates.length || gridStrategies.length" class="grid-lists">
             <section v-if="gridCandidates.length" class="surface grid-candidates-panel"><div class="surface-heading"><div><span class="section-kicker">OPTIMIZATION</span><h3>候选参数</h3></div></div><div class="table-responsive"><table class="data-table"><thead><tr><th>网格</th><th>区间</th><th class="text-end">收益</th><th class="text-end">回撤</th><th class="text-end">成交</th></tr></thead><tbody><tr v-for="candidate in gridCandidates.slice(0, 5)" :key="`${candidate.gridCount}-${candidate.lower}`"><td>{{ candidate.gridCount }} 格</td><td>{{ formatNumber(candidate.lower) }} - {{ formatNumber(candidate.upper) }}</td><td class="text-end" :class="trendClass(candidate.metrics.returnPct)">{{ formatPct(candidate.metrics.returnPct) }}</td><td class="text-end">{{ candidate.metrics.maxDrawdownPct.toFixed(2) }}%</td><td class="text-end">{{ candidate.metrics.tradeCount }}</td></tr></tbody></table></div></section>
-            <section v-if="gridStrategies.length" class="surface grid-candidates-panel"><div class="surface-heading"><div><span class="section-kicker">SAVED STRATEGIES</span><h3>已保存策略</h3></div></div><div class="strategy-list"><div v-for="strategy in gridStrategies" :key="strategy.id" class="strategy-row"><strong>{{ strategy.name }}</strong><span>{{ strategy.code }} · {{ strategy.gridCount }} 格 · {{ formatNumber(strategy.lower) }} - {{ formatNumber(strategy.upper) }}</span></div></div></section>
+            <section v-if="gridStrategies.length" class="surface grid-candidates-panel"><div class="surface-heading"><div><span class="section-kicker">SAVED STRATEGIES</span><h3>已保存策略</h3></div></div><div class="strategy-list"><div v-for="strategy in gridStrategies" :key="strategy.id" class="strategy-row"><strong>{{ strategy.name }}</strong><span>{{ strategy.code }} · {{ strategy.mode === 'trend' ? '趋势网格' : '经典网格' }} · {{ strategy.gridCount }} 格</span><span>{{ formatNumber(strategy.lower) }} - {{ formatNumber(strategy.upper) }} · {{ strategy.schedule === 'daily' ? '每日盘后回测' : '手动回测' }}</span><span v-if="strategy.latestMetrics">最近收益 {{ formatPct(strategy.latestMetrics.returnPct) }} · 回撤 {{ strategy.latestMetrics.maxDrawdownPct.toFixed(2) }}%</span></div></div></section>
           </div>
         </section>
 

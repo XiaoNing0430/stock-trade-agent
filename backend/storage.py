@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from redis import Redis
-from sqlalchemy import DateTime, Float, Integer, JSON, String, UniqueConstraint, create_engine, select
+from sqlalchemy import DateTime, Float, Integer, JSON, String, UniqueConstraint, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from backend.settings import get_settings
@@ -70,8 +70,13 @@ class GridStrategy(Base):
     grid_count: Mapped[int] = mapped_column(Integer)
     capital: Mapped[float] = mapped_column(Float)
     fee_bps: Mapped[float] = mapped_column(Float, default=3)
+    mode: Mapped[str] = mapped_column(String(16), default="classic")
+    lookback: Mapped[int] = mapped_column(Integer, default=120)
     schedule: Mapped[str] = mapped_column(String(32), default="manual")
     status: Mapped[str] = mapped_column(String(32), default="草稿")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_backtest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latest_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
@@ -98,6 +103,13 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def initialize_storage() -> None:
     Base.metadata.create_all(engine)
+    # Lightweight forward migration for instances created before grid scheduling existed.
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS mode VARCHAR(16) NOT NULL DEFAULT 'classic'"))
+        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS lookback INTEGER NOT NULL DEFAULT 120"))
+        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ"))
+        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS last_backtest_at TIMESTAMPTZ"))
+        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS latest_metrics JSONB"))
 
 
 def redis_client() -> Redis:
@@ -226,6 +238,7 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
 def _grid_strategy_dict(strategy: GridStrategy) -> dict[str, Any]:
     return {
         "id": strategy.id,
+        "workspaceId": strategy.workspace_id,
         "code": strategy.code,
         "name": strategy.name,
         "lower": strategy.lower,
@@ -233,8 +246,13 @@ def _grid_strategy_dict(strategy: GridStrategy) -> dict[str, Any]:
         "gridCount": strategy.grid_count,
         "capital": strategy.capital,
         "feeBps": strategy.fee_bps,
+        "mode": strategy.mode,
+        "lookback": strategy.lookback,
         "schedule": strategy.schedule,
         "status": strategy.status,
+        "nextRunAt": strategy.next_run_at.isoformat() if strategy.next_run_at else None,
+        "lastBacktestAt": strategy.last_backtest_at.isoformat() if strategy.last_backtest_at else None,
+        "latestMetrics": strategy.latest_metrics,
         "updatedAt": strategy.updated_at.astimezone().isoformat(),
     }
 
@@ -263,6 +281,8 @@ def save_grid_strategy(payload: dict[str, Any], workspace_id: str = "default") -
         strategy.grid_count = int(payload["gridCount"])
         strategy.capital = float(payload["capital"])
         strategy.fee_bps = float(payload.get("feeBps", 3))
+        strategy.mode = str(payload.get("mode", "classic"))
+        strategy.lookback = int(payload.get("lookback", 120))
         strategy.schedule = str(payload.get("schedule", "manual"))
         strategy.status = str(payload.get("status", "启用"))
     with SessionLocal() as session:
@@ -273,6 +293,14 @@ def list_grid_strategies(workspace_id: str = "default") -> list[dict[str, Any]]:
     with SessionLocal() as session:
         rows = session.scalars(
             select(GridStrategy).where(GridStrategy.workspace_id == workspace_id).order_by(GridStrategy.updated_at.desc())
+        ).all()
+        return [_grid_strategy_dict(row) for row in rows]
+
+
+def list_scheduled_grid_strategies() -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(GridStrategy).where(GridStrategy.status == "启用", GridStrategy.schedule == "daily")
         ).all()
         return [_grid_strategy_dict(row) for row in rows]
 
@@ -289,3 +317,7 @@ def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], resu
                 trade_count=int(result["metrics"]["tradeCount"]),
             )
         )
+        strategy = session.get(GridStrategy, strategy_id)
+        if strategy:
+            strategy.last_backtest_at = datetime.now(timezone.utc)
+            strategy.latest_metrics = result["metrics"]

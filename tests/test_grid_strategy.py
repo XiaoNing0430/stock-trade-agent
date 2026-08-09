@@ -17,11 +17,14 @@ def test_build_grid_contains_evenly_spaced_bounds():
 
 
 def test_suggest_grid_uses_history_price_range():
-    suggestion = suggest_grid(sample_bars(), grid_count=6)
+    suggestion = suggest_grid(sample_bars(), grid_count=6, capital=60000, mode="trend")
 
     assert suggestion["lower"] < suggestion["upper"]
     assert len(suggestion["levels"]) == 7
     assert suggestion["lower"] <= 9.2 <= suggestion["upper"]
+    assert suggestion["referencePrice"] == 11
+    assert suggestion["buyRule"] == "价格上涨一个网格买入"
+    assert suggestion["perGridAmount"] > 0
 
 
 def test_backtest_grid_generates_trades_and_metrics():
@@ -31,6 +34,13 @@ def test_backtest_grid_generates_trades_and_metrics():
     assert result["metrics"]["tradeCount"] > 0
     assert result["metrics"]["endEquity"] > 0
     assert result["metrics"]["maxDrawdownPct"] >= 0
+
+
+def test_trend_grid_uses_rise_to_buy_and_fall_to_sell():
+    result = backtest_grid(sample_bars(), lower=8, upper=12, grid_count=4, capital=100000, mode="trend")
+
+    assert result["metrics"]["tradeCount"] > 0
+    assert "趋势网格" in result["assumptions"]
 
 
 def test_optimize_grid_returns_ranked_candidates():

@@ -215,9 +215,11 @@ createApp({
       upper: 0,
       capital: 100000,
       feeBps: 3,
-      schedule: 'manual'
+      mode: 'classic',
+      schedule: 'daily'
     });
     const gridLoading = ref(false);
+    const gridSuggestion = ref(null);
     const gridResult = ref(null);
     const gridCandidates = ref([]);
     const gridStrategies = ref([]);
@@ -728,6 +730,8 @@ createApp({
         });
         gridDraft.lower = payload.suggestion.lower;
         gridDraft.upper = payload.suggestion.upper;
+        gridDraft.capital = payload.suggestion.suggestedCapital;
+        gridSuggestion.value = payload.suggestion;
         showToast('已根据历史波动生成网格区间');
       } catch (error) {
         showToast(error.message || '无法生成网格区间', 'error');
@@ -952,6 +956,7 @@ createApp({
       draft,
       gridDraft,
       gridLoading,
+      gridSuggestion,
       gridResult,
       gridCandidates,
       gridStrategies,

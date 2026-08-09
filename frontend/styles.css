@@ -2347,6 +2347,20 @@ textarea:focus-visible {
   gap: 6px;
 }
 
+.grid-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.grid-rules span {
+  padding: 8px;
+  border-left: 2px solid var(--coral);
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
 .grid-levels span {
   padding: 4px 7px;
   border: 1px solid var(--line);
