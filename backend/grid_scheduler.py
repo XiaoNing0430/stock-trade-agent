@@ -28,6 +28,7 @@ def run_scheduled_backtest(strategy: dict) -> None:
         profile["securityType"],
         profile["exchange"],
         settlement_days=int(strategy.get("settlementDays", 1)),
+        slippage_bps=float(strategy.get("slippageBps", 5)),
     )
     save_grid_backtest(strategy["id"], strategy["code"], strategy, result, strategy.get("workspaceId", "default"))
 
@@ -48,6 +49,12 @@ def schedule_strategy(strategy: dict) -> datetime | None:
     )
     set_grid_next_run(strategy["id"], job.next_run_time)
     return job.next_run_time
+
+
+def unschedule_strategy(strategy_id: str) -> None:
+    job_id = f"grid-backtest:{strategy_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
 
 
 def start_scheduler() -> None:

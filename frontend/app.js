@@ -218,6 +218,7 @@ createApp({
       feeBps: 3,
       mode: 'classic',
       settlementDays: 1,
+      slippageBps: 5,
       schedule: 'daily'
     });
     const gridLoading = ref(false);
@@ -806,6 +807,7 @@ createApp({
         feeBps: strategy.feeBps,
         mode: strategy.mode,
         settlementDays: strategy.settlementDays,
+        slippageBps: strategy.slippageBps,
         schedule: strategy.schedule
       });
       gridSuggestion.value = null;
@@ -823,6 +825,18 @@ createApp({
         await loadGridStrategies();
       } catch (error) {
         showToast(error.message || '更新策略状态失败', 'error');
+      }
+    }
+
+    async function deleteGridStrategy(strategy) {
+      if (!window.confirm(`删除策略“${strategy.name}”及其回测记录？`)) return;
+      try {
+        await requestJson(`/api/grid/strategies/${encodeURIComponent(strategy.id)}`, { method: 'DELETE' });
+        if (gridDraft.id === strategy.id) gridDraft.id = '';
+        await loadGridStrategies();
+        showToast('策略及其回测记录已删除');
+      } catch (error) {
+        showToast(error.message || '删除策略失败', 'error');
       }
     }
 
@@ -1000,6 +1014,7 @@ createApp({
       gridStrategies,
       loadGridStrategy,
       toggleGridStrategy,
+      deleteGridStrategy,
       draftDirty,
       filters,
       screenTotal,

@@ -11,8 +11,9 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.data_source import classify_code, load_history, load_market, load_screener
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
-from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler
+from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
+    delete_grid_strategy,
     get_workspace,
     get_grid_strategy,
     initialize_storage,
@@ -120,13 +121,14 @@ def create_app() -> FastAPI:
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
             mode = str(payload.get("mode", "classic"))
             settlement_days = max(0, min(int(payload.get("settlementDays", 1)), 5))
+            slippage_bps = max(0, min(float(payload.get("slippageBps", 5)), 100))
             suggestion = suggest_grid(history, grid_count, capital, mode)
             lower = float(payload.get("lower") or suggestion["lower"])
             upper = float(payload.get("upper") or suggestion["upper"])
-            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps, mode, profile["securityType"], profile["exchange"], settlement_days)
-            response = {"code": code, "profile": profile, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback, "mode": mode, "settlementDays": settlement_days}, **result}
+            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps, mode, profile["securityType"], profile["exchange"], settlement_days, slippage_bps)
+            response = {"code": code, "profile": profile, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback, "mode": mode, "settlementDays": settlement_days, "slippageBps": slippage_bps}, **result}
             if payload.get("save"):
-                strategy = save_grid_strategy({"id": payload.get("id") or f"grid-{uuid4().hex}", "code": code, "name": payload.get("name"), "lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "mode": mode, "lookback": lookback, "settlementDays": settlement_days, "schedule": payload.get("schedule", "manual"), "status": "启用"}, workspace_id)
+                strategy = save_grid_strategy({"id": payload.get("id") or f"grid-{uuid4().hex}", "code": code, "name": payload.get("name"), "lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "mode": mode, "lookback": lookback, "settlementDays": settlement_days, "slippageBps": slippage_bps, "schedule": payload.get("schedule", "manual"), "status": "启用"}, workspace_id)
                 save_grid_backtest(strategy["id"], code, response["config"], result, workspace_id)
                 schedule_strategy(strategy)
                 response["strategy"] = get_grid_strategy(strategy["id"])
@@ -141,7 +143,7 @@ def create_app() -> FastAPI:
             profile = classify_code(code)
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
             history = load_history(code, limit=lookback)
-            return {"code": code, "profile": profile, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")), profile["securityType"], profile["exchange"], max(0, min(int(payload.get("settlementDays", 1)), 5)))}
+            return {"code": code, "profile": profile, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")), profile["securityType"], profile["exchange"], max(0, min(int(payload.get("settlementDays", 1)), 5)), max(0, min(float(payload.get("slippageBps", 5)), 100)))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 
@@ -162,6 +164,18 @@ def create_app() -> FastAPI:
             saved = save_grid_strategy(strategy, workspace_id)
             schedule_strategy(saved)
             return saved
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.delete("/api/grid/strategies/{strategy_id}")
+    def delete_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            if not delete_grid_strategy(strategy_id, workspace_id):
+                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+            unschedule_strategy(strategy_id)
+            return {"deleted": True, "id": strategy_id}
         except HTTPException:
             raise
         except Exception as exc:

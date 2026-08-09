@@ -65,6 +65,24 @@ def test_cost_model_applies_stock_sell_tax_but_not_etf_tax():
     assert stock_sell_fees > etf_sell_fees
 
 
+def test_slippage_reduces_backtest_equity():
+    baseline = backtest_grid(sample_bars(), 8, 12, 4, 100000, slippage_bps=0)
+    with_slippage = backtest_grid(sample_bars(), 8, 12, 4, 100000, slippage_bps=20)
+
+    assert with_slippage["metrics"]["endEquity"] < baseline["metrics"]["endEquity"]
+
+
+def test_flat_or_zero_volume_bar_does_not_create_fill():
+    bars = [
+        {"date": "2026-01-02", "close": 10, "low": 10, "high": 10, "volume": 1000},
+        {"date": "2026-01-03", "close": 10, "low": 10, "high": 10, "volume": 0},
+    ]
+
+    result = backtest_grid(bars, 8, 12, 4, 100000)
+
+    assert result["metrics"]["tradeCount"] == 0
+
+
 def test_optimize_grid_returns_ranked_candidates():
     candidates = optimize_grid(sample_bars(), capital=100000, fee_bps=3)
 

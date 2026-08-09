@@ -50,7 +50,7 @@ def suggest_grid(bars: list[dict[str, Any]], grid_count: int = 8, capital: float
 def backtest_grid(
     bars: list[dict[str, Any]], lower: float, upper: float, grid_count: int, capital: float,
     fee_bps: float = 3, mode: str = "classic", security_type: str = "股票",
-    exchange: str = "上交所", settlement_days: int = 1,
+    exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5,
 ) -> dict[str, Any]:
     if len(bars) < 2 or capital <= 0:
         raise ValueError("历史数据或本金无效")
@@ -82,6 +82,11 @@ def backtest_grid(
     for day_index, bar in enumerate(bars[1:], start=1):
         low = float(bar.get("low") or bar["close"])
         high = float(bar.get("high") or bar["close"])
+        close = float(bar["close"])
+        if high <= low or (bar.get("volume") is not None and float(bar["volume"]) <= 0):
+            equity_curve.append(cash + shares * close)
+            previous_close = close
+            continue
         date = bar.get("date", "")
         if mode == "classic":
             buy_levels = sorted([level for level in levels[1:-1] if low <= level < previous_close], reverse=True)
@@ -95,12 +100,13 @@ def backtest_grid(
             while lots and lots * level + fee("buy", lots * level) > cash:
                 lots -= 100
             if lots:
-                value = lots * level
+                execution_price = min(high, level * (1 + slippage_bps / 10000))
+                value = lots * execution_price
                 trade_fee = fee("buy", value)
                 cash -= value + trade_fee
                 shares += lots
                 lots_held.append({"shares": lots, "available_day": day_index + settlement_days})
-                trades.append({"date": date, "side": "buy", "price": round(level, 2), "shares": lots, "fee": round(trade_fee, 2)})
+                trades.append({"date": date, "side": "buy", "triggerPrice": round(level, 2), "price": round(execution_price, 2), "shares": lots, "fee": round(trade_fee, 2)})
 
         for level in sell_levels:
             eligible = sum(lot["shares"] for lot in lots_held if lot["available_day"] <= day_index)
@@ -114,13 +120,13 @@ def backtest_grid(
                     lot["shares"] -= consumed
                     remaining -= consumed
             lots_held = [lot for lot in lots_held if lot["shares"]]
-            value = lots * level
+            execution_price = max(low, level * (1 - slippage_bps / 10000))
+            value = lots * execution_price
             trade_fee = fee("sell", value)
             cash += value - trade_fee
             shares -= lots
-            trades.append({"date": date, "side": "sell", "price": round(level, 2), "shares": lots, "fee": round(trade_fee, 2)})
+            trades.append({"date": date, "side": "sell", "triggerPrice": round(level, 2), "price": round(execution_price, 2), "shares": lots, "fee": round(trade_fee, 2)})
 
-        close = float(bar["close"])
         equity_curve.append(cash + shares * close)
         previous_close = close
 
@@ -131,18 +137,18 @@ def backtest_grid(
         max_drawdown = max(max_drawdown, (peak - equity) / peak if peak else 0)
     days = max(1, len(bars) - 1)
     total_return = end_equity / capital - 1
-    annualized = (max(end_equity, 1) / capital) ** (252 / days) - 1
+    annualized = (max(end_equity, 1) / capital) ** (252 / days) - 1 if days >= 20 else None
     return {
         "levels": levels, "trades": trades[-100:],
-        "metrics": {"startEquity": round(capital, 2), "endEquity": round(end_equity, 2), "returnPct": round(total_return * 100, 2), "annualizedReturnPct": round(annualized * 100, 2), "maxDrawdownPct": round(max_drawdown * 100, 2), "tradeCount": len(trades), "buyCount": sum(item["side"] == "buy" for item in trades), "sellCount": sum(item["side"] == "sell" for item in trades)},
+        "metrics": {"startEquity": round(capital, 2), "endEquity": round(end_equity, 2), "returnPct": round(total_return * 100, 2), "annualizedReturnPct": round(annualized * 100, 2) if annualized is not None else None, "maxDrawdownPct": round(max_drawdown * 100, 2), "tradeCount": len(trades), "buyCount": sum(item["side"] == "buy" for item in trades), "sellCount": sum(item["side"] == "sell" for item in trades)},
         "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
-                        f"按 100 股整数倍、T+{settlement_days} 可卖和股票/ETF差异化费用计算。"),
+                        f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"),
     }
 
 
 def optimize_grid(
     bars: list[dict[str, Any]], capital: float, fee_bps: float = 3, mode: str = "classic",
-    security_type: str = "股票", exchange: str = "上交所", settlement_days: int = 1,
+    security_type: str = "股票", exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5,
 ) -> list[dict[str, Any]]:
     split_index = max(2, int(len(bars) * 0.7))
     training_bars, validation_bars = bars[:split_index], bars[split_index - 1:]
@@ -152,7 +158,7 @@ def optimize_grid(
     for grid_count in (6, 8, 10, 12):
         for multiplier in (0.8, 1.0, 1.2):
             lower, upper = max(0.01, center - lower_gap * multiplier), center + upper_gap * multiplier
-            in_sample = backtest_grid(training_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days)
-            out_of_sample = backtest_grid(validation_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days)
+            in_sample = backtest_grid(training_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps)
+            out_of_sample = backtest_grid(validation_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps)
             candidates.append({"gridCount": grid_count, "lower": round(lower, 2), "upper": round(upper, 2), "step": round((upper - lower) / grid_count, 3), "inSampleMetrics": in_sample["metrics"], **out_of_sample})
     return sorted(candidates, key=lambda item: (item["metrics"]["returnPct"], -item["metrics"]["maxDrawdownPct"]), reverse=True)
