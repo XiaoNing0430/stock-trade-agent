@@ -58,6 +58,7 @@ const PRESETS = [
 const NAV_ITEMS = [
   { id: 'overview', label: '总览', icon: 'layout-dashboard' },
   { id: 'screener', label: '选股器', icon: 'scan-search' },
+  { id: 'grid', label: '网格策略', icon: 'grid-3x3' },
   { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
   { id: 'monitor', label: '盯盘中心', icon: 'radar' }
 ];
@@ -65,6 +66,7 @@ const NAV_ITEMS = [
 const VIEW_META = {
   overview: ['交易总览', '把真实行情、计划与提醒放在同一张桌面上'],
   screener: ['选股器', '从实时市场数据里筛出值得研究的标的'],
+  grid: ['网格策略', '用历史波动生成网格，并以回测结果校验参数'],
   plans: ['交易计划', '把想法写成可以执行的规则'],
   monitor: ['盯盘中心', '真实报价触发计划条件时，提醒会出现在这里']
 };
@@ -204,6 +206,21 @@ createApp({
       position: 30,
       note: ''
     });
+    const gridDraft = reactive({
+      code: selectedCode.value,
+      name: '',
+      lookback: 120,
+      gridCount: 8,
+      lower: 0,
+      upper: 0,
+      capital: 100000,
+      feeBps: 3,
+      schedule: 'manual'
+    });
+    const gridLoading = ref(false);
+    const gridResult = ref(null);
+    const gridCandidates = ref([]);
+    const gridStrategies = ref([]);
     const market = reactive({
       provider: saved.marketCache?.provider || '',
       fetchedAt: saved.marketCache?.fetchedAt || 0,
@@ -702,6 +719,71 @@ createApp({
       }
     }
 
+    async function previewGrid() {
+      gridLoading.value = true;
+      try {
+        const payload = await requestJson('/api/grid/preview', {
+          method: 'POST',
+          body: JSON.stringify(gridDraft)
+        });
+        gridDraft.lower = payload.suggestion.lower;
+        gridDraft.upper = payload.suggestion.upper;
+        showToast('已根据历史波动生成网格区间');
+      } catch (error) {
+        showToast(error.message || '无法生成网格区间', 'error');
+      } finally {
+        gridLoading.value = false;
+      }
+    }
+
+    async function backtestGrid(save = false) {
+      gridLoading.value = true;
+      try {
+        const payload = await requestJson('/api/grid/backtest', {
+          method: 'POST',
+          body: JSON.stringify({ ...gridDraft, save })
+        });
+        gridResult.value = payload;
+        if (payload.strategy) await loadGridStrategies();
+        showToast(save ? '网格策略已保存并记录回测' : '网格回测完成');
+      } catch (error) {
+        showToast(error.message || '网格回测失败', 'error');
+      } finally {
+        gridLoading.value = false;
+      }
+    }
+
+    async function optimizeGrid() {
+      gridLoading.value = true;
+      try {
+        const payload = await requestJson('/api/grid/optimize', {
+          method: 'POST',
+          body: JSON.stringify(gridDraft)
+        });
+        gridCandidates.value = payload.candidates || [];
+        const best = gridCandidates.value[0];
+        if (best) {
+          gridDraft.gridCount = best.gridCount;
+          gridDraft.lower = best.lower;
+          gridDraft.upper = best.upper;
+        }
+        showToast('已选出历史回测表现最优的参数');
+      } catch (error) {
+        showToast(error.message || '参数优化失败', 'error');
+      } finally {
+        gridLoading.value = false;
+      }
+    }
+
+    async function loadGridStrategies() {
+      try {
+        const payload = await requestJson('/api/grid/strategies');
+        gridStrategies.value = payload.strategies || [];
+      } catch (error) {
+        gridStrategies.value = [];
+      }
+    }
+
     function switchView(nextView) {
       view.value = nextView;
       persist();
@@ -824,6 +906,7 @@ createApp({
 
     onMounted(async () => {
       await loadWorkspace();
+      await loadGridStrategies();
       draftWatchSuppressed.value = false;
       hydrateDraft();
       await refreshAll();
@@ -836,7 +919,7 @@ createApp({
           event.preventDefault();
           document.querySelector('.global-search input')?.focus();
         }
-        const shortcut = { '1': 'overview', '2': 'screener', '3': 'plans', '4': 'monitor' }[event.key];
+        const shortcut = { '1': 'overview', '2': 'screener', '3': 'grid', '4': 'plans', '5': 'monitor' }[event.key];
         if (shortcut && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') switchView(shortcut);
       });
     });
@@ -867,6 +950,11 @@ createApp({
       unreadAlerts,
       monitorEnabled,
       draft,
+      gridDraft,
+      gridLoading,
+      gridResult,
+      gridCandidates,
+      gridStrategies,
       draftDirty,
       filters,
       screenTotal,
@@ -903,6 +991,9 @@ createApp({
       switchView,
       refreshAll,
       scanNow,
+      previewGrid,
+      backtestGrid,
+      optimizeGrid,
       selectStock,
       toggleWatch,
       createPlan,

@@ -58,6 +58,39 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class GridStrategy(Base):
+    __tablename__ = "grid_strategies"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    lower: Mapped[float] = mapped_column(Float)
+    upper: Mapped[float] = mapped_column(Float)
+    grid_count: Mapped[int] = mapped_column(Integer)
+    capital: Mapped[float] = mapped_column(Float)
+    fee_bps: Mapped[float] = mapped_column(Float, default=3)
+    schedule: Mapped[str] = mapped_column(String(32), default="manual")
+    status: Mapped[str] = mapped_column(String(32), default="草稿")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
+class GridBacktest(Base):
+    __tablename__ = "grid_backtests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[str] = mapped_column(String(96), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
+    trade_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -188,3 +221,71 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
             alert.message = item.get("message", "")
             alert.read = bool(item.get("read", False))
     return get_workspace(workspace_id)
+
+
+def _grid_strategy_dict(strategy: GridStrategy) -> dict[str, Any]:
+    return {
+        "id": strategy.id,
+        "code": strategy.code,
+        "name": strategy.name,
+        "lower": strategy.lower,
+        "upper": strategy.upper,
+        "gridCount": strategy.grid_count,
+        "capital": strategy.capital,
+        "feeBps": strategy.fee_bps,
+        "schedule": strategy.schedule,
+        "status": strategy.status,
+        "updatedAt": strategy.updated_at.astimezone().isoformat(),
+    }
+
+
+def save_grid_strategy(payload: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
+    strategy_id = str(payload["id"])
+    with SessionLocal.begin() as session:
+        strategy = session.get(GridStrategy, strategy_id)
+        if strategy is None:
+            strategy = GridStrategy(
+                id=strategy_id,
+                workspace_id=workspace_id,
+                code=str(payload["code"]),
+                name=str(payload.get("name") or f"{payload['code']} 网格策略"),
+                lower=0,
+                upper=0,
+                grid_count=0,
+                capital=0,
+            )
+            session.add(strategy)
+        strategy.workspace_id = workspace_id
+        strategy.code = str(payload["code"])
+        strategy.name = str(payload.get("name") or f"{payload['code']} 网格策略")
+        strategy.lower = float(payload["lower"])
+        strategy.upper = float(payload["upper"])
+        strategy.grid_count = int(payload["gridCount"])
+        strategy.capital = float(payload["capital"])
+        strategy.fee_bps = float(payload.get("feeBps", 3))
+        strategy.schedule = str(payload.get("schedule", "manual"))
+        strategy.status = str(payload.get("status", "启用"))
+    with SessionLocal() as session:
+        return _grid_strategy_dict(session.get(GridStrategy, strategy_id))
+
+
+def list_grid_strategies(workspace_id: str = "default") -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(GridStrategy).where(GridStrategy.workspace_id == workspace_id).order_by(GridStrategy.updated_at.desc())
+        ).all()
+        return [_grid_strategy_dict(row) for row in rows]
+
+
+def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default") -> None:
+    with SessionLocal.begin() as session:
+        session.add(
+            GridBacktest(
+                strategy_id=strategy_id,
+                workspace_id=workspace_id,
+                code=code,
+                config=config,
+                metrics=result["metrics"],
+                trade_count=int(result["metrics"]["tradeCount"]),
+            )
+        )

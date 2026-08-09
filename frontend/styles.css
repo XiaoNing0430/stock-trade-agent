@@ -2294,6 +2294,105 @@ textarea:focus-visible {
   gap: 18px;
 }
 
+.grid-strategy-layout,
+.grid-lists {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
+  gap: 18px;
+}
+
+.grid-config-panel,
+.grid-result-panel,
+.grid-candidates-panel {
+  min-width: 0;
+  padding: 22px;
+}
+
+.grid-result-body {
+  display: grid;
+  gap: 18px;
+}
+
+.grid-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.grid-metrics > div {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.grid-metrics span,
+.grid-assumption {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.grid-metrics strong {
+  color: var(--ink);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.grid-levels span {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-assumption {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.grid-lists {
+  margin-top: 18px;
+}
+
+.strategy-list {
+  display: grid;
+  gap: 0;
+}
+
+.strategy-row {
+  display: grid;
+  gap: 3px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.strategy-row:last-child {
+  border-bottom: 0;
+}
+
+.strategy-row strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.strategy-row span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .monitor-table-panel,
 .alerts-panel {
   min-width: 0;
@@ -2710,7 +2809,9 @@ textarea:focus-visible {
 
   .overview-layout,
   .content-grid-main,
-  .monitor-layout {
+  .monitor-layout,
+  .grid-strategy-layout,
+  .grid-lists {
     grid-template-columns: 1fr;
   }
 
@@ -2920,6 +3021,12 @@ textarea:focus-visible {
   .plans-list-panel,
   .monitor-table-panel,
   .alerts-panel {
+    padding: 17px;
+  }
+
+  .grid-config-panel,
+  .grid-result-panel,
+  .grid-candidates-panel {
     padding: 17px;
   }
 

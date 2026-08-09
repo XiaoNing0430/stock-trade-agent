@@ -36,6 +36,10 @@ python server.py
 - `GET /api/history?code=600519`：读取复权日线。
 - `GET /api/workspace`：读取自选、交易计划和提醒。
 - `PUT /api/workspace`：保存自选、交易计划和提醒。
+- `POST /api/grid/preview`：根据指定股票或 ETF 的日线建议网格区间。
+- `POST /api/grid/backtest`：运行并可保存网格策略回测。
+- `POST /api/grid/optimize`：搜索网格数量和区间宽度的候选参数。
+- `GET /api/grid/strategies`：读取已保存网格策略。
 
 当前行情源是 Tencent public quote API。页面不会用模拟价格补齐缺失报价；接口失败时会显示缓存或异常状态。
 
@@ -65,6 +69,7 @@ Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:4173/api/market?codes=60051
 Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:4173/api/screener?market=全部&pageSize=20"
 Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:4173/api/history?code=600519"
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4173/api/workspace
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:4173/api/grid/preview -ContentType 'application/json' -Body '{"code":"588000","lookback":120,"gridCount":8}'
 ```
 
 ## Git 操作
@@ -101,4 +106,5 @@ git push -u origin main
 - PostgreSQL 是自选股、交易计划和提醒的持久化来源；Redis 用于后续实时行情缓存、调度和提醒去重。若存储服务短暂不可用，页面保留浏览器缓存并在服务恢复后再次同步。
 - 盯盘提醒基于浏览器页面运行，关闭页面后不会继续后台提醒。
 - 当前候选池是精选真实行情列表，后续可接入完整 A 股代码主数据。
+- 网格回测采用日线 OHLC 的固定顺序假设：低价触发买入后，高价触发卖出。实际成交会受盘口、滑点、停牌和涨跌停限制影响；不要将回测结果视为实盘收益预测。
 - 本工具用于研究和流程管理，不构成投资建议。
