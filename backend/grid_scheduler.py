@@ -35,7 +35,7 @@ def schedule_strategy(strategy: dict) -> None:
         return
     scheduler.add_job(
         run_scheduled_backtest,
-        CronTrigger(hour=15, minute=20, timezone=TIMEZONE),
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=20, timezone=TIMEZONE),
         args=[strategy],
         id=job_id,
         replace_existing=True,
