@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6379, alias="REDIS_PORT")
     redis_password: str = Field(default="", alias="REDIS_PASSWORD")
     redis_db: int = Field(default=15, alias="REDIS_DB")
+    tushare_token: str = Field(default="", alias="TUSHARE_TOKEN")
 
     @property
     def database_url(self) -> URL:

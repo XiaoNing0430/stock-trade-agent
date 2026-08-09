@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from importlib.util import find_spec
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -14,7 +15,9 @@ from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
     delete_grid_strategy,
+    DEFAULT_WORKSPACE_SETTINGS,
     get_workspace,
+    get_workspace_settings,
     get_grid_strategy,
     initialize_storage,
     list_grid_strategies,
@@ -22,6 +25,7 @@ from backend.storage import (
     save_grid_strategy,
     save_market_bars,
     save_workspace,
+    save_workspace_settings,
     storage_status,
 )
 
@@ -69,6 +73,28 @@ def create_app() -> FastAPI:
             return save_workspace(payload, workspace_id)
         except Exception as exc:
             raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
+
+    @app.get("/api/settings")
+    def settings(workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            data = get_workspace_settings(workspace_id)
+        except Exception:
+            data = dict(DEFAULT_WORKSPACE_SETTINGS)
+        akshare_installed = find_spec("akshare") is not None
+        tushare_installed = find_spec("tushare") is not None
+        tushare_configured = bool(getattr(__import__("backend.settings", fromlist=["get_settings"]).get_settings(), "tushare_token", ""))
+        return {"data": data, "sources": [
+                {"id": "tencent", "name": "腾讯公开行情", "realtime": True, "history": True, "screener": True, "available": True},
+                {"id": "akshare", "name": "AkShare", "realtime": False, "history": True, "screener": True, "available": False, "installed": akshare_installed, "reason": "暂未支持切换，适配器开发中" if akshare_installed else "未安装 AkShare"},
+                {"id": "tushare", "name": "Tushare", "realtime": False, "history": True, "screener": True, "available": False, "installed": tushare_installed, "tushareConfigured": tushare_configured, "reason": "暂未支持切换，适配器开发中" if tushare_configured else "未配置 TUSHARE_TOKEN"},
+            ]}
+
+    @app.put("/api/settings")
+    def update_settings(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            return {"data": save_workspace_settings(payload, workspace_id)}
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail={"error": f"设置保存失败: {exc}"}) from exc
 
     @app.get("/api/market")
     def market(codes: str = Query(default="")):

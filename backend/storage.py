@@ -116,6 +116,14 @@ class MarketBar(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class WorkspaceSettings(Base):
+    __tablename__ = "workspace_settings"
+
+    workspace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -204,6 +212,57 @@ def get_workspace(workspace_id: str = "default") -> dict[str, Any]:
             select(Alert).where(Alert.workspace_id == workspace_id).order_by(Alert.created_at.desc()).limit(100)
         ).all()
         return {"watchlist": watchlist, "plans": [_plan_dict(plan) for plan in plans], "alerts": [_alert_dict(alert) for alert in alerts]}
+
+
+DEFAULT_WORKSPACE_SETTINGS = {
+    "workspaceName": "个人工作区",
+    "defaultCapital": 100000,
+    "monitorEnabled": True,
+    "realtimeSource": "tencent",
+    "historySource": "tencent",
+    "screenerSource": "tencent",
+    "fallbackEnabled": True,
+    "refreshInterval": 15,
+    "cacheSeconds": 8,
+    "timeoutSeconds": 10,
+    "retryCount": 1,
+}
+
+
+def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_sources = {"tencent", "akshare", "tushare"}
+    data = {**DEFAULT_WORKSPACE_SETTINGS, **{key: value for key, value in payload.items() if key in DEFAULT_WORKSPACE_SETTINGS}}
+    for key in ("realtimeSource", "historySource", "screenerSource"):
+        if data[key] not in allowed_sources:
+            data[key] = "tencent"
+    data["realtimeSource"] = "tencent"
+    data["workspaceName"] = str(data["workspaceName"]).strip()[:64] or DEFAULT_WORKSPACE_SETTINGS["workspaceName"]
+    data["defaultCapital"] = max(1000, min(float(data["defaultCapital"]), 100000000))
+    data["refreshInterval"] = max(5, min(int(data["refreshInterval"]), 300))
+    data["cacheSeconds"] = max(0, min(int(data["cacheSeconds"]), 300))
+    data["timeoutSeconds"] = max(2, min(int(data["timeoutSeconds"]), 60))
+    data["retryCount"] = max(0, min(int(data["retryCount"]), 5))
+    data["fallbackEnabled"] = bool(data["fallbackEnabled"])
+    data["monitorEnabled"] = bool(data["monitorEnabled"])
+    return data
+
+
+def get_workspace_settings(workspace_id: str = "default") -> dict[str, Any]:
+    with SessionLocal() as session:
+        row = session.get(WorkspaceSettings, workspace_id)
+        return _normalize_workspace_settings(row.data if row else {})
+
+
+def save_workspace_settings(payload: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
+    data = _normalize_workspace_settings(payload)
+    with SessionLocal.begin() as session:
+        row = session.get(WorkspaceSettings, workspace_id)
+        if row is None:
+            row = WorkspaceSettings(workspace_id=workspace_id, data=data)
+            session.add(row)
+        else:
+            row.data = data
+    return data
 
 
 def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:

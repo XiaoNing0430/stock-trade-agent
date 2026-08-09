@@ -60,7 +60,8 @@ const NAV_ITEMS = [
   { id: 'screener', label: '选股器', icon: 'scan-search' },
   { id: 'grid', label: '网格策略', icon: 'grid-3x3' },
   { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
-  { id: 'monitor', label: '盯盘中心', icon: 'radar' }
+  { id: 'monitor', label: '盯盘中心', icon: 'radar' },
+  { id: 'settings', label: '设置', icon: 'settings-2' }
 ];
 
 const VIEW_META = {
@@ -68,7 +69,8 @@ const VIEW_META = {
   screener: ['选股器', '从实时市场数据里筛出值得研究的标的'],
   grid: ['网格策略', '用历史波动生成网格，并以回测结果校验参数'],
   plans: ['交易计划', '把想法写成可以执行的规则'],
-  monitor: ['盯盘中心', '真实报价触发计划条件时，提醒会出现在这里']
+  monitor: ['盯盘中心', '真实报价触发计划条件时，提醒会出现在这里'],
+  settings: ['网站设置', '管理工作区、数据获取和数据源连接状态']
 };
 
 function loadStorage() {
@@ -235,6 +237,9 @@ createApp({
       errors: []
     });
     const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
+    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1 });
+    const dataSources = ref([]);
+    const settingsLoading = ref(false);
     if (saved.filters?.market === '沪A') {
       filters.exchange = '上交所';
       filters.market = '全部';
@@ -437,6 +442,34 @@ createApp({
       } finally {
         workspaceSynced.value = true;
         persist();
+      }
+    }
+
+    async function loadSettings() {
+      settingsLoading.value = true;
+      try {
+        const payload = await requestJson('/api/settings');
+        Object.assign(settingsDraft, payload.data || {});
+        dataSources.value = payload.sources || [];
+      } catch (error) {
+        showToast('设置读取失败，正在使用本地默认值', 'error');
+      } finally {
+        settingsLoading.value = false;
+      }
+    }
+
+    async function saveSettings() {
+      settingsLoading.value = true;
+      try {
+        const payload = await requestJson('/api/settings', { method: 'PUT', body: JSON.stringify(settingsDraft) });
+        Object.assign(settingsDraft, payload.data || {});
+        monitorEnabled.value = settingsDraft.monitorEnabled;
+        showToast('网站设置已保存');
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message || '设置保存失败', 'error');
+      } finally {
+        settingsLoading.value = false;
       }
     }
 
@@ -1025,6 +1058,7 @@ createApp({
 
     onMounted(async () => {
       await loadWorkspace();
+      await loadSettings();
       await loadGridStrategies();
       draftWatchSuppressed.value = false;
       hydrateDraft();
@@ -1072,6 +1106,9 @@ createApp({
       alerts,
       unreadAlerts,
       monitorEnabled,
+      settingsDraft,
+      dataSources,
+      settingsLoading,
       draft,
       gridDraft,
       gridLoading,
@@ -1123,6 +1160,8 @@ createApp({
       openGridStrategy,
       restoreGridSuggestion,
       refreshAll,
+      loadSettings,
+      saveSettings,
       scanNow,
       previewGrid,
       backtestGrid,
