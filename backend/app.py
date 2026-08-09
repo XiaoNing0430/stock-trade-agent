@@ -9,7 +9,7 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.data_source import classify_code, load_history, load_market, load_screener
+from backend.data_source import classify_code, load_history, load_market, load_screener, price_limit_ratio
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
@@ -20,6 +20,7 @@ from backend.storage import (
     list_grid_strategies,
     save_grid_backtest,
     save_grid_strategy,
+    save_market_bars,
     save_workspace,
     storage_status,
 )
@@ -105,7 +106,8 @@ def create_app() -> FastAPI:
             profile = classify_code(code)
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
             history = load_history(code, limit=max(20, min(int(payload.get("lookback", 120)), 240)))
-            return {"code": code, "profile": profile, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
+            data_as_of = save_market_bars(code, history)
+            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 
@@ -116,6 +118,7 @@ def create_app() -> FastAPI:
             profile = classify_code(code)
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
             history = load_history(code, limit=lookback)
+            data_as_of = save_market_bars(code, history)
             capital = float(payload.get("capital", 100000))
             fee_bps = float(payload.get("feeBps", 3))
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
@@ -125,8 +128,9 @@ def create_app() -> FastAPI:
             suggestion = suggest_grid(history, grid_count, capital, mode)
             lower = float(payload.get("lower") or suggestion["lower"])
             upper = float(payload.get("upper") or suggestion["upper"])
-            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps, mode, profile["securityType"], profile["exchange"], settlement_days, slippage_bps)
-            response = {"code": code, "profile": profile, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback, "mode": mode, "settlementDays": settlement_days, "slippageBps": slippage_bps}, **result}
+            limit_pct = price_limit_ratio(code)
+            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps, mode, profile["securityType"], profile["exchange"], settlement_days, slippage_bps, limit_pct)
+            response = {"code": code, "profile": profile, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback, "mode": mode, "settlementDays": settlement_days, "slippageBps": slippage_bps, "priceLimitPct": limit_pct * 100, "dataAsOf": data_as_of}, **result}
             if payload.get("save"):
                 strategy = save_grid_strategy({"id": payload.get("id") or f"grid-{uuid4().hex}", "code": code, "name": payload.get("name"), "lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "mode": mode, "lookback": lookback, "settlementDays": settlement_days, "slippageBps": slippage_bps, "schedule": payload.get("schedule", "manual"), "status": "启用"}, workspace_id)
                 save_grid_backtest(strategy["id"], code, response["config"], result, workspace_id)
@@ -143,7 +147,8 @@ def create_app() -> FastAPI:
             profile = classify_code(code)
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
             history = load_history(code, limit=lookback)
-            return {"code": code, "profile": profile, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")), profile["securityType"], profile["exchange"], max(0, min(int(payload.get("settlementDays", 1)), 5)), max(0, min(float(payload.get("slippageBps", 5)), 100)))}
+            data_as_of = save_market_bars(code, history)
+            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")), profile["securityType"], profile["exchange"], max(0, min(int(payload.get("settlementDays", 1)), 5)), max(0, min(float(payload.get("slippageBps", 5)), 100)), price_limit_ratio(code))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 

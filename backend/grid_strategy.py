@@ -50,7 +50,7 @@ def suggest_grid(bars: list[dict[str, Any]], grid_count: int = 8, capital: float
 def backtest_grid(
     bars: list[dict[str, Any]], lower: float, upper: float, grid_count: int, capital: float,
     fee_bps: float = 3, mode: str = "classic", security_type: str = "股票",
-    exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5,
+    exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5, price_limit_pct: float = 0.1,
 ) -> dict[str, Any]:
     if len(bars) < 2 or capital <= 0:
         raise ValueError("历史数据或本金无效")
@@ -78,15 +78,25 @@ def backtest_grid(
     previous_close = first_close
     trades: list[dict[str, Any]] = []
     equity_curve = [cash + shares * first_close]
+    skipped_limit_up_days = 0
+    skipped_limit_down_days = 0
+    skipped_suspension_days = 0
 
     for day_index, bar in enumerate(bars[1:], start=1):
         low = float(bar.get("low") or bar["close"])
         high = float(bar.get("high") or bar["close"])
         close = float(bar["close"])
         if high <= low or (bar.get("volume") is not None and float(bar["volume"]) <= 0):
+            skipped_suspension_days += 1
             equity_curve.append(cash + shares * close)
             previous_close = close
             continue
+        upper_limit = previous_close * (1 + price_limit_pct)
+        lower_limit = previous_close * (1 - price_limit_pct)
+        limit_up = high >= upper_limit - 0.005
+        limit_down = low <= lower_limit + 0.005
+        skipped_limit_up_days += int(limit_up)
+        skipped_limit_down_days += int(limit_down)
         date = bar.get("date", "")
         if mode == "classic":
             buy_levels = sorted([level for level in levels[1:-1] if low <= level < previous_close], reverse=True)
@@ -94,6 +104,13 @@ def backtest_grid(
         else:
             buy_levels = sorted([level for level in levels[1:-1] if previous_close < level <= high], reverse=True)
             sell_levels = sorted((level for level in levels[1:-1] if low <= level < previous_close), reverse=True)
+
+        # Daily OHLC cannot establish queue position at a price limit. Do not assume
+        # that breakout buys at limit-up or stop sells at limit-down were filled.
+        if limit_up:
+            buy_levels = []
+        if limit_down:
+            sell_levels = []
 
         for level in buy_levels:
             lots = floor(order_budget / level / 100) * 100
@@ -140,7 +157,7 @@ def backtest_grid(
     annualized = (max(end_equity, 1) / capital) ** (252 / days) - 1 if days >= 20 else None
     return {
         "levels": levels, "trades": trades[-100:],
-        "metrics": {"startEquity": round(capital, 2), "endEquity": round(end_equity, 2), "returnPct": round(total_return * 100, 2), "annualizedReturnPct": round(annualized * 100, 2) if annualized is not None else None, "maxDrawdownPct": round(max_drawdown * 100, 2), "tradeCount": len(trades), "buyCount": sum(item["side"] == "buy" for item in trades), "sellCount": sum(item["side"] == "sell" for item in trades)},
+        "metrics": {"startEquity": round(capital, 2), "endEquity": round(end_equity, 2), "returnPct": round(total_return * 100, 2), "annualizedReturnPct": round(annualized * 100, 2) if annualized is not None else None, "maxDrawdownPct": round(max_drawdown * 100, 2), "tradeCount": len(trades), "buyCount": sum(item["side"] == "buy" for item in trades), "sellCount": sum(item["side"] == "sell" for item in trades), "skippedLimitUpDays": skipped_limit_up_days, "skippedLimitDownDays": skipped_limit_down_days, "skippedSuspensionDays": skipped_suspension_days},
         "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
                         f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"),
     }
@@ -148,7 +165,7 @@ def backtest_grid(
 
 def optimize_grid(
     bars: list[dict[str, Any]], capital: float, fee_bps: float = 3, mode: str = "classic",
-    security_type: str = "股票", exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5,
+    security_type: str = "股票", exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5, price_limit_pct: float = 0.1,
 ) -> list[dict[str, Any]]:
     split_index = max(2, int(len(bars) * 0.7))
     training_bars, validation_bars = bars[:split_index], bars[split_index - 1:]
@@ -158,7 +175,7 @@ def optimize_grid(
     for grid_count in (6, 8, 10, 12):
         for multiplier in (0.8, 1.0, 1.2):
             lower, upper = max(0.01, center - lower_gap * multiplier), center + upper_gap * multiplier
-            in_sample = backtest_grid(training_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps)
-            out_of_sample = backtest_grid(validation_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps)
+            in_sample = backtest_grid(training_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct)
+            out_of_sample = backtest_grid(validation_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct)
             candidates.append({"gridCount": grid_count, "lower": round(lower, 2), "upper": round(upper, 2), "step": round((upper - lower) / grid_count, 3), "inSampleMetrics": in_sample["metrics"], **out_of_sample})
     return sorted(candidates, key=lambda item: (item["metrics"]["returnPct"], -item["metrics"]["maxDrawdownPct"]), reverse=True)

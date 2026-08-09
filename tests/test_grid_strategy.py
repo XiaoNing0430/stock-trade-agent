@@ -83,6 +83,18 @@ def test_flat_or_zero_volume_bar_does_not_create_fill():
     assert result["metrics"]["tradeCount"] == 0
 
 
+def test_price_limit_blocks_unreliable_breakout_buy_and_stop_sell():
+    bars = [
+        {"date": "2026-01-02", "close": 10, "low": 10, "high": 10, "volume": 1000},
+        {"date": "2026-01-03", "close": 10.8, "low": 9, "high": 11, "volume": 1000},
+    ]
+
+    result = backtest_grid(bars, 8, 12, 4, 100000, mode="trend", price_limit_pct=0.1)
+
+    assert result["metrics"]["skippedLimitUpDays"] == 1
+    assert result["metrics"]["skippedLimitDownDays"] == 1
+
+
 def test_optimize_grid_returns_ranked_candidates():
     candidates = optimize_grid(sample_bars(), capital=100000, fee_bps=3)
 

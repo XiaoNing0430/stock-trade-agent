@@ -126,6 +126,15 @@ def market_for_code(code: str) -> str:
     return classify_code(code)["market"]
 
 
+def price_limit_ratio(code: str) -> float:
+    profile = classify_code(code)
+    if profile["exchange"] == "北交所":
+        return 0.30
+    if profile["board"] in {"创业板", "科创板"}:
+        return 0.20
+    return 0.10
+
+
 def fetch_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
     response = requests.get(url, params=params, headers=REQUEST_HEADERS, timeout=10)
     response.raise_for_status()

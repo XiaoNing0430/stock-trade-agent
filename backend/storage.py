@@ -98,6 +98,24 @@ class GridBacktest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class MarketBar(Base):
+    __tablename__ = "market_bars"
+    __table_args__ = (UniqueConstraint("code", "trade_date", "adjustment", name="uq_market_bars_code_date_adjustment"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    trade_date: Mapped[str] = mapped_column(String(16), index=True)
+    adjustment: Mapped[str] = mapped_column(String(16), default="qfq")
+    open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(64), default="Tencent public quote API")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -335,6 +353,27 @@ def set_grid_next_run(strategy_id: str, next_run_at: datetime | None) -> None:
         strategy = session.get(GridStrategy, strategy_id)
         if strategy:
             strategy.next_run_at = next_run_at
+
+
+def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "qfq") -> str | None:
+    latest_date = None
+    with SessionLocal.begin() as session:
+        for bar in bars:
+            trade_date = str(bar.get("date") or "")
+            if not trade_date:
+                continue
+            latest_date = trade_date
+            row = session.scalars(
+                select(MarketBar).where(MarketBar.code == code, MarketBar.trade_date == trade_date, MarketBar.adjustment == adjustment)
+            ).first()
+            if row is None:
+                row = MarketBar(code=code, trade_date=trade_date, adjustment=adjustment)
+                session.add(row)
+            for field in ("open", "high", "low", "close", "volume", "amount"):
+                value = bar.get(field)
+                setattr(row, field, float(value) if value is not None else None)
+            row.fetched_at = datetime.now(timezone.utc)
+    return latest_date
 
 
 def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default") -> None:

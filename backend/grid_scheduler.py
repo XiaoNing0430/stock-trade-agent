@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from backend.data_source import classify_code, load_history
+from backend.data_source import classify_code, load_history, price_limit_ratio
 from backend.grid_strategy import backtest_grid
 from backend.storage import list_scheduled_grid_strategies, save_grid_backtest, set_grid_next_run
 
@@ -29,6 +29,7 @@ def run_scheduled_backtest(strategy: dict) -> None:
         profile["exchange"],
         settlement_days=int(strategy.get("settlementDays", 1)),
         slippage_bps=float(strategy.get("slippageBps", 5)),
+        price_limit_pct=price_limit_ratio(strategy["code"]),
     )
     save_grid_backtest(strategy["id"], strategy["code"], strategy, result, strategy.get("workspaceId", "default"))
 
