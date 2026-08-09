@@ -3246,10 +3246,18 @@ textarea:focus-visible {
 
   .monitor-summary-row {
     grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
   }
 
   .monitor-stat {
-    min-height: 70px;
+    min-height: 60px;
+    padding: 10px 12px;
+  }
+
+  .monitor-table-panel .empty-state {
+    gap: 5px;
+    padding: 20px 12px;
   }
 
   .app-footer {

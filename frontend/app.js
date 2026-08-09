@@ -295,6 +295,15 @@ createApp({
         volumeRatio: null
       };
     }));
+    const hasWatchTargets = computed(() => watchlistCodes.value.length > 0);
+    const monitorStatusLabel = computed(() => {
+      if (!hasWatchTargets.value) return '等待添加标的';
+      return monitorEnabled.value ? '盯盘已开启' : '盯盘已暂停';
+    });
+    const monitorNextScan = computed(() => {
+      if (!hasWatchTargets.value) return '尚未开始';
+      return monitorEnabled.value ? '15 秒' : '已暂停';
+    });
     const planOptions = computed(() => {
       const map = new Map();
       [...market.quotes, ...screenRows.value, ...watchlistQuotes.value].forEach((stock) => {
@@ -878,6 +887,12 @@ createApp({
       }
     }
 
+    async function restoreGridSuggestion() {
+      if (view.value !== 'grid' || gridLoading.value || hasGridSuggestion.value || hasGridResult.value) return;
+      if (!/^\d{6}$/.test(normalizedGridCode.value)) return;
+      await previewGrid();
+    }
+
     async function switchView(nextView) {
       if (nextView === 'grid') {
         await openGridStrategy();
@@ -1005,7 +1020,7 @@ createApp({
     });
     watch(monitorEnabled, () => {
       persist();
-      showToast(monitorEnabled.value ? '盯盘已开启' : '盯盘已暂停');
+      showToast(monitorStatusLabel.value);
     });
 
     onMounted(async () => {
@@ -1014,9 +1029,10 @@ createApp({
       draftWatchSuppressed.value = false;
       hydrateDraft();
       await refreshAll();
+      await restoreGridSuggestion();
       renderIcons();
       refreshTimer.value = setInterval(() => {
-        if (monitorEnabled.value) refreshAll({ silent: true });
+        if (monitorEnabled.value && hasWatchTargets.value) refreshAll({ silent: true });
       }, 15000);
       document.addEventListener('keydown', (event) => {
         if (event.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
@@ -1049,6 +1065,9 @@ createApp({
       indices,
       watchlistCodes,
       watchlistQuotes,
+      hasWatchTargets,
+      monitorStatusLabel,
+      monitorNextScan,
       activePlans,
       alerts,
       unreadAlerts,
@@ -1102,6 +1121,7 @@ createApp({
       isWatched,
       switchView,
       openGridStrategy,
+      restoreGridSuggestion,
       refreshAll,
       scanNow,
       previewGrid,
