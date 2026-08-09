@@ -226,6 +226,7 @@ createApp({
     const gridResult = ref(null);
     const gridCandidates = ref([]);
     const gridStrategies = ref([]);
+    const gridSuggestedCode = ref('');
     const market = reactive({
       provider: saved.marketCache?.provider || '',
       fetchedAt: saved.marketCache?.fetchedAt || 0,
@@ -248,15 +249,16 @@ createApp({
       const meta = VIEW_META[view.value] || VIEW_META.overview;
       return { title: meta[0], subtitle: meta[1] };
     });
+    const hasLiveQuotes = computed(() => market.quotes.length > 0 || screenRows.value.length > 0);
     const providerLabel = computed(() => market.provider ? 'Tencent 行情' : '行情代理');
     const marketStatus = computed(() => {
-      if (dataState.value === 'live') return '已连接';
+      if (dataState.value === 'live' && hasLiveQuotes.value) return '已连接';
       if (dataState.value === 'stale') return '缓存';
       if (dataState.value === 'error') return '断开';
       return '连接中';
     });
     const dataStatusText = computed(() => {
-      if (dataState.value === 'live') return '实时数据已同步';
+      if (dataState.value === 'live' && hasLiveQuotes.value) return '实时数据已同步';
       if (dataState.value === 'stale') return '接口异常，显示缓存';
       if (dataState.value === 'error') return '等待行情接口恢复';
       return '正在连接行情代理';
@@ -274,6 +276,10 @@ createApp({
     };
     const quoteMap = computed(() => Object.fromEntries(market.quotes.map((quote) => [quote.code, quote])));
     const selectedStock = computed(() => quoteFor(selectedCode.value));
+    const normalizedGridCode = computed(() => String(gridDraft.code || '').trim());
+    const gridInstrument = computed(() => quoteFor(normalizedGridCode.value));
+    const hasGridSuggestion = computed(() => Boolean(gridSuggestion.value) && gridSuggestedCode.value === normalizedGridCode.value);
+    const hasGridResult = computed(() => Boolean(gridResult.value));
     const selectedIndex = computed(() => market.indices[0] || null);
     const indices = computed(() => market.indices || []);
     const watchlistQuotes = computed(() => watchlistCodes.value.map((code) => {
@@ -725,8 +731,14 @@ createApp({
     }
 
     async function previewGrid() {
+      const code = normalizedGridCode.value;
+      if (!/^\d{6}$/.test(code)) {
+        showToast('请输入 6 位股票或 ETF 代码', 'error');
+        return;
+      }
       gridLoading.value = true;
       try {
+        await ensureQuote(code);
         const payload = await requestJson('/api/grid/preview', {
           method: 'POST',
           body: JSON.stringify(gridDraft)
@@ -735,6 +747,8 @@ createApp({
         gridDraft.upper = payload.suggestion.upper;
         gridDraft.capital = payload.suggestion.suggestedCapital;
         gridSuggestion.value = payload.suggestion;
+        gridSuggestedCode.value = code;
+        gridResult.value = null;
         showToast('已根据历史波动生成网格区间');
       } catch (error) {
         showToast(error.message || '无法生成网格区间', 'error');
@@ -744,6 +758,10 @@ createApp({
     }
 
     async function backtestGrid(save = false) {
+      if (save && !hasGridResult.value) {
+        showToast('请先运行回测，再保存策略', 'error');
+        return;
+      }
       gridLoading.value = true;
       try {
         const payload = await requestJson('/api/grid/backtest', {
@@ -811,6 +829,7 @@ createApp({
         schedule: strategy.schedule
       });
       gridSuggestion.value = null;
+      gridSuggestedCode.value = '';
       gridResult.value = null;
       showToast(`已载入 ${strategy.name}`);
     }
@@ -840,7 +859,30 @@ createApp({
       }
     }
 
-    function switchView(nextView) {
+    async function openGridStrategy(code = selectedCode.value) {
+      const normalizedCode = String(code || '').trim();
+      if (/^\d{6}$/.test(normalizedCode)) {
+        selectedCode.value = normalizedCode;
+        gridDraft.code = normalizedCode;
+        gridDraft.id = '';
+        gridResult.value = null;
+        gridCandidates.value = [];
+        if (gridSuggestedCode.value !== normalizedCode) gridSuggestion.value = null;
+      }
+      view.value = 'grid';
+      persist();
+      await nextTick();
+      renderIcons();
+      if (/^\d{6}$/.test(normalizedCode) && !gridLoading.value && !hasGridSuggestion.value) {
+        await previewGrid();
+      }
+    }
+
+    async function switchView(nextView) {
+      if (nextView === 'grid') {
+        await openGridStrategy();
+        return;
+      }
       view.value = nextView;
       persist();
       nextTick(renderIcons);
@@ -955,6 +997,12 @@ createApp({
       if (!draftWatchSuppressed.value) draftDirty.value = true;
     }, { deep: true });
     watch(view, () => nextTick(renderIcons));
+    watch(() => gridDraft.code, () => {
+      if (gridSuggestedCode.value !== normalizedGridCode.value) {
+        gridSuggestion.value = null;
+        gridResult.value = null;
+      }
+    });
     watch(monitorEnabled, () => {
       persist();
       showToast(monitorEnabled.value ? '盯盘已开启' : '盯盘已暂停');
@@ -1010,6 +1058,10 @@ createApp({
       gridLoading,
       gridSuggestion,
       gridResult,
+      gridInstrument,
+      normalizedGridCode,
+      hasGridSuggestion,
+      hasGridResult,
       gridCandidates,
       gridStrategies,
       loadGridStrategy,
@@ -1049,6 +1101,7 @@ createApp({
       signalClass,
       isWatched,
       switchView,
+      openGridStrategy,
       refreshAll,
       scanNow,
       previewGrid,

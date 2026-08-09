@@ -2308,6 +2308,59 @@ textarea:focus-visible {
   padding: 22px;
 }
 
+.grid-instrument {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+}
+
+.grid-instrument > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.grid-instrument strong {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-instrument span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid-instrument b {
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.grid-instrument-pending {
+  grid-template-columns: auto minmax(0, 1fr);
+  color: var(--muted);
+}
+
+.grid-instrument-pending svg {
+  width: 15px;
+  height: 15px;
+  color: var(--blue);
+}
+
 .grid-result-body {
   display: grid;
   gap: 18px;
@@ -2844,7 +2897,11 @@ textarea:focus-visible {
   .monitor-layout,
   .grid-strategy-layout,
   .grid-lists {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .content-grid-main > .surface {
+    min-width: 0;
   }
 
   .quick-screen-panel {
@@ -2928,12 +2985,12 @@ textarea:focus-visible {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-height: auto;
     height: auto;
     flex: 0 0 auto;
     padding: 10px 12px;
-    overflow-x: auto;
+    overflow: hidden;
   }
 
   .brand {
@@ -2942,31 +2999,28 @@ textarea:focus-visible {
   }
 
   .brand-copy {
-    display: grid;
+    display: none;
   }
 
   .market-switcher {
-    flex: 0 0 auto;
-    margin: 0;
-    padding: 8px 10px;
-  }
-
-  .market-switcher-copy > div,
-  .market-state {
-    display: grid;
+    display: none;
   }
 
   .primary-nav,
   .secondary-nav {
     display: flex;
     gap: 4px;
+    flex: 1 1 auto;
+    justify-content: space-between;
+    min-width: 0;
   }
 
   .nav-item {
-    width: auto;
-    min-width: 37px;
+    width: 100%;
+    min-width: 0;
     min-height: 36px;
     padding: 0 10px;
+    justify-content: center;
   }
 
   .nav-item span {
@@ -3168,6 +3222,18 @@ textarea:focus-visible {
 
   .selected-stock-actions .button {
     flex: 1;
+  }
+
+  .grid-instrument {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .grid-instrument b {
+    grid-column: 2;
+  }
+
+  .grid-rules {
+    grid-template-columns: 1fr;
   }
 
   .stock-detail-chart {
