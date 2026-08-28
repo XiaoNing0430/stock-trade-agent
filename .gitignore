@@ -32,9 +32,9 @@ build/
 Thumbs.db
 .idea/
 .vscode/
+.worktrees/
 
 # Generated exports
 downloads/
 exports/
 *.csv
-
