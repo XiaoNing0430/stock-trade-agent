@@ -485,10 +485,19 @@ createApp({
       };
     }
 
+    let workspaceSyncInFlight = false;
+    let workspaceSyncQueued = false;
+
     function scheduleWorkspaceSync() {
       if (!workspaceSynced.value) return;
+      if (workspaceSyncInFlight) {
+        // A sync is already running; keep the latest snapshot queued so no change is lost.
+        workspaceSyncQueued = true;
+        return;
+      }
       clearTimeout(workspaceSyncTimer.value);
       workspaceSyncTimer.value = setTimeout(async () => {
+        workspaceSyncInFlight = true;
         try {
           await requestJson('/api/workspace', {
             method: 'PUT',
@@ -496,6 +505,12 @@ createApp({
           });
         } catch (error) {
           // Browser storage remains a fallback while the persistence service reconnects.
+        } finally {
+          workspaceSyncInFlight = false;
+          if (workspaceSyncQueued) {
+            workspaceSyncQueued = false;
+            scheduleWorkspaceSync();
+          }
         }
       }, 350);
     }
