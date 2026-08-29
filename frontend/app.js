@@ -149,7 +149,7 @@ createApp({
       errors: []
     });
     const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
-    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server' });
+    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server', notifyDesktopAlert: true, notifyDesktopSystem: false });
     const dataSources = ref([]);
     const settingsLoading = ref(false);
     const settingsTab = ref('workspace');
@@ -242,7 +242,7 @@ createApp({
       return [...map.values()];
     });
     const activePlans = computed(() => plans.value.filter((plan) => plan.status === '执行中' || plan.status === '已触发'));
-    const unreadAlerts = computed(() => alerts.value.filter((alert) => !alert.read).length);
+    const unreadAlerts = computed(() => alerts.value.filter((alert) => !alert.read && alert.kind !== 'system').length);
     const presetDescription = computed(() => {
       return presets.find((preset) => preset.name === presetName.value)?.description || '';
     });
@@ -365,8 +365,9 @@ createApp({
             } else {
               adoptServerSnapshot(snapshot, true);
             }
+          } else {
+            addAlert('system', '工作区同步失败', error.message || '持久化服务暂不可用，浏览器存储兜底。');
           }
-          // 其余失败仍静默降级：浏览器存储兜底，等待持久化服务恢复。
         } finally {
           workspaceSyncInFlight = false;
           if (workspaceSyncQueued) {
@@ -388,6 +389,7 @@ createApp({
       plans.value = snapshot.plans || [];
       alerts.value = snapshot.alerts || [];
       workspaceRevision.value = Number(snapshot.revision || 0);
+      addAlert('system', '工作区冲突已自动处理', auto ? '检测到其他页面更新，已自动采用服务器版本。' : '已手动采用服务器最新数据。');
       persist();
       showToast(auto ? '检测到其他页面更新，已自动采用服务器版本' : '已采用服务器最新数据');
     }
@@ -406,6 +408,7 @@ createApp({
           body: JSON.stringify(workspacePayload())
         });
         workspaceRevision.value = Number(saved.revision || 0);
+        addAlert('system', '工作区已用本地版本覆盖', successMessage);
         persist();
         showToast(successMessage);
       } catch (error) {
@@ -462,6 +465,7 @@ createApp({
         await refreshAll();
       } catch (error) {
         showToast(error.message || '设置保存失败', 'error');
+        addAlert('system', '设置保存失败', error.message || '未知错误');
       } finally {
         settingsLoading.value = false;
       }
@@ -510,6 +514,7 @@ createApp({
     }
 
     let refreshInFlight = false;
+    let lastRecordedDataState = '';
 
     async function refreshAll(options = {}) {
       const silent = Boolean(options.silent);
@@ -539,6 +544,16 @@ createApp({
           errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
         } else {
           dataState.value = 'live';
+        }
+        if (dataState.value !== lastRecordedDataState) {
+          if (dataState.value === 'stale') {
+            addAlert('system', '行情数据降级', '部分接口失败，当前页面保留最近一次成功数据，来源可能已切换。');
+          } else if (dataState.value === 'error') {
+            addAlert('system', '行情获取失败', errorMessage.value || '真实行情暂时不可用。');
+          } else if (dataState.value === 'live' && lastRecordedDataState && lastRecordedDataState !== 'live') {
+            addAlert('system', '行情已恢复', '实时行情接口恢复正常。');
+          }
+          lastRecordedDataState = dataState.value;
         }
         if (market.errors.length && !errorMessage.value) {
           errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
@@ -695,18 +710,33 @@ createApp({
     }
 
     function addAlert(kind, title, message) {
+      const now = Date.now();
+      if (kind === 'system') {
+        const existing = alerts.value.find((item) => item.kind === 'system' && item.title === title);
+        if (existing && now - (existing.createdAtMs || 0) < 10 * 60 * 1000) {
+          const count = (existing.count || 1) + 1;
+          existing.count = count;
+          existing.message = count > 1 ? `${message}（10 分钟内第 ${count} 次）` : message;
+          existing.createdAtMs = now;
+          existing.time = '刚刚';
+          persist();
+          return;
+        }
+      }
       const item = {
         id: `alert-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         kind,
         title,
         message,
         time: '刚刚',
-        read: false
+        read: false,
+        createdAtMs: now
       };
       alerts.value.unshift(item);
       alerts.value = alerts.value.slice(0, 24);
       persist();
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const desktopAllowed = kind === 'system' ? settingsDraft.notifyDesktopSystem : settingsDraft.notifyDesktopAlert;
+      if (desktopAllowed && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         new Notification(title, { body: message });
       }
     }
@@ -844,6 +874,7 @@ createApp({
         showToast(save ? '网格策略已保存并记录回测' : '网格回测完成');
       } catch (error) {
         showToast(error.message || '网格回测失败', 'error');
+        if (save) addAlert('system', '网格策略保存失败', error.message || '未知错误');
       } finally {
         gridLoading.value = false;
       }
