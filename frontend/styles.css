@@ -3701,6 +3701,23 @@ textarea:focus-visible {
   margin-bottom: 16px;
 }
 
+.all-market-panel {
+  padding: 22px;
+  margin-bottom: 18px;
+}
+
+.all-market-panel .table-responsive {
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.all-market-panel .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
 .screener-tab {
   padding: 8px 16px;
   border-radius: 999px;
