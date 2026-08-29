@@ -3768,3 +3768,13 @@ textarea:focus-visible {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+.detail-return-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-panel.is-active .selected-stock-panel {
+  margin-top: 0;
+}

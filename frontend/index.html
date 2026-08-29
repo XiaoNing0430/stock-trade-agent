@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101a2b">
   <meta name="description" content="连接真实 A 股行情的选股、交易计划和盯盘工作台">
   <title>Atlas 交易工作台</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260830-2">
+  <link rel="stylesheet" href="/assets/styles.css?v=20260830-3">
   <script src="/assets/vendor/vue.global.prod.js?v=20260806-1"></script>
   <script src="/assets/vendor/lucide.min.js?v=20260806-1"></script>
 </head>
@@ -473,13 +473,25 @@
               <button class="button button-secondary" type="button" :disabled="screenerPage >= Math.ceil(screenerAllTotal / 50)" @click="screenerPageUp">下一页<i data-lucide="chevron-right" aria-hidden="true"></i></button>
             </div>
           </div>
+        </section>
 
+        <section v-else-if="view === 'stock-detail'" class="view-panel is-active">
+          <div class="view-heading">
+            <div>
+              <span class="section-kicker">STOCK DETAIL</span>
+              <h2>{{ selectedStock?.name || '个股详情' }}</h2>
+              <p class="heading-note">{{ selectedStock ? `${selectedStock.code} · ${selectedStock.exchange} · ${selectedStock.board}` : '选择一只股票' }}</p>
+            </div>
+            <div class="view-heading-actions">
+              <button class="button button-secondary" type="button" @click="backFromDetail"><i data-lucide="arrow-left" aria-hidden="true"></i>返回</button>
+            </div>
+          </div>
           <section class="selected-stock-panel surface">
             <div class="selected-stock-summary">
               <div class="selected-stock-identity">
                 <div class="stock-avatar">{{ selectedStock?.name?.slice(0, 1) || '—' }}</div>
                 <div>
-                  <div class="stock-name-line"><h3>{{ selectedStock?.name || '选择一只股票' }}</h3><span class="ticker-code">{{ selectedStock ? `${selectedStock.code} · ${selectedStock.exchange} · ${selectedStock.board}` : '从筛选结果中选择' }}</span></div>
+                  <div class="stock-name-line"><h3>{{ selectedStock?.name || '选择一只股票' }}</h3><span class="ticker-code">{{ selectedStock ? `${selectedStock.code} · ${selectedStock.exchange} · ${selectedStock.board}` : '从列表中选择' }}</span></div>
                   <span class="stock-sector">{{ selectedStock ? `PE ${formatNullable(selectedStock.pe, 1)} · PB ${formatNullable(selectedStock.pb, 2)}` : '暂无报价' }}</span>
                 </div>
               </div>
@@ -693,6 +705,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/assets/app.js?v=20260830-3"></script>
+  <script type="module" src="/assets/app.js?v=20260830-4"></script>
 </body>
 </html>

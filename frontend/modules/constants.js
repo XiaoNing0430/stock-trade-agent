@@ -60,7 +60,8 @@ export const VIEW_META = {
   grid: ['网格策略', '用历史波动生成网格，并以回测结果校验参数'],
   plans: ['交易计划', '把想法写成可以执行的规则'],
   monitor: ['盯盘中心', '添加标的并开启自动扫描，触发结果进入个人中心'],
-  settings: ['个人中心', '提醒中心与网站设置的统一入口']
+  settings: ['个人中心', '提醒中心与网站设置的统一入口'],
+  'stock-detail': ['个股详情', '报价、走势与操作入口']
 };
 
 export const SETTINGS_TABS = [
