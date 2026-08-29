@@ -748,6 +748,22 @@ createApp({
       }
     }
 
+    const notifOpen = ref(false);
+    const notificationPermission = ref(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
+    const unreadSystemCount = computed(() => alerts.value.filter((alert) => alert.kind === 'system' && !alert.read).length);
+    const unreadTotalCount = computed(() => alerts.value.filter((alert) => !alert.read).length);
+    const recentNotifs = computed(() => filteredAlerts.value.slice(0, 8));
+
+    function toggleNotifCenter() {
+      notifOpen.value = !notifOpen.value;
+      if (notifOpen.value) nextTick(renderIcons);
+    }
+
+    function goAlertCenter() {
+      notifOpen.value = false;
+      switchView('monitor');
+    }
+
     function savePlan() {
       if (!draft.code || !draft.entry || !draft.stop || !draft.target || draft.stop >= draft.entry || draft.target <= draft.entry) {
         showToast('请检查计划价、止损价和目标价的关系', 'error');
@@ -1044,6 +1060,7 @@ createApp({
     }
 
     function requestNotifications() {
+      notifOpen.value = false;
       if (!('Notification' in window)) {
         showToast('当前浏览器不支持桌面提醒', 'error');
         return;
@@ -1054,6 +1071,7 @@ createApp({
         return;
       }
       Notification.requestPermission().then((permission) => {
+        notificationPermission.value = permission;
         if (permission === 'granted') {
           new Notification('Atlas 盯盘提醒已开启', { body: '价格触发交易计划时会提醒你。' });
           showToast('桌面提醒已开启');
@@ -1180,6 +1198,13 @@ createApp({
       alerts,
       alertFilter,
       filteredAlerts,
+      notifOpen,
+      notificationPermission,
+      unreadSystemCount,
+      unreadTotalCount,
+      recentNotifs,
+      toggleNotifCenter,
+      goAlertCenter,
       unreadAlerts,
       monitorEnabled,
       presetHits,

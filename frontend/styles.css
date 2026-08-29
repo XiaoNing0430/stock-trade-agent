@@ -3369,6 +3369,73 @@ textarea:focus-visible {
   background: rgba(239, 109, 83, 0.12);
 }
 
+.notif-wrap {
+  position: relative;
+}
+
+.notif-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(480px, calc(100vh - 140px));
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-large);
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notif-list {
+  display: grid;
+  gap: 8px;
+}
+
+.notif-list .alert-item {
+  padding: 8px 10px;
+}
+
+.notif-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef6d53;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
 /* ===== P1 unified trading desk ===== */
 .desk-kpis {
   display: grid;

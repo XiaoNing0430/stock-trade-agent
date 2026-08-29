@@ -107,10 +107,30 @@
             <input v-model.trim="globalSearch" type="search" placeholder="搜索股票代码或名称" aria-label="搜索股票代码或名称" @keydown.enter="searchSymbol">
             <kbd>/</kbd>
           </div>
-          <button class="icon-button" type="button" aria-label="桌面提醒设置" data-tooltip="桌面提醒" @click="requestNotifications">
-            <i data-lucide="bell" aria-hidden="true"></i>
-            <span v-if="unreadAlerts" class="notification-dot"></span>
-          </button>
+          <div class="notif-wrap">
+            <button class="icon-button" type="button" aria-label="通知中心" data-tooltip="通知中心" @click="toggleNotifCenter">
+              <i data-lucide="bell" aria-hidden="true"></i>
+              <span v-if="unreadTotalCount" class="notif-badge">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</span>
+            </button>
+            <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
+            <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
+              <div class="notif-head"><strong>通知中心</strong><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button></div>
+              <div class="alert-filters" role="tablist" aria-label="通知分类">
+                <button v-for="option in [{ id: 'all', label: '全部' }, { id: 'trade', label: '盯盘' }, { id: 'system', label: '系统' }]" :key="option.id" type="button" role="tab" :class="['alert-filter-chip', { 'is-active': alertFilter === option.id }]" :aria-selected="alertFilter === option.id" @click="alertFilter = option.id">{{ option.label }}</button>
+              </div>
+              <div class="notif-list">
+                <div v-for="alert in recentNotifs" :key="alert.id" class="alert-item" :class="{ unread: !alert.read }">
+                  <div :class="['alert-icon', alert.kind === 'success' ? 'success' : alert.kind === 'info' || alert.kind === 'system' ? 'info' : '']"><i :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : alert.kind === 'system' ? 'wrench' : 'bell-ring'" aria-hidden="true"></i></div>
+                  <div class="alert-copy"><strong>{{ alert.title }}</strong><span>{{ alert.message }}</span><div class="alert-meta"><span>{{ alert.time }}</span><button v-if="!alert.read" class="text-button" type="button" @click="markAlertRead(alert.id)">标记已读</button></div></div>
+                </div>
+                <div v-if="!recentNotifs.length" class="empty-state"><i data-lucide="bell-off" aria-hidden="true"></i><strong>暂无提醒</strong><span>切换分类查看其他提醒。</span></div>
+              </div>
+              <div class="notif-foot">
+                <button class="text-button" type="button" @click="goAlertCenter"><i data-lucide="arrow-right" aria-hidden="true"></i>前往提醒中心</button>
+                <button v-if="notificationPermission !== 'granted'" class="text-button" type="button" @click="requestNotifications"><i data-lucide="bell-plus" aria-hidden="true"></i>开启桌面通知</button>
+              </div>
+            </div>
+          </div>
           <button class="topbar-date" type="button" data-tooltip="刷新行情" @click="refreshAll()">
             <i data-lucide="refresh-cw" aria-hidden="true" :class="{ spinning: loading }"></i>
             <span>{{ lastUpdatedLabel }}</span>
@@ -601,6 +621,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/assets/app.js?v=20260829-4"></script>
+  <script type="module" src="/assets/app.js?v=20260829-5"></script>
 </body>
 </html>
