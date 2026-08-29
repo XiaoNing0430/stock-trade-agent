@@ -1025,16 +1025,23 @@ createApp({
       });
     }
 
+    let lastToast = { message: '', tone: '', at: 0 };
+
     function showToast(message, tone = 'success') {
       const region = document.getElementById('toast-region');
       if (!region) return;
+      const messageText = String(message ?? '');
+      const now = Date.now();
+      // 同文案同色调 8 秒内只弹一条，避免冲突自愈等重复事件刷屏。
+      if (messageText === lastToast.message && tone === lastToast.tone && now - lastToast.at < 8000) return;
+      lastToast = { message: messageText, tone, at: now };
       const toast = document.createElement('div');
       toast.className = `toast ${tone === 'error' ? 'error' : ''}`;
       const icon = document.createElement('i');
       icon.setAttribute('data-lucide', tone === 'error' ? 'triangle-alert' : 'check-circle-2');
       icon.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
-      text.textContent = String(message ?? '');
+      text.textContent = messageText;
       toast.appendChild(icon);
       toast.appendChild(text);
       region.appendChild(toast);

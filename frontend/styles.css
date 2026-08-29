@@ -3544,6 +3544,12 @@ textarea:focus-visible {
     color: #eef2f8;
     background: rgba(239, 109, 83, 0.12);
   }
+
+  .toast-region {
+    right: 16px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    z-index: 80;
+  }
 }
 
 .settings-tabs {
