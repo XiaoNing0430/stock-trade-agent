@@ -757,6 +757,7 @@ createApp({
     }
 
     const notifOpen = ref(false);
+    const hubTab = ref('alerts');
     const notificationPermission = ref(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
     const unreadSystemCount = computed(() => alerts.value.filter((alert) => alert.kind === 'system' && !alert.read).length);
     const unreadTotalCount = computed(() => alerts.value.filter((alert) => !alert.read).length);
@@ -769,7 +770,8 @@ createApp({
 
     function goAlertCenter() {
       notifOpen.value = false;
-      switchView('monitor');
+      hubTab.value = 'alerts';
+      switchView('settings');
     }
 
     function savePlan() {
@@ -1207,6 +1209,7 @@ createApp({
       alertFilter,
       filteredAlerts,
       notifOpen,
+      hubTab,
       notificationPermission,
       unreadSystemCount,
       unreadTotalCount,
