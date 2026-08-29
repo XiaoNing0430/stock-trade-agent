@@ -85,6 +85,25 @@ createApp({
       }).length;
       return { active: activePlans.value.length, stopHit, unread: unreadAlerts.value };
     });
+
+    const gridProvenance = computed(() => {
+      const result = gridResult.value;
+      if (!result || !Array.isArray(result.history) || !result.history.length) return '';
+      const first = result.history[0]?.date || '--';
+      const last = result.history[result.history.length - 1]?.date || '--';
+      const metrics = result.metrics || {};
+      const parts = [
+        `数据区间 ${first} ~ ${last}`,
+        `${result.history.length} 个交易日`,
+        '前复权日线',
+        `来源 ${providerLabel.value}`,
+        `数据截止 ${result.config?.dataAsOf || last}`,
+        `涨跌停跳过 ${metrics.skippedLimitUpDays ?? 0}/${metrics.skippedLimitDownDays ?? 0}`,
+        `一字板 ${metrics.onePriceLimitUpDays ?? 0}/${metrics.onePriceLimitDownDays ?? 0}`,
+        `停牌 ${metrics.skippedSuspensionDays ?? 0}`
+      ];
+      return parts.join(' · ');
+    });
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -1110,6 +1129,7 @@ createApp({
       presetHits,
       strategyStats,
       riskStats,
+      gridProvenance,
       conflictVisible,
       adoptServerWorkspace,
       forceSaveWorkspace,
