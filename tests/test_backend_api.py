@@ -287,3 +287,91 @@ def test_screener_sorts_zero_change_above_negative(monkeypatch):
     payload = data_source.load_screener("全部", page_size=20)
 
     assert [row["change"] for row in payload["rows"]] == [2.0, 0.0, -1.0, None]
+
+
+def test_workspace_get_includes_revision(monkeypatch):
+    monkeypatch.setattr(
+        app_module, "get_workspace",
+        lambda workspace_id="default": {"watchlist": ["600519"], "plans": [], "alerts": [], "revision": 3},
+        raising=False,
+    )
+
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/workspace")
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 3
+
+
+def test_workspace_put_rejects_stale_revision_with_409(monkeypatch):
+    monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 7, raising=False)
+    monkeypatch.setattr(
+        app_module, "get_workspace",
+        lambda workspace_id="default": {"watchlist": [], "plans": [], "alerts": [], "revision": 7},
+        raising=False,
+    )
+    saved = {}
+
+    def fake_save(payload, workspace_id="default"):
+        saved["payload"] = payload
+        return {"watchlist": payload.get("watchlist", []), "plans": [], "alerts": [], "revision": 8}
+
+    monkeypatch.setattr(app_module, "save_workspace", fake_save, raising=False)
+
+    with TestClient(app_module.create_app()) as client:
+        response = client.put(
+            "/api/workspace?baseRevision=6",
+            json={"watchlist": ["600519"], "plans": [], "alerts": []},
+        )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["detail"]["revision"] == 7
+    assert body["detail"]["workspace"]["revision"] == 7
+    assert "payload" not in saved
+
+
+def test_workspace_put_with_matching_revision_saves(monkeypatch):
+    monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 7, raising=False)
+    monkeypatch.setattr(
+        app_module, "get_workspace",
+        lambda workspace_id="default": {"watchlist": [], "plans": [], "alerts": [], "revision": 7},
+        raising=False,
+    )
+
+    def fake_save(payload, workspace_id="default"):
+        return {"watchlist": payload.get("watchlist", []), "plans": [], "alerts": [], "revision": 8}
+
+    monkeypatch.setattr(app_module, "save_workspace", fake_save, raising=False)
+
+    with TestClient(app_module.create_app()) as client:
+        response = client.put(
+            "/api/workspace?baseRevision=7",
+            json={"watchlist": ["600519"], "plans": [], "alerts": []},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 8
+
+
+def test_workspace_put_with_force_overrides_stale_revision(monkeypatch):
+    monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 7, raising=False)
+    monkeypatch.setattr(
+        app_module, "get_workspace",
+        lambda workspace_id="default": {"watchlist": [], "plans": [], "alerts": [], "revision": 7},
+        raising=False,
+    )
+
+    def fake_save(payload, workspace_id="default"):
+        return {"watchlist": payload.get("watchlist", []), "plans": [], "alerts": [], "revision": 8}
+
+    monkeypatch.setattr(app_module, "save_workspace", fake_save, raising=False)
+
+    with TestClient(app_module.create_app()) as client:
+        response = client.put(
+            "/api/workspace?baseRevision=6&force=true",
+            json={"watchlist": ["600519"], "plans": [], "alerts": []},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 8
