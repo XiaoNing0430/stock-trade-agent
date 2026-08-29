@@ -435,6 +435,7 @@
               </div>
             </div>
             <div class="stock-detail-chart" v-html="chartSvg(selectedHistory.map(item => item.close), '#3b6fb6', `${selectedStock?.name || '股票'}近期走势`)"></div>
+            <div class="chart-source-row"><span :class="['source-badge', { 'source-badge-local': chartDataSource === 'local' }]">{{ chartDataSource === 'local' ? '本地缓存' : '实时·腾讯' }}</span></div>
           </section>
         </section>
 
@@ -631,6 +632,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/assets/app.js?v=20260830-1"></script>
+  <script type="module" src="/assets/app.js?v=20260830-2"></script>
 </body>
 </html>
