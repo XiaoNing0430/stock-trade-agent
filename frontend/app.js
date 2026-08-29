@@ -291,7 +291,7 @@ createApp({
       return { shares, risk, rr };
     });
 
-    function persist() {
+    function persistLocal() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
           view: view.value,
@@ -313,6 +313,10 @@ createApp({
       } catch (error) {
         // Storage is optional; real quotes continue to work without it.
       }
+    }
+
+    function persist() {
+      persistLocal();
       scheduleWorkspaceSync();
     }
 
@@ -373,7 +377,8 @@ createApp({
               adoptServerSnapshot(snapshot, true);
             }
           } else {
-            addAlert('system', '工作区同步失败', error.message || '持久化服务暂不可用，浏览器存储兜底。');
+            // 同步失败事件只留本地（deferPersist）：避免"失败→记录→再同步→再失败"的请求循环。
+            addAlert('system', '工作区同步失败', error.message || '持久化服务暂不可用，浏览器存储兜底。', { deferPersist: true });
           }
         } finally {
           workspaceSyncInFlight = false;
@@ -392,12 +397,15 @@ createApp({
     }
 
     function adoptServerSnapshot(snapshot, auto = false) {
+      // 已读标记属于本地 UX 状态：采用服务器快照时与本地读态取并集，避免未同步的已读被回滚。
+      const localReadIds = new Set(alerts.value.filter((alert) => alert.read).map((alert) => alert.id));
       watchlistCodes.value = snapshot.watchlist || [];
       plans.value = snapshot.plans || [];
-      alerts.value = snapshot.alerts || [];
+      alerts.value = (snapshot.alerts || []).map((alert) => (localReadIds.has(alert.id) ? { ...alert, read: true } : alert));
       workspaceRevision.value = Number(snapshot.revision || 0);
-      addAlert('system', '工作区冲突已自动处理', auto ? '检测到其他页面更新，已自动采用服务器版本。' : '已手动采用服务器最新数据。');
-      persist();
+      // 冲突自愈事件只入本地列表，随下次真实编辑同步；adopt 本身不再触发网络写，切断双页互踩振荡。
+      addAlert('system', '工作区冲突已自动处理', auto ? '检测到其他页面更新，已自动采用服务器版本。' : '已手动采用服务器最新数据。', { deferPersist: true });
+      persistLocal();
       showToast(auto ? '检测到其他页面更新，已自动采用服务器版本' : '已采用服务器最新数据');
     }
 
@@ -716,7 +724,7 @@ createApp({
       }
     }
 
-    function addAlert(kind, title, message) {
+    function addAlert(kind, title, message, options = {}) {
       const now = Date.now();
       if (kind === 'system') {
         const existing = alerts.value.find((item) => item.kind === 'system' && item.title === title);
@@ -726,7 +734,7 @@ createApp({
           existing.message = count > 1 ? `${message}（10 分钟内第 ${count} 次）` : message;
           existing.createdAtMs = now;
           existing.time = '刚刚';
-          persist();
+          if (!options.deferPersist) persist();
           return;
         }
       }
@@ -741,7 +749,7 @@ createApp({
       };
       alerts.value.unshift(item);
       alerts.value = alerts.value.slice(0, 24);
-      persist();
+      if (!options.deferPersist) persist();
       const desktopAllowed = kind === 'system' ? settingsDraft.notifyDesktopSystem : settingsDraft.notifyDesktopAlert;
       if (desktopAllowed && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         new Notification(title, { body: message });
