@@ -208,6 +208,7 @@ def _alert_dict(alert: Alert) -> dict[str, Any]:
         "message": alert.message,
         "time": alert.created_at.astimezone().strftime("%H:%M"),
         "read": alert.read,
+        "createdAtMs": int(alert.created_at.timestamp() * 1000),
     }
 
 
@@ -249,6 +250,8 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "timeoutSeconds": 10,
     "retryCount": 1,
     "conflictPolicy": "server",
+    "notifyDesktopAlert": True,
+    "notifyDesktopSystem": False,
 }
 
 
@@ -268,6 +271,8 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["conflictPolicy"] = data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"
     data["fallbackEnabled"] = bool(data["fallbackEnabled"])
     data["monitorEnabled"] = bool(data["monitorEnabled"])
+    data["notifyDesktopAlert"] = bool(data["notifyDesktopAlert"])
+    data["notifyDesktopSystem"] = bool(data["notifyDesktopSystem"])
     return data
 
 
