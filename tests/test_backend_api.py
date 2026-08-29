@@ -440,3 +440,49 @@ def test_stale_header_present_when_recent_stale(monkeypatch):
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/health")
     assert response.headers.get("x-atlas-stale") == "300"
+
+
+def test_load_market_bars_returns_bars_ordered():
+    from backend.storage import initialize_storage, load_market_bars, save_market_bars
+
+    initialize_storage()
+    bars = [
+        {"date": "2026-08-28", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10000},
+        {"date": "2026-08-29", "open": 10.5, "high": 12, "low": 10, "close": 11, "volume": 2000, "amount": 22000},
+    ]
+    save_market_bars("600999", bars)
+    loaded = load_market_bars("600999", limit=10)
+    assert len(loaded) == 2
+    assert loaded[0]["date"] == "2026-08-28"
+    assert loaded[1]["date"] == "2026-08-29"
+    assert "fetchedAt" in loaded[0]
+
+
+def test_load_market_bars_returns_empty_when_none():
+    from backend.storage import initialize_storage, load_market_bars
+
+    initialize_storage()
+    assert load_market_bars("nonexistent") == []
+
+
+def test_fallback_serves_local_when_upstream_fails(monkeypatch):
+    from backend.storage import initialize_storage, save_market_bars
+
+    initialize_storage()
+    save_market_bars("600888", [{"date": "2026-08-28", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10000}])
+    monkeypatch.setattr(app_module, "load_history", lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/history?code=600888")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataSource"] == "local"
+    assert len(data["history"]) == 1
+    assert data["history"][0]["date"] == "2026-08-28"
+
+
+def test_fallback_raises_when_no_local_data(monkeypatch):
+    monkeypatch.setattr(app_module, "load_history", lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/history?code=absent")
+    assert response.status_code == 502

@@ -23,6 +23,7 @@ from backend.storage import (
     get_grid_strategy,
     initialize_storage,
     list_grid_strategies,
+    load_market_bars,
     save_grid_backtest,
     save_grid_strategy,
     save_market_bars,
@@ -33,6 +34,19 @@ from backend.storage import (
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
+
+
+def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None]:
+    """优先实时行情；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf)。"""
+    try:
+        history = load_history(code, limit=limit, is_index=is_index)
+        data_as_of = save_market_bars(code, history)
+        return history, "live", data_as_of
+    except Exception:
+        bars = load_market_bars(code, limit=limit)
+        if not bars:
+            raise
+        return bars, "local", bars[-1]["date"]
 
 
 def create_app() -> FastAPI:
@@ -146,11 +160,14 @@ def create_app() -> FastAPI:
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)):
         try:
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, 120, is_index=index)
             return {
                 "code": code,
                 "provider": "Tencent public quote API",
                 "fetchedAt": int(time.time() * 1000),
-                "history": load_history(code, is_index=index),
+                "history": history,
+                "dataSource": data_source_flag,
+                "dataAsOf": data_as_of,
             }
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
@@ -171,9 +188,8 @@ def create_app() -> FastAPI:
             code = str(payload["code"])
             profile = classify_code(code)
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
-            history = load_history(code, limit=max(20, min(int(payload.get("lookback", 120)), 240)))
-            data_as_of = save_market_bars(code, history)
-            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, max(20, min(int(payload.get("lookback", 120)), 240)))
+            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "dataSource": data_source_flag, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 
@@ -183,8 +199,7 @@ def create_app() -> FastAPI:
             code = str(payload["code"])
             profile = classify_code(code)
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
-            history = load_history(code, limit=lookback)
-            data_as_of = save_market_bars(code, history)
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
             capital = float(payload.get("capital", 100000))
             fee_bps = float(payload.get("feeBps", 3))
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
