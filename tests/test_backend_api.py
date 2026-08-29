@@ -392,3 +392,51 @@ def test_workspace_put_with_force_overrides_stale_revision(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["revision"] == 8
+
+
+def test_cached_serves_stale_on_loader_failure(monkeypatch):
+    from backend.data_source import cached
+
+    # 先灌入一次成功缓存；TTL 强制为 0 使后续都走 fetch 路径
+    monkeypatch.setattr(data_source, "_cache_ttl", 0)
+    cached("k", lambda: "ok")
+    assert data_source.cache["k"][1] == "ok"
+
+    def boom():
+        raise ConnectionError("upstream down")
+
+    monkeypatch.setattr(data_source, "cache", dict(data_source.cache))
+    assert cached("k", boom) == "ok"  # 降级返回旧值
+    marker = data_source.recent_stale(window=60)
+    assert marker is not None
+    assert marker["age"] >= 0
+
+
+def test_cached_raises_when_stale_too_old_or_absent(monkeypatch):
+    from backend.data_source import cached
+
+    monkeypatch.setattr(data_source, "_cache_ttl", 0)
+    data_source.cache.clear()
+
+    # 无缓存 → 抛出
+    try:
+        cached("absent", lambda: (_ for _ in ()).throw(ConnectionError("x")))
+        raise AssertionError("should raise")
+    except ConnectionError:
+        pass
+
+    # 超龄缓存（1970 年）→ 抛出
+    data_source.cache["old"] = (0.0, "oldval")
+    try:
+        cached("old", lambda: (_ for _ in ()).throw(ConnectionError("x")))
+        raise AssertionError("should raise")
+    except ConnectionError:
+        pass
+
+
+def test_stale_header_present_when_recent_stale(monkeypatch):
+    # app.py 以 from ... import recent_stale 直接绑定到自身命名空间，需 patch app_module
+    monkeypatch.setattr(app_module, "recent_stale", lambda window=2.0: {"age": 300}, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/health")
+    assert response.headers.get("x-atlas-stale") == "300"
