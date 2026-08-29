@@ -201,3 +201,26 @@ def test_zero_volume_day_is_still_suspension():
     assert metrics["onePriceLimitUpDays"] == 0
     assert metrics["onePriceLimitDownDays"] == 0
     assert result["trades"] == []
+
+
+def test_metrics_include_new_risk_fields():
+    result = backtest_grid(sample_bars(), lower=8, upper=12, grid_count=4, capital=100000, fee_bps=3)
+    m = result["metrics"]
+    for key in ("winRatePct", "maxDrawdownDurationDays", "avgGridReturnPct", "profitFactor"):
+        assert key in m, f"missing {key}"
+    if m["winRatePct"] is not None:
+        assert 0 <= m["winRatePct"] <= 100
+    assert m["maxDrawdownDurationDays"] >= 0
+
+
+def test_risk_metrics_round_trip_accuracy():
+    bars = [
+        {"date": "2026-01-02", "open": 10, "high": 10, "low": 10, "close": 10},
+        {"date": "2026-01-03", "open": 10, "high": 8, "low": 8, "close": 8},
+        {"date": "2026-01-06", "open": 8, "high": 12, "low": 8, "close": 12},
+        {"date": "2026-01-07", "open": 12, "high": 12, "low": 12, "close": 12},
+    ]
+    result = backtest_grid(bars, lower=8, upper=12, grid_count=4, capital=100000, fee_bps=3)
+    m = result["metrics"]
+    assert m["winRatePct"] is not None
+    assert m["avgGridReturnPct"] > 0
