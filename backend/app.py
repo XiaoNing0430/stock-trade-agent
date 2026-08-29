@@ -16,23 +16,43 @@ from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
     delete_grid_strategy,
+    delete_strategy as delete_generic_strategy,
     DEFAULT_WORKSPACE_SETTINGS,
     get_workspace,
     get_workspace_revision,
     get_workspace_settings,
     get_grid_strategy,
+    get_strategy,
     initialize_storage,
     list_grid_strategies,
+    list_strategies,
+    load_market_bars,
     save_grid_backtest,
     save_grid_strategy,
     save_market_bars,
+    save_strategy,
+    save_strategy_backtest,
     save_workspace,
     save_workspace_settings,
     storage_status,
 )
+from backend.strategy_engines import STRATEGY_ENGINES
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
+
+
+def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None]:
+    """优先实时行情；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf)。"""
+    try:
+        history = load_history(code, limit=limit, is_index=is_index)
+        data_as_of = save_market_bars(code, history)
+        return history, "live", data_as_of
+    except Exception:
+        bars = load_market_bars(code, limit=limit)
+        if not bars:
+            raise
+        return bars, "local", bars[-1]["date"]
 
 
 def create_app() -> FastAPI:
@@ -146,11 +166,14 @@ def create_app() -> FastAPI:
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)):
         try:
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, 120, is_index=index)
             return {
                 "code": code,
                 "provider": "Tencent public quote API",
                 "fetchedAt": int(time.time() * 1000),
-                "history": load_history(code, is_index=index),
+                "history": history,
+                "dataSource": data_source_flag,
+                "dataAsOf": data_as_of,
             }
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
@@ -165,15 +188,23 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
 
+    @app.get("/api/screener/v2")
+    def screener_v2(page: int = Query(default=1, ge=1), pageSize: int = Query(default=50, alias="pageSize", ge=1, le=200),
+                    sortBy: str = Query(default="changePct", alias="sortBy"), sortDir: str = Query(default="desc", alias="sortDir")):
+        try:
+            from backend.data_source import load_screener_v2
+            return load_screener_v2(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent rank API"})
+
     @app.post("/api/grid/preview")
     def grid_preview(payload: dict = Body(...)):
         try:
             code = str(payload["code"])
             profile = classify_code(code)
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
-            history = load_history(code, limit=max(20, min(int(payload.get("lookback", 120)), 240)))
-            data_as_of = save_market_bars(code, history)
-            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, max(20, min(int(payload.get("lookback", 120)), 240)))
+            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "dataSource": data_source_flag, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
 
@@ -183,8 +214,7 @@ def create_app() -> FastAPI:
             code = str(payload["code"])
             profile = classify_code(code)
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
-            history = load_history(code, limit=lookback)
-            data_as_of = save_market_bars(code, history)
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
             capital = float(payload.get("capital", 100000))
             fee_bps = float(payload.get("feeBps", 3))
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
@@ -244,6 +274,93 @@ def create_app() -> FastAPI:
     def delete_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
         try:
             if not delete_grid_strategy(strategy_id, workspace_id):
+                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+            unschedule_strategy(strategy_id)
+            return {"deleted": True, "id": strategy_id}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.post("/api/strategy/preview")
+    def strategy_preview(payload: dict = Body(...)):
+        try:
+            strategy_type = str(payload.get("strategyType", ""))
+            engine = STRATEGY_ENGINES.get(strategy_type)
+            if not engine:
+                raise HTTPException(status_code=422, detail={"error": f"未知策略类型：{strategy_type}"})
+            config = dict(payload.get("config") or {})
+            suggestion = {}
+            for field in engine["configSchema"]:
+                key = field["key"]
+                if key not in config:
+                    suggestion[key] = field.get("default")
+            return {
+                "strategyType": strategy_type,
+                "suggestion": suggestion,
+                "note": "已应用该策略类型的默认参数，可手动调整后回测。",
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+
+    @app.post("/api/strategy/backtest")
+    def strategy_backtest(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            strategy_type = str(payload.get("strategyType", ""))
+            engine = STRATEGY_ENGINES.get(strategy_type)
+            if not engine:
+                raise HTTPException(status_code=422, detail={"error": f"未知策略类型：{strategy_type}"})
+            code = str(payload["code"])
+            profile = classify_code(code)
+            lookback = max(20, min(int(payload.get("lookback", 120)), 240))
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
+            config = dict(payload.get("config") or {})
+            config.update({
+                "capital": float(payload.get("capital", 100000)),
+                "feeBps": float(payload.get("feeBps", 3)),
+                "securityType": profile["securityType"],
+                "exchange": profile["exchange"],
+                "lookback": lookback,
+            })
+            result = engine["backtest"](history, config)
+            response = {"code": code, "profile": profile, "history": history, "strategyType": strategy_type, "config": {**config, "dataAsOf": data_as_of}, "dataSource": data_source_flag, "dataAsOf": data_as_of, **result}
+            if payload.get("save"):
+                strategy = save_strategy({"id": payload.get("id") or f"strategy-{uuid4().hex}", "code": code, "name": payload.get("name"), "strategyType": strategy_type, "config": config, "capital": config["capital"], "feeBps": config["feeBps"], "schedule": payload.get("schedule", "manual"), "status": "启用", "lookback": lookback}, workspace_id)
+                save_strategy_backtest(strategy["id"], code, strategy_type, response["config"], result, workspace_id)
+                schedule_strategy(strategy)
+                response["strategy"] = get_strategy(strategy["id"])
+            return response
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+
+    @app.get("/api/strategy/strategies")
+    def strategy_strategies(workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            return {"strategies": list_strategies(workspace_id)}
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.patch("/api/strategy/strategies/{strategy_id}")
+    def update_strategy_status(strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            strategy = get_strategy(strategy_id)
+            if not strategy or strategy["workspaceId"] != workspace_id:
+                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+            strategy.update({key: value for key, value in payload.items() if key in {"status", "schedule"}})
+            saved = save_strategy(strategy, workspace_id)
+            schedule_strategy(saved)
+            return saved
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.delete("/api/strategy/strategies/{strategy_id}")
+    def remove_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            if not delete_generic_strategy(strategy_id, workspace_id):
                 raise HTTPException(status_code=404, detail={"error": "策略不存在"})
             unschedule_strategy(strategy_id)
             return {"deleted": True, "id": strategy_id}

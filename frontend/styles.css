@@ -680,6 +680,44 @@ textarea:focus-visible {
   margin-bottom: 25px;
 }
 
+.strategy-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+
+.strategy-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.strategy-tab:hover {
+  color: var(--text);
+}
+
+.strategy-tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.strategy-tab i {
+  width: 16px;
+  height: 16px;
+}
+
 .view-heading h2 {
   margin: 5px 0 0;
   color: var(--ink);
@@ -3675,4 +3713,106 @@ textarea:focus-visible {
   .desk-workspaces {
     grid-template-columns: 1fr;
   }
+}
+
+.chart-source-row {
+  margin-top: 8px;
+  text-align: right;
+}
+
+.source-badge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.source-badge.source-badge-local {
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.screener-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.all-market-panel {
+  padding: 22px;
+  margin-bottom: 18px;
+}
+
+.all-market-panel .table-responsive {
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.all-market-panel .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.screener-tab {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+
+.screener-tab:hover {
+  border-color: var(--coral);
+  color: var(--coral-dark);
+}
+
+.screener-tab.is-active {
+  border-color: var(--coral);
+  color: var(--coral-dark);
+  background: var(--coral-soft);
+}
+
+.screener-sort {
+  cursor: pointer;
+  user-select: none;
+}
+
+.screener-sort:hover {
+  color: var(--coral);
+}
+
+.sort-arrow {
+  font-size: 10px;
+  color: var(--coral);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-return-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-panel.is-active .selected-stock-panel {
+  margin-top: 0;
 }

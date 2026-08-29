@@ -48,7 +48,7 @@ export const PRESETS = [
 export const NAV_ITEMS = [
   { id: 'overview', label: '总览', icon: 'layout-dashboard' },
   { id: 'screener', label: '选股器', icon: 'scan-search' },
-  { id: 'grid', label: '网格策略', icon: 'grid-3x3' },
+  { id: 'grid', label: '策略', icon: 'grid-3x3' },
   { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
   { id: 'monitor', label: '盯盘中心', icon: 'radar' },
   { id: 'settings', label: '个人中心', icon: 'user-round' }
@@ -57,10 +57,36 @@ export const NAV_ITEMS = [
 export const VIEW_META = {
   overview: ['交易总览', '把真实行情、计划与提醒放在同一张桌面上'],
   screener: ['选股器', '从实时市场数据里筛出值得研究的标的'],
-  grid: ['网格策略', '用历史波动生成网格，并以回测结果校验参数'],
+  grid: ['策略', '网格、双均线、定投与 MACD 的统一回测实验室'],
   plans: ['交易计划', '把想法写成可以执行的规则'],
   monitor: ['盯盘中心', '添加标的并开启自动扫描，触发结果进入个人中心'],
-  settings: ['个人中心', '提醒中心与网站设置的统一入口']
+  settings: ['个人中心', '提醒中心与网站设置的统一入口'],
+  'stock-detail': ['个股详情', '报价、走势与操作入口']
+};
+
+export const STRATEGY_TYPES = [
+  { id: 'grid', label: '网格', description: '区间网格，跌买涨卖' },
+  { id: 'ma_cross', label: '双均线', description: '快线上穿买入，下穿卖出' },
+  { id: 'dca', label: '定投', description: '定期定额 + 止盈止损' },
+  { id: 'macd', label: 'MACD', description: 'DIF 上穿 DEA 买入，下穿卖出' }
+];
+
+export const STRATEGY_SCHEMAS = {
+  ma_cross: [
+    { key: 'fastPeriod', label: '快线周期', type: 'int', default: 5, min: 2, max: 60, suffix: '日' },
+    { key: 'slowPeriod', label: '慢线周期', type: 'int', default: 20, min: 3, max: 120, suffix: '日' }
+  ],
+  dca: [
+    { key: 'amountPerPeriod', label: '每期投入', type: 'int', default: 5000, min: 1000, step: 1000, suffix: '元' },
+    { key: 'intervalDays', label: '间隔交易日', type: 'int', default: 5, min: 1, max: 60, suffix: '日' },
+    { key: 'stopProfitPct', label: '止盈线', type: 'float', default: 20, min: 1, max: 200, suffix: '%' },
+    { key: 'stopLossPct', label: '止损线', type: 'float', default: 15, min: 1, max: 100, suffix: '%' }
+  ],
+  macd: [
+    { key: 'fastPeriod', label: '快线周期', type: 'int', default: 12, min: 2, max: 30, suffix: '日' },
+    { key: 'slowPeriod', label: '慢线周期', type: 'int', default: 26, min: 5, max: 60, suffix: '日' },
+    { key: 'signalPeriod', label: '信号周期', type: 'int', default: 9, min: 2, max: 30, suffix: '日' }
+  ]
 };
 
 export const SETTINGS_TABS = [

@@ -1,4 +1,4 @@
-import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS } from './modules/constants.js';
+import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS, STRATEGY_TYPES, STRATEGY_SCHEMAS } from './modules/constants.js';
 import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
 
@@ -29,8 +29,10 @@ createApp({
     const globalSearch = ref('');
     const dataState = ref('connecting');
     const serverStaleAge = ref(null);
+    const chartDataSource = ref('live');
     const errorMessage = ref('');
     const selectedCode = ref(saved.selectedCode || DEFAULT_WATCHLIST[0]);
+    const detailReturnView = ref('screener');
     const selectedHistory = ref([]);
     const selectedHistoryCode = ref('');
     const selectedHistoryFetchedAt = ref(0);
@@ -39,6 +41,13 @@ createApp({
     const screenRows = ref([]);
     const screenTotal = ref(0);
     const screenerUpdatedAt = ref(0);
+    const screenerMode = ref('featured');
+    const screenerAllRows = ref([]);
+    const screenerAllTotal = ref(0);
+    const screenerPage = ref(1);
+    const screenerSortBy = ref('changePct');
+    const screenerSortDir = ref('desc');
+    const screenerLoading = ref(false);
     const presetName = ref(saved.presetName || '趋势突破');
     const watchlistCodes = ref(Array.isArray(saved.watchlist) ? saved.watchlist : DEFAULT_WATCHLIST);
     const plans = ref(Array.isArray(saved.plans) ? saved.plans : []);
@@ -93,11 +102,12 @@ createApp({
       const first = result.history[0]?.date || '--';
       const last = result.history[result.history.length - 1]?.date || '--';
       const metrics = result.metrics || {};
+      const src = result.dataSource === 'local' ? '本地缓存' : providerLabel.value;
       const parts = [
         `数据区间 ${first} ~ ${last}`,
         `${result.history.length} 个交易日`,
         '前复权日线',
-        `来源 ${providerLabel.value}`,
+        `来源 ${src}`,
         `数据截止 ${result.config?.dataAsOf || last}`,
         `涨跌停跳过 ${metrics.skippedLimitUpDays ?? 0}/${metrics.skippedLimitDownDays ?? 0}`,
         `一字板 ${metrics.onePriceLimitUpDays ?? 0}/${metrics.onePriceLimitDownDays ?? 0}`,
@@ -142,6 +152,21 @@ createApp({
     const gridCandidates = ref([]);
     const gridStrategies = ref([]);
     const gridSuggestedCode = ref('');
+    const strategyType = ref('grid');
+    const strategyLoading = ref(false);
+    const strategySuggestion = ref(null);
+    const strategyResult = ref(null);
+    const strategies = ref([]);
+    const strategyDraft = reactive({
+      id: '',
+      code: selectedCode.value,
+      name: '',
+      capital: 100000,
+      feeBps: 3,
+      schedule: 'manual',
+      lookback: 120,
+      config: {}
+    });
     const market = reactive({
       provider: saved.marketCache?.provider || '',
       fetchedAt: saved.marketCache?.fetchedAt || 0,
@@ -201,6 +226,19 @@ createApp({
     const gridInstrument = computed(() => quoteFor(normalizedGridCode.value));
     const hasGridSuggestion = computed(() => Boolean(gridSuggestion.value) && gridSuggestedCode.value === normalizedGridCode.value);
     const hasGridResult = computed(() => Boolean(gridResult.value));
+    const strategySchema = computed(() => STRATEGY_SCHEMAS[strategyType.value] || []);
+    const normalizedStrategyCode = computed(() => String(strategyDraft.code || '').trim());
+    const strategyInstrument = computed(() => quoteFor(normalizedStrategyCode.value));
+    const hasStrategyResult = computed(() => Boolean(strategyResult.value));
+    const strategyTypeLabel = computed(() => (STRATEGY_TYPES.find((item) => item.id === strategyType.value) || {}).label || '策略');
+    const strategyProvenance = computed(() => {
+      const result = strategyResult.value;
+      if (!result || !Array.isArray(result.history) || !result.history.length) return '';
+      const first = result.history[0]?.date || '--';
+      const last = result.history[result.history.length - 1]?.date || '--';
+      const src = result.dataSource === 'local' ? '本地缓存' : providerLabel.value;
+      return `数据区间 ${first} ~ ${last} · ${result.history.length} 个交易日 · 前复权日线 · 来源 ${src} · 数据截止 ${result.config?.dataAsOf || last}`;
+    });
     const selectedIndex = computed(() => market.indices[0] || null);
     const indices = computed(() => market.indices || []);
     const watchlistQuotes = computed(() => watchlistCodes.value.map((code) => {
@@ -520,6 +558,60 @@ createApp({
       screenerUpdatedAt.value = payload.fetchedAt || Date.now();
     }
 
+    async function fetchScreenerAll() {
+      screenerLoading.value = true;
+      try {
+        const payload = await requestJson(`/api/screener/v2?page=${screenerPage.value}&pageSize=50&sortBy=${encodeURIComponent(screenerSortBy.value)}&sortDir=${screenerSortDir.value}`);
+        screenerAllRows.value = payload.rows || [];
+        screenerAllTotal.value = Number(payload.total || 0);
+        screenerUpdatedAt.value = payload.fetchedAt || Date.now();
+      } finally {
+        screenerLoading.value = false;
+      }
+    }
+
+    function switchScreenerMode(mode) {
+      if (screenerMode.value === mode) return;
+      screenerMode.value = mode;
+      if (mode === 'all') {
+        screenerPage.value = 1;
+        fetchScreenerAll();
+      } else {
+        scanNow();
+      }
+    }
+
+    function screenerSort(column) {
+      if (screenerSortBy.value === column) {
+        screenerSortDir.value = screenerSortDir.value === 'desc' ? 'asc' : 'desc';
+      } else {
+        screenerSortBy.value = column;
+        screenerSortDir.value = 'desc';
+      }
+      screenerPage.value = 1;
+      fetchScreenerAll();
+    }
+
+    function screenerPageUp() {
+      const maxPage = Math.max(1, Math.ceil(screenerAllTotal.value / 50));
+      if (screenerPage.value < maxPage) {
+        screenerPage.value += 1;
+        fetchScreenerAll();
+      }
+    }
+
+    function screenerPageDown() {
+      if (screenerPage.value > 1) {
+        screenerPage.value -= 1;
+        fetchScreenerAll();
+      }
+    }
+
+    function screenerSortIcon(column) {
+      if (screenerSortBy.value !== column) return '';
+      return screenerSortDir.value === 'desc' ? '↓' : '↑';
+    }
+
     async function fetchHistory(code, type = 'selected') {
       const isIndex = type === 'index';
       const payload = await requestJson(`/api/history?code=${encodeURIComponent(code)}${isIndex ? '&index=1' : ''}`);
@@ -531,6 +623,7 @@ createApp({
         selectedHistoryCode.value = code;
         selectedHistoryFetchedAt.value = Date.now();
       }
+      chartDataSource.value = payload.dataSource === 'local' ? 'local' : 'live';
     }
 
     let refreshInFlight = false;
@@ -604,11 +697,12 @@ createApp({
       }
     }
 
-    async function selectStock(code) {
+    async function selectStock(code, fromView) {
       if (!code) return;
+      detailReturnView.value = fromView || view.value || 'screener';
       selectedCode.value = code;
       persist();
-      switchView('screener');
+      view.value = 'stock-detail';
       await ensureQuote(code);
       try {
         await fetchHistory(code, 'selected');
@@ -617,6 +711,12 @@ createApp({
       }
       await nextTick();
       renderIcons();
+    }
+
+    function backFromDetail() {
+      view.value = detailReturnView.value;
+      persist();
+      nextTick(renderIcons);
     }
 
     function isWatched(code) {
@@ -857,6 +957,11 @@ createApp({
     }
 
     async function scanNow() {
+      if (screenerMode.value === 'all') {
+        await fetchScreenerAll();
+        showToast(`已刷新全市场排名，共 ${screenerAllTotal.value.toLocaleString()} 只`);
+        return;
+      }
       loading.value = true;
       try {
         await fetchScreener();
@@ -1001,7 +1106,137 @@ createApp({
       }
     }
 
+    function switchStrategyType(type) {
+      if (type === strategyType.value) return;
+      strategyType.value = type;
+      strategyResult.value = null;
+      strategySuggestion.value = null;
+      if (type !== 'grid') {
+        strategyDraft.code = strategyDraft.code || selectedCode.value;
+        strategyDraft.id = '';
+        strategyDraft.config = {};
+        strategySchema.value.forEach((field) => {
+          strategyDraft.config[field.key] = field.default;
+        });
+      }
+      nextTick(renderIcons);
+    }
+
+    async function previewStrategy() {
+      strategyLoading.value = true;
+      try {
+        const payload = await requestJson('/api/strategy/preview', {
+          method: 'POST',
+          body: JSON.stringify({ strategyType: strategyType.value, config: strategyDraft.config })
+        });
+        strategySuggestion.value = payload.suggestion || null;
+        if (payload.suggestion) {
+          Object.keys(payload.suggestion).forEach((key) => {
+            if (payload.suggestion[key] !== undefined) strategyDraft.config[key] = payload.suggestion[key];
+          });
+        }
+        strategyResult.value = null;
+        showToast(`已填入 ${strategyTypeLabel.value} 默认参数，可调整后回测`);
+      } catch (error) {
+        showToast(error.message || '无法生成策略建议', 'error');
+      } finally {
+        strategyLoading.value = false;
+      }
+    }
+
+    async function backtestStrategy(save = false) {
+      if (save && !hasStrategyResult.value) {
+        showToast('请先运行回测，再保存策略', 'error');
+        return;
+      }
+      strategyLoading.value = true;
+      try {
+        const payload = await requestJson('/api/strategy/backtest', {
+          method: 'POST',
+          body: JSON.stringify({ ...strategyDraft, strategyType: strategyType.value, config: strategyDraft.config, save })
+        });
+        strategyResult.value = payload;
+        if (payload.strategy) {
+          strategyDraft.id = payload.strategy.id;
+          await loadStrategies();
+        }
+        showToast(save ? `${strategyTypeLabel.value}策略已保存并记录回测` : `${strategyTypeLabel.value}回测完成`);
+      } catch (error) {
+        showToast(error.message || `${strategyTypeLabel.value}回测失败`, 'error');
+        if (save) addAlert('system', `${strategyTypeLabel.value}策略保存失败`, error.message || '未知错误');
+      } finally {
+        strategyLoading.value = false;
+      }
+    }
+
+    async function loadStrategies() {
+      try {
+        const payload = await requestJson('/api/strategy/strategies');
+        strategies.value = payload.strategies || [];
+      } catch (error) {
+        strategies.value = [];
+      }
+    }
+
+    function loadStrategy(strategy) {
+      Object.assign(strategyDraft, {
+        id: strategy.id,
+        code: strategy.code,
+        name: strategy.name,
+        capital: strategy.capital,
+        feeBps: strategy.feeBps,
+        schedule: strategy.schedule,
+        lookback: strategy.config?.lookback || 120,
+        config: { ...(strategy.config || {}) }
+      });
+      strategyType.value = strategy.strategyType;
+      strategyResult.value = null;
+      strategySuggestion.value = null;
+      showToast(`已载入 ${strategy.name}`);
+      nextTick(renderIcons);
+    }
+
+    async function toggleStrategy(strategy) {
+      const status = strategy.status === '启用' ? '暂停' : '启用';
+      try {
+        await requestJson(`/api/strategy/strategies/${encodeURIComponent(strategy.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status })
+        });
+        await loadStrategies();
+      } catch (error) {
+        showToast(error.message || '更新策略状态失败', 'error');
+      }
+    }
+
+    async function deleteStrategy(strategy) {
+      if (!window.confirm(`删除策略“${strategy.name}”及其回测记录？`)) return;
+      try {
+        await requestJson(`/api/strategy/strategies/${encodeURIComponent(strategy.id)}`, { method: 'DELETE' });
+        if (strategyDraft.id === strategy.id) strategyDraft.id = '';
+        await loadStrategies();
+        showToast('策略及其回测记录已删除');
+      } catch (error) {
+        showToast(error.message || '删除策略失败', 'error');
+      }
+    }
+
+    async function openStrategy(type, code) {
+      switchStrategyType(type || 'ma_cross');
+      if (/^\d{6}$/.test(String(code || '').trim())) {
+        selectedCode.value = String(code).trim();
+        strategyDraft.code = String(code).trim();
+        strategyDraft.id = '';
+        strategyResult.value = null;
+      }
+      view.value = 'grid';
+      persist();
+      await nextTick();
+      renderIcons();
+    }
+
     async function openGridStrategy(code = selectedCode.value) {
+      strategyType.value = 'grid';
       const normalizedCode = String(code || '').trim();
       if (/^\d{6}$/.test(normalizedCode)) {
         selectedCode.value = normalizedCode;
@@ -1173,6 +1408,7 @@ createApp({
       await loadWorkspace();
       await loadSettings();
       await loadGridStrategies();
+      await loadStrategies();
       draftWatchSuppressed.value = false;
       hydrateDraft();
       await refreshAll();
@@ -1203,8 +1439,10 @@ createApp({
       globalSearch,
       dataState,
       serverStaleAge,
+      chartDataSource,
       errorMessage,
       selectedCode,
+      detailReturnView,
       selectedStock,
       selectedIndex,
       selectedHistory,
@@ -1259,6 +1497,27 @@ createApp({
       loadGridStrategy,
       toggleGridStrategy,
       deleteGridStrategy,
+      strategyType,
+      strategyTypeLabel,
+      strategySchema,
+      strategyLoading,
+      strategySuggestion,
+      strategyResult,
+      strategyProvenance,
+      strategies,
+      strategyDraft,
+      normalizedStrategyCode,
+      strategyInstrument,
+      hasStrategyResult,
+      STRATEGY_TYPES,
+      switchStrategyType,
+      previewStrategy,
+      backtestStrategy,
+      loadStrategies,
+      loadStrategy,
+      toggleStrategy,
+      deleteStrategy,
+      openStrategy,
       draftDirty,
       filters,
       screenRows,
@@ -1273,6 +1532,18 @@ createApp({
       lastUpdatedLabel,
       fetchedLabel,
       screenerUpdatedLabel,
+      screenerMode,
+      screenerAllRows,
+      screenerAllTotal,
+      screenerPage,
+      screenerSortBy,
+      screenerSortDir,
+      screenerLoading,
+      switchScreenerMode,
+      screenerSort,
+      screenerSortIcon,
+      screenerPageUp,
+      screenerPageDown,
       todayLabel,
       refreshIntervalLabel,
       breadth,
@@ -1306,6 +1577,7 @@ createApp({
       backtestGrid,
       optimizeGrid,
       selectStock,
+      backFromDetail,
       toggleWatch,
       createPlan,
       savePlan,

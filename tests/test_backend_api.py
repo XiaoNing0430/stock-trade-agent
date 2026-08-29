@@ -440,3 +440,212 @@ def test_stale_header_present_when_recent_stale(monkeypatch):
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/health")
     assert response.headers.get("x-atlas-stale") == "300"
+
+
+def test_load_market_bars_returns_bars_ordered():
+    from backend.storage import initialize_storage, load_market_bars, save_market_bars
+
+    initialize_storage()
+    bars = [
+        {"date": "2026-08-28", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10000},
+        {"date": "2026-08-29", "open": 10.5, "high": 12, "low": 10, "close": 11, "volume": 2000, "amount": 22000},
+    ]
+    save_market_bars("600999", bars)
+    loaded = load_market_bars("600999", limit=10)
+    assert len(loaded) == 2
+    assert loaded[0]["date"] == "2026-08-28"
+    assert loaded[1]["date"] == "2026-08-29"
+    assert "fetchedAt" in loaded[0]
+
+
+def test_load_market_bars_returns_empty_when_none():
+    from backend.storage import initialize_storage, load_market_bars
+
+    initialize_storage()
+    assert load_market_bars("nonexistent") == []
+
+
+def test_fallback_serves_local_when_upstream_fails(monkeypatch):
+    from backend.storage import initialize_storage, save_market_bars
+
+    initialize_storage()
+    save_market_bars("600888", [{"date": "2026-08-28", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10000}])
+    monkeypatch.setattr(app_module, "load_history", lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/history?code=600888")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dataSource"] == "local"
+    assert len(data["history"]) == 1
+    assert data["history"][0]["date"] == "2026-08-28"
+
+
+def test_fallback_raises_when_no_local_data(monkeypatch):
+    monkeypatch.setattr(app_module, "load_history", lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/history?code=absent")
+    assert response.status_code == 502
+
+
+def test_screener_v2_returns_paginated_results(monkeypatch):
+    fake_data = {"data": {"rank_list": [{"code": "sh600519", "name": "贵州茅台", "zxj": "1297.4", "zdf": "0.39", "hsl": "0.13",
+        "ltsz": "16218.56", "pe_ttm": "19.92", "pn": "6.46", "turnover": "208601", "zf": "0.77", "lb": "0.54",
+        "zdf_d5": "1.93", "zdf_d10": "-3.32", "zdf_d20": "-3.94", "zdf_d60": "4.63", "zdf_w52": "-6.94", "zdf_y": "-3.84",
+        "volume": "16126.00", "speed": "0.02", "zd": "5.10", "zsz": "16218.56", "zljlr": "-7495.96",
+        "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
+    class FakeResponse:
+        def json(self): return fake_data
+    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: FakeResponse())
+    from backend.data_source import load_screener_v2
+    result = load_screener_v2(page=1, page_size=10, sort_by="changePct", sort_dir="desc")
+    assert result["total"] == 4596
+    assert result["page"] == 1
+    assert result["pageSize"] == 10
+    assert len(result["rows"]) == 1
+    row = result["rows"][0]
+    assert row["code"] == "600519"
+    assert row["symbol"] == "sh600519"
+    assert row["name"] == "贵州茅台"
+    assert row["price"] == 1297.4
+    assert row["changePct"] == 0.39
+    assert row["change"] == 5.10
+    assert row["turnoverRate"] == 0.13
+    assert row["volumeRatio"] == 0.54
+    assert row["peTtm"] is not None
+    assert row["amount"] is not None
+    assert row["totalMarketCap"] is not None
+
+
+def test_screener_v2_when_upstream_fails(monkeypatch):
+    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: (_ for _ in ()).throw(ConnectionError("timeout")))
+    from backend.data_source import load_screener_v2
+    import pytest
+    with pytest.raises(RuntimeError, match="全市场选股器请求失败"):
+        load_screener_v2()
+
+
+def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
+    fake_data = {"data": {"rank_list": [{"code": "sh600519", "name": "贵州茅台", "zxj": "1297.4", "zdf": "0.39", "hsl": "0.13",
+        "ltsz": "16218.56", "pe_ttm": "19.92", "pn": "6.46", "turnover": "208601", "zf": "0.77", "lb": "0.54",
+        "zdf_d5": "1.93", "zdf_d10": "-3.32", "zdf_d20": "-3.94", "zdf_d60": "4.63", "zdf_w52": "-6.94", "zdf_y": "-3.84",
+        "volume": "16126.00", "speed": "0.02", "zd": "5.10", "zsz": "16218.56", "zljlr": "-7495.96",
+        "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
+    class FakeResponse:
+        def json(self): return fake_data
+    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: FakeResponse())
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2?page=1&pageSize=10&sortBy=changePct&sortDir=desc")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 4596
+    assert data["page"] == 1
+    assert len(data["rows"]) == 1
+
+
+def _strategy_bars(count=60, start=100.0):
+    """构造用于策略回测测试的确定性日线序列。"""
+    bars = []
+    for i in range(count):
+        progress = i / max(1, count - 1)
+        if progress < 0.4:
+            factor = 1 - (progress / 0.4) * 0.3
+        elif progress < 0.7:
+            factor = 0.7 + ((progress - 0.4) / 0.3) * 0.6
+        else:
+            factor = 1.3 - ((progress - 0.7) / 0.3) * 0.6
+        close = round(start * factor, 2)
+        bars.append({"date": f"2026-{1 + i // 22:02d}-{1 + i % 28:02d}", "open": close, "high": close, "low": close, "close": close, "volume": 10000})
+    return bars
+
+
+def test_strategy_preview_returns_default_config(monkeypatch):
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/preview", json={"strategyType": "ma_cross", "config": {}})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["strategyType"] == "ma_cross"
+    assert data["suggestion"]["fastPeriod"] == 5
+    assert data["suggestion"]["slowPeriod"] == 20
+
+
+def test_strategy_preview_rejects_unknown_type():
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/preview", json={"strategyType": "nope", "config": {}})
+    assert resp.status_code == 422
+
+
+def test_strategy_backtest_returns_unified_shape(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30"))
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={
+            "strategyType": "ma_cross",
+            "code": "600519",
+            "config": {"fastPeriod": 5, "slowPeriod": 20},
+            "capital": 100000,
+            "feeBps": 3,
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["strategyType"] == "ma_cross"
+    assert data["metrics"]["tradeCount"] >= 0
+    assert "equityCurve" in data
+    assert "assumptions" in data
+    assert data["history"][0]["date"] == bars[0]["date"]
+
+
+def test_strategy_backtest_save_persists_strategy(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30"))
+    saved = {}
+
+    def fake_save_strategy(payload, workspace_id="default"):
+        saved["id"] = payload["id"]
+        saved["code"] = payload["code"]
+        saved["strategyType"] = payload["strategyType"]
+        return {**payload, "id": payload["id"]}
+
+    def fake_save_backtest(strategy_id, code, strategy_type, config, result, workspace_id="default"):
+        saved["metrics"] = result["metrics"]
+
+    def fake_get_strategy(strategy_id):
+        return {"id": strategy_id, "code": "600519", "strategyType": "ma_cross", "status": "启用"}
+
+    monkeypatch.setattr(app_module, "save_strategy", fake_save_strategy)
+    monkeypatch.setattr(app_module, "save_strategy_backtest", fake_save_backtest)
+    monkeypatch.setattr(app_module, "get_strategy", fake_get_strategy)
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={
+            "strategyType": "dca",
+            "code": "600519",
+            "name": "茅台定投",
+            "config": {"amountPerPeriod": 5000, "intervalDays": 5, "stopProfitPct": 20, "stopLossPct": 15},
+            "capital": 100000,
+            "schedule": "manual",
+            "save": True,
+        })
+    assert resp.status_code == 200
+    assert saved["code"] == "600519"
+    assert saved["strategyType"] == "dca"
+    assert "metrics" in saved
+
+
+def test_strategy_backtest_falls_back_to_local_cache(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "local", "2026-08-29"))
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={
+            "strategyType": "macd",
+            "code": "600519",
+            "config": {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9},
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["dataSource"] == "local"
