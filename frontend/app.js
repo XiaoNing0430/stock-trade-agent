@@ -1167,6 +1167,7 @@ createApp({
       deleteGridStrategy,
       draftDirty,
       filters,
+      screenRows,
       screenTotal,
       filteredRows,
       presetName,
