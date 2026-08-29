@@ -3694,3 +3694,60 @@ textarea:focus-visible {
   background: var(--gold-soft);
   color: var(--gold);
 }
+
+.screener-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.screener-tab {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+
+.screener-tab:hover {
+  border-color: var(--coral);
+  color: var(--coral-dark);
+}
+
+.screener-tab.is-active {
+  border-color: var(--coral);
+  color: var(--coral-dark);
+  background: var(--coral-soft);
+}
+
+.screener-sort {
+  cursor: pointer;
+  user-select: none;
+}
+
+.screener-sort:hover {
+  color: var(--coral);
+}
+
+.sort-arrow {
+  font-size: 10px;
+  color: var(--coral);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
