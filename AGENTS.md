@@ -10,7 +10,7 @@ UI copy is Chinese. Keep new user-facing strings in Chinese unless a task says o
 
 ## Tech Stack
 
-- **Frontend:** Vue 3 (global build, `vue.global.prod.js`), no bundler, no npm build step. Served as static files by FastAPI.
+- **Frontend:** Vue 3 (global build, `vue.global.prod.js`), no bundler, no npm build step. App code uses **ES modules** (browser `type="module"`; `package.json` has `"type":"module"` for `node --check`). Served as static files by FastAPI.
 - **Backend:** Python / FastAPI, SQLAlchemy 2.0 (PostgreSQL), Redis (reserved / status ping only), APScheduler (grid backtest scheduling), requests (external quote API).
 - **Data source:** Tencent public quote API (`qt.gtimg.cn`, `web.ifzq.gtimg.cn`). Only data source currently integrated.
 - **Config:** `.env` (git-ignored) sourced from `.env.example`.
@@ -29,7 +29,8 @@ backend/
   settings.py             pydantic-settings; env (POSTGRES_*, REDIS_*, TUSHARE_TOKEN)
 frontend/
   index.html              Vue template (single file, all views inline)
-  app.js                  Vue app setup + all logic (~1200 lines, no build)
+  app.js                  Vue app setup + all logic (ES module; imports helpers from modules/) 
+  modules/                ES modules: constants.js / format.js / chart.js (pure helpers, no build)
   styles.css              All styling (single file, CSS variables)
   vendor/                 Vendored vue.global.prod.js + lucide.min.js (no CDN)
 tests/

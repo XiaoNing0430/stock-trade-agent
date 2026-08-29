@@ -1,3 +1,7 @@
+import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META } from './modules/constants.js';
+import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
+import { chartSvg, compareChartSvg } from './modules/chart.js';
+
 const {
   createApp,
   ref,
@@ -9,235 +13,12 @@ const {
   nextTick
 } = Vue;
 
-const STORAGE_KEY = 'atlas-stock-desk-v2';
-const DEFAULT_WATCHLIST = ['600519', '300750', '601318', '600036', '000858', '002594'];
-const DEFAULT_FILTERS = {
-  exchange: '全部',
-  market: '全部',
-  search: '',
-  peMax: 80,
-  pbMax: 12,
-  volumeMin: 1.2,
-  changeMin: 1
-};
-const DEFAULT_ALERTS = [
-  {
-    id: 'alert-connection',
-    kind: 'info',
-    title: '真实行情连接已就绪',
-    message: '报价、指数和日线由本地行情代理实时拉取。',
-    time: '刚刚',
-    read: false
-  }
-];
-
-const PRESETS = [
-  {
-    name: '趋势突破',
-    icon: 'trending-up',
-    iconClass: 'preset-icon-coral',
-    description: '放量、强势、价格向上',
-    filters: { peMax: 80, pbMax: 12, volumeMin: 1.2, changeMin: 1 }
-  },
-  {
-    name: '质量成长',
-    icon: 'gem',
-    iconClass: 'preset-icon-blue',
-    description: '估值适中、量能稳定',
-    filters: { peMax: 55, pbMax: 8, volumeMin: 0.8, changeMin: -2 }
-  },
-  {
-    name: '低估修复',
-    icon: 'scale',
-    iconClass: 'preset-icon-gold',
-    description: '低 PE、低 PB、等待修复',
-    filters: { peMax: 22, pbMax: 3, volumeMin: 0.5, changeMin: -3 }
-  }
-];
-
-const NAV_ITEMS = [
-  { id: 'overview', label: '总览', icon: 'layout-dashboard' },
-  { id: 'screener', label: '选股器', icon: 'scan-search' },
-  { id: 'grid', label: '网格策略', icon: 'grid-3x3' },
-  { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
-  { id: 'monitor', label: '盯盘中心', icon: 'radar' },
-  { id: 'settings', label: '设置', icon: 'settings-2' }
-];
-
-const VIEW_META = {
-  overview: ['交易总览', '把真实行情、计划与提醒放在同一张桌面上'],
-  screener: ['选股器', '从实时市场数据里筛出值得研究的标的'],
-  grid: ['网格策略', '用历史波动生成网格，并以回测结果校验参数'],
-  plans: ['交易计划', '把想法写成可以执行的规则'],
-  monitor: ['盯盘中心', '真实报价触发计划条件时，提醒会出现在这里'],
-  settings: ['网站设置', '管理工作区、数据获取和数据源连接状态']
-};
-
 function loadStorage() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   } catch (error) {
     return {};
   }
-}
-
-function formatNumber(value, digits = 2) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
-  return Number(value).toLocaleString('zh-CN', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits
-  });
-}
-
-function formatPct(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
-  return `${value >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`;
-}
-
-function formatTime(timestamp) {
-  if (!timestamp) return '--:--:--';
-  return new Date(timestamp).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-}
-
-function formatDateLabel(timestamp) {
-  if (!timestamp) return '尚未更新';
-  return `更新于 ${formatTime(timestamp)}`;
-}
-
-function formatAmount(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
-  const amount = Number(value);
-  if (amount >= 100000000) return `${(amount / 100000000).toFixed(2)} 亿`;
-  if (amount >= 10000) return `${(amount / 10000).toFixed(2)} 万`;
-  return `${Math.round(amount).toLocaleString()} 元`;
-}
-
-function validityExpiry(createdAtMs, validity) {
-  if (!createdAtMs) return null;
-  const base = new Date(createdAtMs);
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  const date = base.getDate();
-  let end;
-  if (validity === '本月内') {
-    end = new Date(year, month + 1, 0, 23, 59, 59, 999);
-  } else if (validity === '本周内') {
-    // ISO week ends on Sunday; Monday is the first day of the week.
-    const dayOfWeek = base.getDay();
-    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-    end = new Date(year, month, date + daysUntilSunday, 23, 59, 59, 999);
-  } else {
-    // Default (今日) and any unknown validity: end of the creation day.
-    end = new Date(year, month, date, 23, 59, 59, 999);
-  }
-  return end.getTime();
-}
-
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[char]));
-}
-
-function trendClass(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'trend-flat';
-  return Number(value) >= 0 ? 'trend-up' : 'trend-down';
-}
-
-function chartSvg(points, accent, label) {
-  if (!Array.isArray(points) || points.length < 2) {
-    return '<div class="chart-empty">暂无足够的日线数据</div>';
-  }
-  const width = 640;
-  const height = 150;
-  const pad = { top: 12, right: 12, bottom: 24, left: 12 };
-  const innerWidth = width - pad.left - pad.right;
-  const innerHeight = height - pad.top - pad.bottom;
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min || 1;
-  const coords = points.map((value, index) => {
-    const x = pad.left + (index / (points.length - 1)) * innerWidth;
-    const y = pad.top + (1 - (value - min) / range) * innerHeight;
-    return [x, y];
-  });
-  const linePath = coords
-    .map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`)
-    .join(' ');
-  const areaPath = `${linePath} L ${coords[coords.length - 1][0].toFixed(1)} ${height - pad.bottom} L ${coords[0][0].toFixed(1)} ${height - pad.bottom} Z`;
-  const grid = [0.22, 0.5, 0.78]
-    .map((ratio) => {
-      const y = pad.top + innerHeight * ratio;
-      return `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}"></line>`;
-    })
-    .join('');
-  const labels = ['较早', '中段', '最新'];
-  const labelMarkup = labels
-    .map((text, index) => {
-      const x = pad.left + (index / (labels.length - 1)) * innerWidth;
-      const anchor = index === 0 ? 'start' : index === labels.length - 1 ? 'end' : 'middle';
-      return `<text class="chart-axis-label" x="${x.toFixed(1)}" y="${height - 5}" text-anchor="${anchor}">${text}</text>`;
-    })
-    .join('');
-  const last = coords[coords.length - 1];
-  const safeLabel = escapeHtml(label);
-  return `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${safeLabel}">
-      <title>${safeLabel}</title>
-      ${grid}
-      <path class="chart-area" style="fill:${accent}16" d="${areaPath}"></path>
-      <path class="chart-line" style="stroke:${accent}" d="${linePath}"></path>
-      <circle class="chart-dot" style="stroke:${accent}" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4"></circle>
-      ${labelMarkup}
-    </svg>
-  `;
-}
-
-function compareChartSvg(result) {
-  const strategy = (result?.equityCurve || []).map((point) => Number(point.equity));
-  const benchmark = (result?.benchmarkCurve || []).map((point) => Number(point.equity));
-  if (strategy.length < 2 || benchmark.length < 2) {
-    return '<div class="chart-empty">暂无足够的权益数据</div>';
-  }
-  const width = 640;
-  const height = 150;
-  const pad = { top: 12, right: 12, bottom: 24, left: 12 };
-  const innerWidth = width - pad.left - pad.right;
-  const innerHeight = height - pad.top - pad.bottom;
-  const all = [...strategy, ...benchmark];
-  const min = Math.min(...all);
-  const max = Math.max(...all);
-  const range = max - min || 1;
-  const pathFor = (values) => values.map((value, index) => {
-    const x = pad.left + (index / (values.length - 1)) * innerWidth;
-    const y = pad.top + (1 - (value - min) / range) * innerHeight;
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-  const grid = [0.25, 0.5, 0.75].map((ratio) => {
-    const y = pad.top + innerHeight * ratio;
-    return `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}"></line>`;
-  }).join('');
-  const label = escapeHtml('网格策略与持有基准的归一化权益对比');
-  return `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${label}">
-      <title>${label}</title>
-      ${grid}
-      <path class="chart-line chart-line-benchmark" style="stroke:#9aa7bd" d="${pathFor(benchmark)}"></path>
-      <path class="chart-line chart-line-strategy" style="stroke:#ef6d53" d="${pathFor(strategy)}"></path>
-    </svg>
-    <div class="chart-legend">
-      <span><i class="legend-line legend-line-strategy"></i>网格策略</span>
-      <span><i class="legend-line legend-line-benchmark"></i>持有基准</span>
-    </div>
-  `;
 }
 
 createApp({
@@ -1130,19 +911,6 @@ createApp({
       if (window.lucide) {
         window.lucide.createIcons({ attrs: { width: 16, height: 16, 'stroke-width': 1.8 } });
       }
-    }
-
-    function formatNullable(value, digits = 2) {
-      return formatNumber(value, digits);
-    }
-
-    function formatPctNullable(value) {
-      return formatPct(value);
-    }
-
-    function formatMoney(value) {
-      if (value === null || value === undefined || Number.isNaN(Number(value))) return '¥0';
-      return `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`;
     }
 
     watch(() => [filters.exchange, filters.market], () => {
