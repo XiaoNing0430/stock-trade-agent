@@ -1,4 +1,4 @@
-from backend.grid_strategy import backtest_grid, build_grid, suggest_grid, optimize_grid
+from backend.grid_strategy import backtest_grid, build_grid, suggest_grid, optimize_grid, buy_and_hold_benchmark
 
 
 def sample_bars():
@@ -100,4 +100,47 @@ def test_optimize_grid_returns_ranked_candidates():
 
     assert len(candidates) >= 3
     assert "inSampleMetrics" in candidates[0]
-    assert candidates[0]["metrics"]["endEquity"] >= candidates[-1]["metrics"]["endEquity"]
+    assert "metrics" in candidates[0]
+    assert "flag" in candidates[0]
+    assert "recommended" in candidates[0]
+    # Ranking: validation excess return descending.
+    excess = [c["metrics"]["excessReturnPct"] for c in candidates]
+    assert excess == sorted(excess, reverse=True)
+    # With the 3-bar validation window the sample-out is too short.
+    assert candidates[0]["flag"] == "样本外过短"
+
+
+def test_backtest_exposes_benchmark_and_risk_metrics():
+    result = backtest_grid(sample_bars(), 8, 12, 4, 100000, fee_bps=3)
+    metrics = result["metrics"]
+
+    assert "benchmarkReturnPct" in metrics
+    assert "excessReturnPct" in metrics
+    assert "totalFees" in metrics
+    assert "turnoverMultiple" in metrics
+    assert metrics["excessReturnPct"] is not None
+    assert "sharpeRatio" in metrics
+    assert "annualizedVolatilityPct" in metrics
+    assert result["equityCurve"]
+    assert result["benchmarkCurve"]
+    assert len(result["equityCurve"]) == len(result["benchmarkCurve"])
+
+
+def test_short_sample_returns_null_risk_metrics():
+    result = backtest_grid(sample_bars()[:2], 8, 12, 4, 100000)
+
+    assert result["metrics"]["annualizedVolatilityPct"] is None
+    assert result["metrics"]["sharpeRatio"] is None
+
+
+def test_buy_and_hold_benchmark_buys_lots_and_charges_fee():
+    bars = [
+        {"date": "2026-01-02", "close": 10, "high": 10, "low": 10},
+        {"date": "2026-01-03", "close": 12, "high": 12, "low": 12},
+    ]
+
+    benchmark = buy_and_hold_benchmark(bars, capital=100000, fee_bps=3)
+
+    assert benchmark["endEquity"] > 100000
+    assert benchmark["returnPct"] > 0
+    assert len(benchmark["curve"]) == 2

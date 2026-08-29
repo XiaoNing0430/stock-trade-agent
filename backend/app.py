@@ -10,7 +10,7 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.data_source import classify_code, load_history, load_market, load_screener, price_limit_ratio
+from backend.data_source import apply_runtime_config, classify_code, load_history, load_market, load_screener, price_limit_ratio
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
@@ -43,6 +43,16 @@ def create_app() -> FastAPI:
         except Exception as exc:
             app.state.storage_ready = False
             app.state.storage_error = str(exc)
+        if app.state.storage_ready:
+            try:
+                applied = get_workspace_settings("default")
+                apply_runtime_config(
+                    timeout_seconds=applied.get("timeoutSeconds"),
+                    retry_count=applied.get("retryCount"),
+                    cache_seconds=applied.get("cacheSeconds"),
+                )
+            except Exception:
+                pass
         yield
         stop_scheduler()
 
@@ -92,7 +102,13 @@ def create_app() -> FastAPI:
     @app.put("/api/settings")
     def update_settings(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
         try:
-            return {"data": save_workspace_settings(payload, workspace_id)}
+            saved = save_workspace_settings(payload, workspace_id)
+            apply_runtime_config(
+                timeout_seconds=saved.get("timeoutSeconds"),
+                retry_count=saved.get("retryCount"),
+                cache_seconds=saved.get("cacheSeconds"),
+            )
+            return {"data": saved}
         except Exception as exc:
             raise HTTPException(status_code=422, detail={"error": f"设置保存失败: {exc}"}) from exc
 
@@ -104,13 +120,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
 
     @app.get("/api/history")
-    def history(code: str = Query(default="600519")):
+    def history(code: str = Query(default="600519"), index: bool = Query(default=False)):
         try:
             return {
                 "code": code,
                 "provider": "Tencent public quote API",
                 "fetchedAt": int(time.time() * 1000),
-                "history": load_history(code),
+                "history": load_history(code, is_index=index),
             }
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})

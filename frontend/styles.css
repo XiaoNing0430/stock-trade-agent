@@ -2394,6 +2394,61 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.grid-metrics-secondary {
+  margin-top: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid-equity-chart {
+  margin-top: 10px;
+}
+
+.grid-equity-chart .chart-svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+}
+
+.chart-line-strategy {
+  stroke-width: 2px;
+}
+
+.chart-line-benchmark {
+  stroke-width: 1.8px;
+  stroke-dasharray: 5 4;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.legend-line {
+  width: 16px;
+  height: 0;
+  border-top: 2px solid;
+  display: inline-block;
+}
+
+.legend-line-strategy {
+  border-color: #ef6d53;
+}
+
+.legend-line-benchmark {
+  border-color: #9aa7bd;
+}
+
 .grid-levels {
   display: flex;
   flex-wrap: wrap;

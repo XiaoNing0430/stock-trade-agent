@@ -186,6 +186,7 @@ def _plan_dict(plan: TradePlan) -> dict[str, Any]:
         "status": plan.status,
         "triggered": plan.triggered or {},
         "createdAt": plan.created_at.astimezone().strftime("%H:%M"),
+        "createdAtMs": int(plan.created_at.timestamp() * 1000),
     }
 
 
