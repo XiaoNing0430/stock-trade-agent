@@ -2291,7 +2291,8 @@ textarea:focus-visible {
 
 .monitor-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.8fr);
+  /* 提醒队列已迁入个人中心，盯盘列表独占整行 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
