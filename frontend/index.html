@@ -575,7 +575,7 @@
             <section v-if="settingsTab === 'data'" class="surface settings-row"><div><strong>实时行情来源</strong><span>当前仅腾讯公开行情提供实时 A 股报价</span></div><select v-model="settingsDraft.realtimeSource" aria-label="实时行情来源"><option value="tencent">腾讯公开行情</option></select></section>
             <section v-if="settingsTab === 'data'" class="surface settings-row"><div><strong>历史日线来源</strong><span>用于走势和网格回测</span></div><select v-model="settingsDraft.historySource" aria-label="历史日线来源"><option value="tencent">腾讯公开行情</option><option value="akshare" disabled>AkShare（待安装）</option><option value="tushare" disabled>Tushare（待配置 Token）</option></select></section>
             <section v-if="settingsTab === 'data'" class="surface settings-row"><div><strong>选股指标来源</strong><span>用于候选池估值和量价指标</span></div><select v-model="settingsDraft.screenerSource" aria-label="选股指标来源"><option value="tencent">腾讯公开行情</option><option value="akshare" disabled>AkShare（待安装）</option><option value="tushare" disabled>Tushare（待配置 Token）</option></select></section>
-            <section v-if="settingsTab === 'connection'" v-for="source in dataSources" :key="source.id" class="surface settings-row"><div><strong>{{ source.name }}</strong><span>{{ source.available ? '连接可用' : source.reason || '暂不可用' }}</span></div><span :class="['setting-status', { 'setting-status-muted': !source.available }]">{{ source.available ? '可用' : source.tushareConfigured ? '待安装' : '未配置' }}</span></section>
+            <template v-if="settingsTab === 'connection'"><section v-for="source in dataSources" :key="source.id" class="surface settings-row"><div><strong>{{ source.name }}</strong><span>{{ source.available ? '连接可用' : source.reason || '暂不可用' }}</span></div><span :class="['setting-status', { 'setting-status-muted': !source.available }]">{{ source.available ? '可用' : source.tushareConfigured ? '待安装' : '未配置' }}</span></section></template>
           </div>
         </section>
 
@@ -596,6 +596,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/assets/app.js?v=20260809-3"></script>
+  <script type="module" src="/assets/app.js?v=20260829-1"></script>
 </body>
 </html>
