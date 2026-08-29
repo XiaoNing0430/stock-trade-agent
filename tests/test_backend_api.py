@@ -542,3 +542,110 @@ def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
     assert data["total"] == 4596
     assert data["page"] == 1
     assert len(data["rows"]) == 1
+
+
+def _strategy_bars(count=60, start=100.0):
+    """构造用于策略回测测试的确定性日线序列。"""
+    bars = []
+    for i in range(count):
+        progress = i / max(1, count - 1)
+        if progress < 0.4:
+            factor = 1 - (progress / 0.4) * 0.3
+        elif progress < 0.7:
+            factor = 0.7 + ((progress - 0.4) / 0.3) * 0.6
+        else:
+            factor = 1.3 - ((progress - 0.7) / 0.3) * 0.6
+        close = round(start * factor, 2)
+        bars.append({"date": f"2026-{1 + i // 22:02d}-{1 + i % 28:02d}", "open": close, "high": close, "low": close, "close": close, "volume": 10000})
+    return bars
+
+
+def test_strategy_preview_returns_default_config(monkeypatch):
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/preview", json={"strategyType": "ma_cross", "config": {}})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["strategyType"] == "ma_cross"
+    assert data["suggestion"]["fastPeriod"] == 5
+    assert data["suggestion"]["slowPeriod"] == 20
+
+
+def test_strategy_preview_rejects_unknown_type():
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/preview", json={"strategyType": "nope", "config": {}})
+    assert resp.status_code == 422
+
+
+def test_strategy_backtest_returns_unified_shape(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30"))
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={
+            "strategyType": "ma_cross",
+            "code": "600519",
+            "config": {"fastPeriod": 5, "slowPeriod": 20},
+            "capital": 100000,
+            "feeBps": 3,
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["strategyType"] == "ma_cross"
+    assert data["metrics"]["tradeCount"] >= 0
+    assert "equityCurve" in data
+    assert "assumptions" in data
+    assert data["history"][0]["date"] == bars[0]["date"]
+
+
+def test_strategy_backtest_save_persists_strategy(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30"))
+    saved = {}
+
+    def fake_save_strategy(payload, workspace_id="default"):
+        saved["id"] = payload["id"]
+        saved["code"] = payload["code"]
+        saved["strategyType"] = payload["strategyType"]
+        return {**payload, "id": payload["id"]}
+
+    def fake_save_backtest(strategy_id, code, strategy_type, config, result, workspace_id="default"):
+        saved["metrics"] = result["metrics"]
+
+    def fake_get_strategy(strategy_id):
+        return {"id": strategy_id, "code": "600519", "strategyType": "ma_cross", "status": "启用"}
+
+    monkeypatch.setattr(app_module, "save_strategy", fake_save_strategy)
+    monkeypatch.setattr(app_module, "save_strategy_backtest", fake_save_backtest)
+    monkeypatch.setattr(app_module, "get_strategy", fake_get_strategy)
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={
+            "strategyType": "dca",
+            "code": "600519",
+            "name": "茅台定投",
+            "config": {"amountPerPeriod": 5000, "intervalDays": 5, "stopProfitPct": 20, "stopLossPct": 15},
+            "capital": 100000,
+            "schedule": "manual",
+            "save": True,
+        })
+    assert resp.status_code == 200
+    assert saved["code"] == "600519"
+    assert saved["strategyType"] == "dca"
+    assert "metrics" in saved
+
+
+def test_strategy_backtest_falls_back_to_local_cache(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "local", "2026-08-29"))
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={
+            "strategyType": "macd",
+            "code": "600519",
+            "config": {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9},
+        })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["dataSource"] == "local"

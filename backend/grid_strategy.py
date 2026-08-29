@@ -275,7 +275,7 @@ def _compute_metrics(
     metrics["avgGridReturnPct"] = round(mean(round_trip_returns) * 100, 2) if round_trip_returns else None
     metrics["medianGridReturnPct"] = round(median(round_trip_returns) * 100, 2) if round_trip_returns else None
     metrics["maxDrawdownDurationDays"] = _max_drawdown_duration(equity_curve)
-    metrics["profitFactor"] = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (None if not total_count else float("inf"))
+    metrics["profitFactor"] = round(gross_profit / gross_loss, 2) if gross_loss > 0 else None
     return metrics
 
 
