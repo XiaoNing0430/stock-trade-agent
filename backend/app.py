@@ -9,8 +9,9 @@ from uuid import uuid4
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
 
-from backend.data_source import apply_runtime_config, classify_code, load_history, load_market, load_screener, price_limit_ratio
+from backend.data_source import apply_runtime_config, classify_code, load_history, load_market, load_screener, price_limit_ratio, recent_stale
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
@@ -59,6 +60,15 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Atlas Stock Trade Agent", lifespan=lifespan)
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
+
+    @app.middleware("http")
+    async def stale_header_middleware(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            marker = recent_stale(window=2.0)
+            if marker:
+                response.headers["X-Atlas-Stale"] = f"{int(marker['age'])}"
+        return response
 
     @app.get("/api/health")
     def health():

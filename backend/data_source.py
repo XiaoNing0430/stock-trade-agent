@@ -14,6 +14,7 @@ REQUEST_HEADERS = {
     "Referer": "https://gu.qq.com/",
 }
 CACHE_TTL = 8
+STALE_MAX_AGE = 1800  # 30 分钟硬顶：超龄缓存不再降级
 _cache_ttl: int = CACHE_TTL
 _timeout_seconds: int = 10
 _retry_count: int = 1
@@ -29,6 +30,21 @@ REAL_UNIVERSE = [
 
 cache: dict[str, tuple[float, Any]] = {}
 cache_lock = threading.Lock()
+stale_marker: dict[str, float] = {"at": 0.0, "age": 0.0}
+
+
+def mark_stale(age: float) -> None:
+    with cache_lock:
+        stale_marker["at"] = time.time()
+        stale_marker["age"] = age
+
+
+def recent_stale(window: float = 2.0) -> dict[str, float] | None:
+    """窗口内是否发生过降级服务；返回 {age: 秒} 或 None。"""
+    with cache_lock:
+        if time.time() - stale_marker["at"] <= window:
+            return {"age": stale_marker["age"]}
+    return None
 
 
 def apply_runtime_config(timeout_seconds: int | None = None, retry_count: int | None = None, cache_seconds: int | None = None) -> None:
@@ -48,7 +64,15 @@ def cached(key: str, loader):
         item = cache.get(key)
         if item and now - item[0] < _cache_ttl:
             return item[1]
-    value = loader()
+    try:
+        value = loader()
+    except Exception:
+        with cache_lock:
+            item = cache.get(key)
+        if item and now - item[0] <= STALE_MAX_AGE:
+            mark_stale(now - item[0])
+            return item[1]
+        raise
     with cache_lock:
         cache[key] = (now, value)
     return value
