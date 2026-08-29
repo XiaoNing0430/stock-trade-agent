@@ -384,37 +384,48 @@ createApp({
       }
     }
 
+    let refreshInFlight = false;
+
     async function refreshAll(options = {}) {
       const silent = Boolean(options.silent);
+      if (refreshInFlight) {
+        // 已有刷新进行中：定时轮询直接跳过，避免慢网络下请求堆积。
+        if (silent) return;
+      }
       if (!silent) loading.value = true;
-      errorMessage.value = '';
-      const tasks = [fetchMarket(), fetchScreener()];
-      const now = Date.now();
-      if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
-        tasks.push(fetchHistory('000001', 'index'));
+      refreshInFlight = true;
+      try {
+        errorMessage.value = '';
+        const tasks = [fetchMarket(), fetchScreener()];
+        const now = Date.now();
+        if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
+          tasks.push(fetchHistory('000001', 'index'));
+        }
+        if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
+          tasks.push(fetchHistory(selectedCode.value, 'selected'));
+        }
+        const results = await Promise.allSettled(tasks);
+        const failures = results.filter((result) => result.status === 'rejected');
+        if (failures.length && !market.quotes.length && !screenRows.value.length) {
+          dataState.value = 'error';
+          errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
+        } else if (failures.length) {
+          dataState.value = 'stale';
+          errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
+        } else {
+          dataState.value = 'live';
+        }
+        if (market.errors.length && !errorMessage.value) {
+          errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
+        }
+        expirePlans();
+        if (failures.length === 0) persist();
+      } finally {
+        refreshInFlight = false;
+        loading.value = false;
+        await nextTick();
+        renderIcons();
       }
-      if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
-        tasks.push(fetchHistory(selectedCode.value, 'selected'));
-      }
-      const results = await Promise.allSettled(tasks);
-      const failures = results.filter((result) => result.status === 'rejected');
-      if (failures.length && !market.quotes.length && !screenRows.value.length) {
-        dataState.value = 'error';
-        errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
-      } else if (failures.length) {
-        dataState.value = 'stale';
-        errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
-      } else {
-        dataState.value = 'live';
-      }
-      if (market.errors.length && !errorMessage.value) {
-        errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
-      }
-      expirePlans();
-      if (failures.length === 0) persist();
-      loading.value = false;
-      await nextTick();
-      renderIcons();
     }
 
     async function ensureQuote(code) {
