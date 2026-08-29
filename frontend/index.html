@@ -468,7 +468,12 @@
           </div>
         </section>
 
-        <section v-else-if="view === 'plans'" class="view-panel is-active">
+        <section v-else-if="view === 'exec'" class="mobile-exec-tabs" role="tablist" aria-label="执行分组">
+          <button type="button" role="tab" :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'plans' }]" :aria-selected="mobileExecTab === 'plans'" @click="mobileExecTab = 'plans'">交易计划</button>
+          <button type="button" role="tab" :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'alerts' }]" :aria-selected="mobileExecTab === 'alerts'" @click="mobileExecTab = 'alerts'">盯盘提醒</button>
+        </section>
+
+        <section v-else-if="view === 'plans' || execShowsPlans" class="view-panel is-active">
           <div class="view-heading">
             <div><span class="section-kicker">TRADE PLAN</span><h2>把想法写成可以执行的规则</h2><p class="heading-note">一份计划至少要有入场、止损、目标和仓位。</p></div>
             <div class="view-heading-actions"><span class="plan-count"><strong>{{ activePlans.length }}</strong> 份执行中</span><button class="button button-secondary" type="button" @click="switchView('monitor')"><i data-lucide="radar" aria-hidden="true"></i>去盯盘</button></div>
@@ -511,7 +516,7 @@
           </div>
         </section>
 
-        <section v-else-if="view === 'monitor'" class="view-panel is-active">
+        <section v-else-if="view === 'monitor' || execShowsAlerts" class="view-panel is-active">
           <div class="view-heading">
             <div><span class="section-kicker">MONITORING CENTER</span><h2>盯住规则，不盯住情绪</h2><p class="heading-note">真实报价触发计划条件时，提醒会出现在这里。</p></div>
             <div class="view-heading-actions"><div class="monitor-toggle-wrap"><span class="toggle-label" :style="{ color: hasWatchTargets && monitorEnabled ? 'var(--green)' : 'var(--muted)' }">{{ monitorStatusLabel }}</span><label class="toggle"><input v-model="monitorEnabled" type="checkbox"><span class="toggle-track"><span></span></span></label></div><button v-if="hasWatchTargets" class="button button-secondary" type="button" @click="scanNow"><i data-lucide="radar" aria-hidden="true"></i>立即扫描</button><button v-else class="button button-primary" type="button" @click="switchView('screener')"><i data-lucide="scan-search" aria-hidden="true"></i>添加标的</button></div>
@@ -577,6 +582,14 @@
         </footer>
       </div>
     </main>
+
+    <nav class="bottom-nav" aria-label="手机端主导航">
+      <button type="button" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span></button>
+      <button type="button" :class="{ 'is-active': view === 'screener' }" @click="switchView('screener')"><i data-lucide="scan-search" aria-hidden="true"></i><span>选股</span></button>
+      <button type="button" :class="{ 'is-active': view === 'grid' }" @click="switchView('grid')"><i data-lucide="grid-3x3" aria-hidden="true"></i><span>网格</span></button>
+      <button type="button" :class="{ 'is-active': view === 'exec' }" @click="switchView('exec')"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>执行</span><em v-if="unreadAlerts" class="nav-count">{{ unreadAlerts }}</em></button>
+      <button type="button" :class="{ 'is-active': view === 'settings' }" @click="switchView('settings')"><i data-lucide="settings-2" aria-hidden="true"></i><span>更多</span></button>
+    </nav>
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>

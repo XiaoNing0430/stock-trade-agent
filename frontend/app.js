@@ -104,6 +104,10 @@ createApp({
       ];
       return parts.join(' · ');
     });
+
+    const mobileExecTab = ref('plans');
+    const execShowsPlans = computed(() => view.value === 'exec' && mobileExecTab.value === 'plans');
+    const execShowsAlerts = computed(() => view.value === 'exec' && mobileExecTab.value === 'alerts');
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -1130,6 +1134,9 @@ createApp({
       strategyStats,
       riskStats,
       gridProvenance,
+      mobileExecTab,
+      execShowsPlans,
+      execShowsAlerts,
       conflictVisible,
       adoptServerWorkspace,
       forceSaveWorkspace,
