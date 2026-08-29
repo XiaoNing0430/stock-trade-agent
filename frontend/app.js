@@ -339,8 +339,9 @@ createApp({
     });
     const monitorNextScan = computed(() => {
       if (!hasWatchTargets.value) return '尚未开始';
-      return monitorEnabled.value ? '15 秒' : '已暂停';
+      return monitorEnabled.value ? `${settingsDraft.refreshInterval} 秒` : '已暂停';
     });
+    const refreshIntervalLabel = computed(() => `${settingsDraft.refreshInterval} 秒`);
     const planOptions = computed(() => {
       const map = new Map();
       [...market.quotes, ...screenRows.value, ...watchlistQuotes.value].forEach((stock) => {
@@ -496,6 +497,7 @@ createApp({
         const payload = await requestJson('/api/settings', { method: 'PUT', body: JSON.stringify(settingsDraft) });
         Object.assign(settingsDraft, payload.data || {});
         monitorEnabled.value = settingsDraft.monitorEnabled;
+        armRefreshTimer();
         showToast('网站设置已保存');
         await refreshAll();
       } catch (error) {
@@ -1115,6 +1117,14 @@ createApp({
       showToast(monitorStatusLabel.value);
     });
 
+    function armRefreshTimer() {
+      clearInterval(refreshTimer.value);
+      const intervalSeconds = Math.max(5, Number(settingsDraft.refreshInterval) || 15);
+      refreshTimer.value = setInterval(() => {
+        if (monitorEnabled.value && hasWatchTargets.value) refreshAll({ silent: true });
+      }, intervalSeconds * 1000);
+    }
+
     onMounted(async () => {
       await loadWorkspace();
       await loadSettings();
@@ -1124,9 +1134,7 @@ createApp({
       await refreshAll();
       await restoreGridSuggestion();
       renderIcons();
-      refreshTimer.value = setInterval(() => {
-        if (monitorEnabled.value && hasWatchTargets.value) refreshAll({ silent: true });
-      }, 15000);
+      armRefreshTimer();
       document.addEventListener('keydown', (event) => {
         if (event.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
           event.preventDefault();
@@ -1196,6 +1204,7 @@ createApp({
       fetchedLabel,
       screenerUpdatedLabel,
       todayLabel,
+      refreshIntervalLabel,
       breadth,
       planOptions,
       planMetrics,

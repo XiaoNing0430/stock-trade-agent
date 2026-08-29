@@ -223,3 +223,53 @@ def test_root_serves_vue_frontend():
 
     assert response.status_code == 200
     assert "/assets/app.js" in response.text
+
+
+def test_apply_runtime_config_feeds_timeout_into_fetch(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(data_source.requests, "get", fake_get)
+    data_source.apply_runtime_config(timeout_seconds=7)
+    try:
+        data_source.fetch_json("https://example.test", {})
+    finally:
+        data_source.apply_runtime_config(timeout_seconds=10)
+    assert captured["timeout"] == 7
+
+
+def test_fetch_retries_and_backs_off(monkeypatch):
+    calls = {"n": 0}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise data_source.requests.ConnectionError("boom")
+        return FakeResponse()
+
+    monkeypatch.setattr(data_source.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(data_source.requests, "get", fake_get)
+    data_source.apply_runtime_config(retry_count=1)
+    try:
+        result = data_source.fetch_json("https://example.test", {})
+    finally:
+        data_source.apply_runtime_config(retry_count=1)
+    assert result == {"ok": True}
+    assert calls["n"] == 2
