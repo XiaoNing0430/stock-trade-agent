@@ -12,6 +12,13 @@
 </head>
 <body>
   <div id="app" v-cloak class="app-shell">
+    <div v-if="conflictVisible" class="conflict-banner" role="alert">
+      <i data-lucide="triangle-alert" aria-hidden="true"></i>
+      <span>检测到其他页面更新了工作区数据</span>
+      <button class="button button-secondary" type="button" @click="adoptServerWorkspace">采用服务器版本</button>
+      <button class="button button-primary" type="button" @click="forceSaveWorkspace">用本地覆盖</button>
+      <button class="icon-button" type="button" aria-label="忽略冲突提示" @click="conflictVisible = false"><i data-lucide="x" aria-hidden="true"></i></button>
+    </div>
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">A</div>

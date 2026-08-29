@@ -48,6 +48,9 @@ createApp({
     const refreshTimer = ref(null);
     const lastToastTimer = ref(null);
     const workspaceSynced = ref(false);
+    const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
+    const conflictVisible = ref(false);
+    const conflictSnapshot = ref(null);
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -231,6 +234,7 @@ createApp({
           plans: plans.value,
           alerts: alerts.value,
           monitorEnabled: monitorEnabled.value,
+          workspaceRevision: workspaceRevision.value,
           filters: { ...filters },
           marketCache: {
             provider: market.provider,
@@ -253,7 +257,10 @@ createApp({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
+        const error = new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
       }
       return payload;
     }
@@ -280,12 +287,17 @@ createApp({
       workspaceSyncTimer.value = setTimeout(async () => {
         workspaceSyncInFlight = true;
         try {
-          await requestJson('/api/workspace', {
+          await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
             method: 'PUT',
             body: JSON.stringify(workspacePayload())
           });
         } catch (error) {
-          // Browser storage remains a fallback while the persistence service reconnects.
+          if (error.status === 409 && error.payload?.detail?.workspace) {
+            // 版本冲突不自动重试，交给用户在横幅中决策，避免覆盖任何一端数据。
+            workspaceSyncQueued = false;
+            showConflictBanner(error.payload.detail.workspace);
+          }
+          // 其余失败仍静默降级：浏览器存储兜底，等待持久化服务恢复。
         } finally {
           workspaceSyncInFlight = false;
           if (workspaceSyncQueued) {
@@ -296,9 +308,43 @@ createApp({
       }, 350);
     }
 
+    function showConflictBanner(snapshot) {
+      conflictSnapshot.value = snapshot;
+      conflictVisible.value = true;
+      showToast('其他页面已更新工作区数据，请选择保留哪一版', 'error');
+    }
+
+    async function adoptServerWorkspace() {
+      const snapshot = conflictSnapshot.value;
+      conflictVisible.value = false;
+      if (!snapshot) return;
+      watchlistCodes.value = snapshot.watchlist || [];
+      plans.value = snapshot.plans || [];
+      alerts.value = snapshot.alerts || [];
+      workspaceRevision.value = Number(snapshot.revision || 0);
+      persist();
+      showToast('已采用服务器最新数据');
+    }
+
+    async function forceSaveWorkspace() {
+      conflictVisible.value = false;
+      try {
+        const saved = await requestJson('/api/workspace?force=true', {
+          method: 'PUT',
+          body: JSON.stringify(workspacePayload())
+        });
+        workspaceRevision.value = Number(saved.revision || 0);
+        persist();
+        showToast('已用本地数据覆盖服务器');
+      } catch (error) {
+        showToast(error.message || '覆盖失败', 'error');
+      }
+    }
+
     async function loadWorkspace() {
       try {
         const remote = await requestJson('/api/workspace');
+        workspaceRevision.value = Number(remote.revision || 0);
         const hasRemoteData = (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
         if (hasRemoteData) {
           watchlistCodes.value = remote.watchlist || [];
@@ -1006,6 +1052,9 @@ createApp({
       alerts,
       unreadAlerts,
       monitorEnabled,
+      conflictVisible,
+      adoptServerWorkspace,
+      forceSaveWorkspace,
       settingsDraft,
       dataSources,
       settingsLoading,
