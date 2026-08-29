@@ -28,6 +28,7 @@ createApp({
     const loading = ref(false);
     const globalSearch = ref('');
     const dataState = ref('connecting');
+    const serverStaleAge = ref(null);
     const errorMessage = ref('');
     const selectedCode = ref(saved.selectedCode || DEFAULT_WATCHLIST[0]);
     const selectedHistory = ref([]);
@@ -326,6 +327,10 @@ createApp({
         ...options,
         headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
       });
+      const staleHeader = response.headers.get('x-atlas-stale');
+      if (staleHeader !== null) {
+        serverStaleAge.value = Number(staleHeader);
+      }
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const error = new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
@@ -550,13 +555,18 @@ createApp({
           tasks.push(fetchHistory(selectedCode.value, 'selected'));
         }
         const results = await Promise.allSettled(tasks);
+        serverStaleAge.value = null;  // 每轮刷新重置服务端陈旧标记
         const failures = results.filter((result) => result.status === 'rejected');
-        if (failures.length && !market.quotes.length && !screenRows.value.length) {
+        if (failures.length && !market.quotes.length && !screenRows.value.length && !serverStaleAge.value) {
           dataState.value = 'error';
           errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
-        } else if (failures.length) {
+        } else if (failures.length && !serverStaleAge.value) {
           dataState.value = 'stale';
           errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
+        } else if (serverStaleAge.value !== null) {
+          dataState.value = 'stale';
+          const ageSeconds = serverStaleAge.value;
+          errorMessage.value = `行情源暂时不可用，展示服务器缓存的真实行情（约 ${ageSeconds >= 60 ? Math.round(ageSeconds / 60) + ' 分钟前' : '刚获取'}）。`;
         } else {
           dataState.value = 'live';
         }
@@ -1192,6 +1202,7 @@ createApp({
       loading,
       globalSearch,
       dataState,
+      serverStaleAge,
       errorMessage,
       selectedCode,
       selectedStock,
