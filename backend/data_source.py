@@ -297,7 +297,7 @@ def load_screener(market: str, page_size: int = 300) -> dict[str, Any]:
     rows = load_quotes(codes)
     if market != "全部":
         rows = [row for row in rows if row["market"] == market]
-    rows.sort(key=lambda row: (row["change"] is not None, row["change"] or -999), reverse=True)
+    rows.sort(key=lambda row: (row["change"] is not None, row["change"] if row["change"] is not None else -999), reverse=True)
     return {
         "total": len(rows),
         "rows": rows,

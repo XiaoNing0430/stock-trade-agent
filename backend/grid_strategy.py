@@ -111,12 +111,15 @@ def backtest_grid(
     skipped_limit_up_days = 0
     skipped_limit_down_days = 0
     skipped_suspension_days = 0
+    one_price_limit_up_days = 0
+    one_price_limit_down_days = 0
 
     for day_index, bar in enumerate(bars[1:], start=1):
         low = float(bar.get("low") or bar["close"])
         high = float(bar.get("high") or bar["close"])
         close = float(bar["close"])
-        if high <= low or (bar.get("volume") is not None and float(bar["volume"]) <= 0):
+        volume = bar.get("volume")
+        if volume is not None and float(volume) <= 0:
             skipped_suspension_days += 1
             equity_curve.append(cash + shares * close)
             previous_close = close
@@ -125,6 +128,13 @@ def backtest_grid(
         lower_limit = previous_close * (1 - price_limit_pct)
         limit_up = high >= upper_limit - 0.005
         limit_down = low <= lower_limit + 0.005
+        if high == low:
+            # 一字板：涨停只可卖、跌停只可买。既有 limit_up/limit_down 清空规则
+            # 已保证这一语义，此处只负责准确计数。
+            if limit_up:
+                one_price_limit_up_days += 1
+            elif limit_down:
+                one_price_limit_down_days += 1
         skipped_limit_up_days += int(limit_up)
         skipped_limit_down_days += int(limit_down)
         date = bar.get("date", "")
@@ -219,6 +229,8 @@ def backtest_grid(
         "skippedLimitUpDays": skipped_limit_up_days,
         "skippedLimitDownDays": skipped_limit_down_days,
         "skippedSuspensionDays": skipped_suspension_days,
+        "onePriceLimitUpDays": one_price_limit_up_days,
+        "onePriceLimitDownDays": one_price_limit_down_days,
         "benchmarkReturnPct": benchmark_return_pct,
         "excessReturnPct": excess_return_pct,
         "annualizedVolatilityPct": annualized_volatility,
@@ -233,7 +245,8 @@ def backtest_grid(
         "benchmarkCurve": benchmark["curve"],
         "metrics": metrics,
         "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
-                        f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"),
+                        f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"
+                        "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"),
     }
 
 

@@ -3321,3 +3321,25 @@ textarea:focus-visible {
     gap: 5px;
   }
 }
+
+/* Workspace conflict banner (multi-tab revision conflict) */
+.conflict-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: #16223a;
+  border: 1px solid #ef6d53;
+  color: #eef2f8;
+  box-shadow: 0 12px 32px rgba(8, 12, 22, 0.35);
+}
+
+.conflict-banner svg {
+  color: #ef6d53;
+}

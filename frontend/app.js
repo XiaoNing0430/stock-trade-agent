@@ -48,6 +48,9 @@ createApp({
     const refreshTimer = ref(null);
     const lastToastTimer = ref(null);
     const workspaceSynced = ref(false);
+    const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
+    const conflictVisible = ref(false);
+    const conflictSnapshot = ref(null);
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -231,6 +234,7 @@ createApp({
           plans: plans.value,
           alerts: alerts.value,
           monitorEnabled: monitorEnabled.value,
+          workspaceRevision: workspaceRevision.value,
           filters: { ...filters },
           marketCache: {
             provider: market.provider,
@@ -253,7 +257,10 @@ createApp({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
+        const error = new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
       }
       return payload;
     }
@@ -280,12 +287,17 @@ createApp({
       workspaceSyncTimer.value = setTimeout(async () => {
         workspaceSyncInFlight = true;
         try {
-          await requestJson('/api/workspace', {
+          await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
             method: 'PUT',
             body: JSON.stringify(workspacePayload())
           });
         } catch (error) {
-          // Browser storage remains a fallback while the persistence service reconnects.
+          if (error.status === 409 && error.payload?.detail?.workspace) {
+            // 版本冲突不自动重试，交给用户在横幅中决策，避免覆盖任何一端数据。
+            workspaceSyncQueued = false;
+            showConflictBanner(error.payload.detail.workspace);
+          }
+          // 其余失败仍静默降级：浏览器存储兜底，等待持久化服务恢复。
         } finally {
           workspaceSyncInFlight = false;
           if (workspaceSyncQueued) {
@@ -296,9 +308,43 @@ createApp({
       }, 350);
     }
 
+    function showConflictBanner(snapshot) {
+      conflictSnapshot.value = snapshot;
+      conflictVisible.value = true;
+      showToast('其他页面已更新工作区数据，请选择保留哪一版', 'error');
+    }
+
+    async function adoptServerWorkspace() {
+      const snapshot = conflictSnapshot.value;
+      conflictVisible.value = false;
+      if (!snapshot) return;
+      watchlistCodes.value = snapshot.watchlist || [];
+      plans.value = snapshot.plans || [];
+      alerts.value = snapshot.alerts || [];
+      workspaceRevision.value = Number(snapshot.revision || 0);
+      persist();
+      showToast('已采用服务器最新数据');
+    }
+
+    async function forceSaveWorkspace() {
+      conflictVisible.value = false;
+      try {
+        const saved = await requestJson('/api/workspace?force=true', {
+          method: 'PUT',
+          body: JSON.stringify(workspacePayload())
+        });
+        workspaceRevision.value = Number(saved.revision || 0);
+        persist();
+        showToast('已用本地数据覆盖服务器');
+      } catch (error) {
+        showToast(error.message || '覆盖失败', 'error');
+      }
+    }
+
     async function loadWorkspace() {
       try {
         const remote = await requestJson('/api/workspace');
+        workspaceRevision.value = Number(remote.revision || 0);
         const hasRemoteData = (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
         if (hasRemoteData) {
           watchlistCodes.value = remote.watchlist || [];
@@ -384,37 +430,48 @@ createApp({
       }
     }
 
+    let refreshInFlight = false;
+
     async function refreshAll(options = {}) {
       const silent = Boolean(options.silent);
+      if (refreshInFlight) {
+        // 已有刷新进行中：定时轮询直接跳过，避免慢网络下请求堆积。
+        if (silent) return;
+      }
       if (!silent) loading.value = true;
-      errorMessage.value = '';
-      const tasks = [fetchMarket(), fetchScreener()];
-      const now = Date.now();
-      if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
-        tasks.push(fetchHistory('000001', 'index'));
+      refreshInFlight = true;
+      try {
+        errorMessage.value = '';
+        const tasks = [fetchMarket(), fetchScreener()];
+        const now = Date.now();
+        if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
+          tasks.push(fetchHistory('000001', 'index'));
+        }
+        if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
+          tasks.push(fetchHistory(selectedCode.value, 'selected'));
+        }
+        const results = await Promise.allSettled(tasks);
+        const failures = results.filter((result) => result.status === 'rejected');
+        if (failures.length && !market.quotes.length && !screenRows.value.length) {
+          dataState.value = 'error';
+          errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
+        } else if (failures.length) {
+          dataState.value = 'stale';
+          errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
+        } else {
+          dataState.value = 'live';
+        }
+        if (market.errors.length && !errorMessage.value) {
+          errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
+        }
+        expirePlans();
+        if (failures.length === 0) persist();
+      } finally {
+        refreshInFlight = false;
+        loading.value = false;
+        await nextTick();
+        renderIcons();
       }
-      if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
-        tasks.push(fetchHistory(selectedCode.value, 'selected'));
-      }
-      const results = await Promise.allSettled(tasks);
-      const failures = results.filter((result) => result.status === 'rejected');
-      if (failures.length && !market.quotes.length && !screenRows.value.length) {
-        dataState.value = 'error';
-        errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
-      } else if (failures.length) {
-        dataState.value = 'stale';
-        errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
-      } else {
-        dataState.value = 'live';
-      }
-      if (market.errors.length && !errorMessage.value) {
-        errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
-      }
-      expirePlans();
-      if (failures.length === 0) persist();
-      loading.value = false;
-      await nextTick();
-      renderIcons();
     }
 
     async function ensureQuote(code) {
@@ -995,6 +1052,9 @@ createApp({
       alerts,
       unreadAlerts,
       monitorEnabled,
+      conflictVisible,
+      adoptServerWorkspace,
+      forceSaveWorkspace,
       settingsDraft,
       dataSources,
       settingsLoading,

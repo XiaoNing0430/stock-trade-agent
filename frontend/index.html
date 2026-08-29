@@ -12,6 +12,13 @@
 </head>
 <body>
   <div id="app" v-cloak class="app-shell">
+    <div v-if="conflictVisible" class="conflict-banner" role="alert">
+      <i data-lucide="triangle-alert" aria-hidden="true"></i>
+      <span>检测到其他页面更新了工作区数据</span>
+      <button class="button button-secondary" type="button" @click="adoptServerWorkspace">采用服务器版本</button>
+      <button class="button button-primary" type="button" @click="forceSaveWorkspace">用本地覆盖</button>
+      <button class="icon-button" type="button" aria-label="忽略冲突提示" @click="conflictVisible = false"><i data-lucide="x" aria-hidden="true"></i></button>
+    </div>
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">A</div>
@@ -514,7 +521,7 @@
                   <div class="risk-metrics"><div><span>盈亏比</span><strong>{{ planMetrics.rr.toFixed(2) }}</strong></div><div><span>预计股数</span><strong>{{ planMetrics.shares.toLocaleString() }} 股</strong></div><div><span>单笔最大风险</span><strong>{{ formatMoney(planMetrics.risk) }}</strong></div></div>
                   <div class="risk-bar"><span :style="{ width: `${Math.min(100, Math.max(8, planMetrics.rr / 3 * 100))}%` }"></span></div>
                 </div>
-                <div class="form-footer"><span class="form-footnote"><i data-lucide="lock-keyhole" aria-hidden="true"></i>计划只保存在本地浏览器</span><button class="button button-primary" type="submit"><i data-lucide="save" aria-hidden="true"></i>保存计划</button></div>
+                <div class="form-footer"><span class="form-footnote"><i data-lucide="cloud-upload" aria-hidden="true"></i>计划保存在本地浏览器与服务器，换设备打开自动同步</span><button class="button button-primary" type="submit"><i data-lucide="save" aria-hidden="true"></i>保存计划</button></div>
               </form>
             </section>
 
