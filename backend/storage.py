@@ -248,6 +248,7 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "cacheSeconds": 8,
     "timeoutSeconds": 10,
     "retryCount": 1,
+    "conflictPolicy": "server",
 }
 
 
@@ -264,6 +265,7 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["cacheSeconds"] = max(0, min(int(data["cacheSeconds"]), 300))
     data["timeoutSeconds"] = max(2, min(int(data["timeoutSeconds"]), 60))
     data["retryCount"] = max(0, min(int(data["retryCount"]), 5))
+    data["conflictPolicy"] = data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"
     data["fallbackEnabled"] = bool(data["fallbackEnabled"])
     data["monitorEnabled"] = bool(data["monitorEnabled"])
     return data
