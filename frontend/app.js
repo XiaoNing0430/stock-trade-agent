@@ -1,4 +1,4 @@
-import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META } from './modules/constants.js';
+import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS } from './modules/constants.js';
 import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
 
@@ -51,6 +51,63 @@ createApp({
     const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
     const conflictVisible = ref(false);
     const conflictSnapshot = ref(null);
+
+    const presetHits = computed(() => presets.map((preset) => ({
+      name: preset.name,
+      icon: preset.icon,
+      iconClass: preset.iconClass,
+      filters: preset.filters,
+      count: screenRows.value.filter((row) => (
+        row.pe !== null && row.pe <= preset.filters.peMax
+        && row.pb !== null && row.pb <= preset.filters.pbMax
+        && row.volumeRatio !== null && row.volumeRatio >= preset.filters.volumeMin
+        && row.change !== null && row.change >= preset.filters.changeMin
+      )).length
+    })));
+
+    const strategyStats = computed(() => {
+      const running = gridStrategies.value.filter((strategy) => strategy.status === '启用');
+      const now = Date.now();
+      const pending = running.filter((strategy) => !strategy.lastBacktestAt || now - new Date(strategy.lastBacktestAt).getTime() > 24 * 3600 * 1000);
+      const withExcess = gridStrategies.value.filter((strategy) => strategy.latestMetrics && strategy.latestMetrics.excessReturnPct != null);
+      return {
+        running: running.length,
+        pending: pending.length,
+        latestExcess: withExcess.length ? withExcess[0].latestMetrics.excessReturnPct : null
+      };
+    });
+
+    const riskStats = computed(() => {
+      const stopHit = activePlans.value.filter((plan) => {
+        if (plan.triggered && plan.triggered.stop) return true;
+        const quote = quoteFor(plan.code);
+        return quote && quote.price != null && quote.price <= plan.stop;
+      }).length;
+      return { active: activePlans.value.length, stopHit, unread: unreadAlerts.value };
+    });
+
+    const gridProvenance = computed(() => {
+      const result = gridResult.value;
+      if (!result || !Array.isArray(result.history) || !result.history.length) return '';
+      const first = result.history[0]?.date || '--';
+      const last = result.history[result.history.length - 1]?.date || '--';
+      const metrics = result.metrics || {};
+      const parts = [
+        `数据区间 ${first} ~ ${last}`,
+        `${result.history.length} 个交易日`,
+        '前复权日线',
+        `来源 ${providerLabel.value}`,
+        `数据截止 ${result.config?.dataAsOf || last}`,
+        `涨跌停跳过 ${metrics.skippedLimitUpDays ?? 0}/${metrics.skippedLimitDownDays ?? 0}`,
+        `一字板 ${metrics.onePriceLimitUpDays ?? 0}/${metrics.onePriceLimitDownDays ?? 0}`,
+        `停牌 ${metrics.skippedSuspensionDays ?? 0}`
+      ];
+      return parts.join(' · ');
+    });
+
+    const mobileExecTab = ref('plans');
+    const execShowsPlans = computed(() => view.value === 'exec' && mobileExecTab.value === 'plans');
+    const execShowsAlerts = computed(() => view.value === 'exec' && mobileExecTab.value === 'alerts');
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -95,6 +152,9 @@ createApp({
     const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server' });
     const dataSources = ref([]);
     const settingsLoading = ref(false);
+    const settingsTab = ref('workspace');
+    const appliedSettings = ref(null);
+    const settingsDirty = computed(() => Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value));
     if (saved.filters?.market === '沪A') {
       filters.exchange = '上交所';
       filters.market = '全部';
@@ -382,6 +442,7 @@ createApp({
         const payload = await requestJson('/api/settings');
         Object.assign(settingsDraft, payload.data || {});
         dataSources.value = payload.sources || [];
+        appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
       } catch (error) {
         showToast('设置读取失败，正在使用本地默认值', 'error');
       } finally {
@@ -394,6 +455,7 @@ createApp({
       try {
         const payload = await requestJson('/api/settings', { method: 'PUT', body: JSON.stringify(settingsDraft) });
         Object.assign(settingsDraft, payload.data || {});
+        appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
         monitorEnabled.value = settingsDraft.monitorEnabled;
         armRefreshTimer();
         showToast('网站设置已保存');
@@ -963,16 +1025,23 @@ createApp({
       });
     }
 
+    let lastToast = { message: '', tone: '', at: 0 };
+
     function showToast(message, tone = 'success') {
       const region = document.getElementById('toast-region');
       if (!region) return;
+      const messageText = String(message ?? '');
+      const now = Date.now();
+      // 同文案同色调 8 秒内只弹一条，避免冲突自愈等重复事件刷屏。
+      if (messageText === lastToast.message && tone === lastToast.tone && now - lastToast.at < 8000) return;
+      lastToast = { message: messageText, tone, at: now };
       const toast = document.createElement('div');
       toast.className = `toast ${tone === 'error' ? 'error' : ''}`;
       const icon = document.createElement('i');
       icon.setAttribute('data-lucide', tone === 'error' ? 'triangle-alert' : 'check-circle-2');
       icon.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
-      text.textContent = String(message ?? '');
+      text.textContent = messageText;
       toast.appendChild(icon);
       toast.appendChild(text);
       region.appendChild(toast);
@@ -1073,12 +1142,22 @@ createApp({
       alerts,
       unreadAlerts,
       monitorEnabled,
+      presetHits,
+      strategyStats,
+      riskStats,
+      gridProvenance,
+      mobileExecTab,
+      execShowsPlans,
+      execShowsAlerts,
       conflictVisible,
       adoptServerWorkspace,
       forceSaveWorkspace,
       settingsDraft,
       dataSources,
       settingsLoading,
+      settingsTab,
+      settingsTabs: SETTINGS_TABS,
+      settingsDirty,
       draft,
       gridDraft,
       gridLoading,
@@ -1095,6 +1174,7 @@ createApp({
       deleteGridStrategy,
       draftDirty,
       filters,
+      screenRows,
       screenTotal,
       filteredRows,
       presetName,
