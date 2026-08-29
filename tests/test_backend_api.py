@@ -273,3 +273,17 @@ def test_fetch_retries_and_backs_off(monkeypatch):
         data_source.apply_runtime_config(retry_count=1)
     assert result == {"ok": True}
     assert calls["n"] == 2
+
+
+def test_screener_sorts_zero_change_above_negative(monkeypatch):
+    rows = [
+        {"code": "600001", "name": "甲", "market": "沪深主板", "change": 0.0},
+        {"code": "600002", "name": "乙", "market": "沪深主板", "change": 2.0},
+        {"code": "600003", "name": "丙", "market": "沪深主板", "change": -1.0},
+        {"code": "600004", "name": "丁", "market": "沪深主板", "change": None},
+    ]
+    monkeypatch.setattr(data_source, "load_quotes", lambda codes: rows)
+
+    payload = data_source.load_screener("全部", page_size=20)
+
+    assert [row["change"] for row in payload["rows"]] == [2.0, 0.0, -1.0, None]
