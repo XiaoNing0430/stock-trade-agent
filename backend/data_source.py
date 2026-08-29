@@ -327,3 +327,73 @@ def load_screener(market: str, page_size: int = 300) -> dict[str, Any]:
         "rows": rows,
         "universeSize": len(codes),
     }
+
+
+SCREENER_V2_URL = "https://proxy.finance.qq.com/cgi/cgi-bin/rank/hs/getBoardRankList"
+
+# 前端排序字段 → 腾讯 rank 接口 sort_type（腾讯支持 price/turnover 排序）
+_SCREENER_SORT_MAP = {
+    "changePct": "price",
+    "amount": "turnover",
+    "turnoverRate": "turnover",
+    "price": "price",
+    "totalMarketCap": "price",
+    "peTtm": "price",
+}
+
+
+def _normalize_rank_item(item: dict[str, Any]) -> dict[str, Any]:
+    def n(v: Any) -> float | None:
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "code": str(item.get("code") or ""),
+        "name": str(item.get("name") or ""),
+        "price": n(item.get("zxj")),
+        "change": n(item.get("zd")),
+        "changePct": n(item.get("zdf")),
+        "turnoverRate": n(item.get("hsl")),
+        "amount": n(item.get("turnover")),
+        "volume": n(item.get("volume")),
+        "totalMarketCap": n(item.get("zsz")),
+        "circulatingMarketCap": n(item.get("ltsz")),
+        "peTtm": n(item.get("pe_ttm")),
+        "pb": n(item.get("pn")),
+        "amplitude": n(item.get("zf")),
+        "volumeRatio": n(item.get("lb")),
+        "speed": n(item.get("speed")),
+        "netMoneyFlow": n(item.get("zljlr")),
+    }
+
+
+def _map_sort_field(sort_by: str) -> str:
+    return _SCREENER_SORT_MAP.get(sort_by, "price")
+
+
+def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc") -> dict[str, Any]:
+    """腾讯全市场排名接口，分页返回（约 4596 只沪深 A 股）。"""
+    params = {
+        "board_code": "aStock",
+        "sort_type": _map_sort_field(sort_by),
+        "direct": "down" if sort_dir == "desc" else "up",
+        "offset": str((page - 1) * page_size),
+        "count": str(page_size),
+    }
+    try:
+        resp = requests.get(SCREENER_V2_URL, params=params, timeout=10)
+        data = resp.json()["data"]
+        rows = [_normalize_rank_item(item) for item in data.get("rank_list", [])]
+        return {
+            "total": data.get("total", 0),
+            "page": page,
+            "pageSize": page_size,
+            "rows": rows,
+            "provider": "Tencent rank API",
+        }
+    except Exception as exc:
+        raise RuntimeError(f"全市场选股器请求失败: {exc}") from exc

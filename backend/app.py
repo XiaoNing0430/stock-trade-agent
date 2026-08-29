@@ -182,6 +182,15 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
 
+    @app.get("/api/screener/v2")
+    def screener_v2(page: int = Query(default=1, ge=1), pageSize: int = Query(default=50, alias="pageSize", ge=1, le=200),
+                    sortBy: str = Query(default="changePct", alias="sortBy"), sortDir: str = Query(default="desc", alias="sortDir")):
+        try:
+            from backend.data_source import load_screener_v2
+            return load_screener_v2(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent rank API"})
+
     @app.post("/api/grid/preview")
     def grid_preview(payload: dict = Body(...)):
         try:
