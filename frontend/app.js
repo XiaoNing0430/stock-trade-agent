@@ -1,4 +1,4 @@
-import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META } from './modules/constants.js';
+import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS } from './modules/constants.js';
 import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
 
@@ -46,8 +46,68 @@ createApp({
     const draftDirty = ref(false);
     const draftWatchSuppressed = ref(true);
     const refreshTimer = ref(null);
-    const lastToastTimer = ref(null);
+    const toastTimers = new Set();
     const workspaceSynced = ref(false);
+    const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
+    const conflictVisible = ref(false);
+    const conflictSnapshot = ref(null);
+
+    const presetHits = computed(() => presets.map((preset) => ({
+      name: preset.name,
+      icon: preset.icon,
+      iconClass: preset.iconClass,
+      filters: preset.filters,
+      count: screenRows.value.filter((row) => (
+        row.pe !== null && row.pe <= preset.filters.peMax
+        && row.pb !== null && row.pb <= preset.filters.pbMax
+        && row.volumeRatio !== null && row.volumeRatio >= preset.filters.volumeMin
+        && row.change !== null && row.change >= preset.filters.changeMin
+      )).length
+    })));
+
+    const strategyStats = computed(() => {
+      const running = gridStrategies.value.filter((strategy) => strategy.status === '启用');
+      const now = Date.now();
+      const pending = running.filter((strategy) => !strategy.lastBacktestAt || now - new Date(strategy.lastBacktestAt).getTime() > 24 * 3600 * 1000);
+      const withExcess = gridStrategies.value.filter((strategy) => strategy.latestMetrics && strategy.latestMetrics.excessReturnPct != null);
+      return {
+        running: running.length,
+        pending: pending.length,
+        latestExcess: withExcess.length ? withExcess[0].latestMetrics.excessReturnPct : null
+      };
+    });
+
+    const riskStats = computed(() => {
+      const stopHit = activePlans.value.filter((plan) => {
+        if (plan.triggered && plan.triggered.stop) return true;
+        const quote = quoteFor(plan.code);
+        return quote && quote.price != null && quote.price <= plan.stop;
+      }).length;
+      return { active: activePlans.value.length, stopHit, unread: unreadAlerts.value };
+    });
+
+    const gridProvenance = computed(() => {
+      const result = gridResult.value;
+      if (!result || !Array.isArray(result.history) || !result.history.length) return '';
+      const first = result.history[0]?.date || '--';
+      const last = result.history[result.history.length - 1]?.date || '--';
+      const metrics = result.metrics || {};
+      const parts = [
+        `数据区间 ${first} ~ ${last}`,
+        `${result.history.length} 个交易日`,
+        '前复权日线',
+        `来源 ${providerLabel.value}`,
+        `数据截止 ${result.config?.dataAsOf || last}`,
+        `涨跌停跳过 ${metrics.skippedLimitUpDays ?? 0}/${metrics.skippedLimitDownDays ?? 0}`,
+        `一字板 ${metrics.onePriceLimitUpDays ?? 0}/${metrics.onePriceLimitDownDays ?? 0}`,
+        `停牌 ${metrics.skippedSuspensionDays ?? 0}`
+      ];
+      return parts.join(' · ');
+    });
+
+    const mobileExecTab = ref('plans');
+    const execShowsPlans = computed(() => view.value === 'exec' && mobileExecTab.value === 'plans');
+    const execShowsAlerts = computed(() => view.value === 'exec' && mobileExecTab.value === 'alerts');
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -89,9 +149,12 @@ createApp({
       errors: []
     });
     const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
-    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1 });
+    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server' });
     const dataSources = ref([]);
     const settingsLoading = ref(false);
+    const settingsTab = ref('workspace');
+    const appliedSettings = ref(null);
+    const settingsDirty = computed(() => Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value));
     if (saved.filters?.market === '沪A') {
       filters.exchange = '上交所';
       filters.market = '全部';
@@ -231,6 +294,7 @@ createApp({
           plans: plans.value,
           alerts: alerts.value,
           monitorEnabled: monitorEnabled.value,
+          workspaceRevision: workspaceRevision.value,
           filters: { ...filters },
           marketCache: {
             provider: market.provider,
@@ -253,7 +317,10 @@ createApp({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
+        const error = new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
       }
       return payload;
     }
@@ -280,12 +347,26 @@ createApp({
       workspaceSyncTimer.value = setTimeout(async () => {
         workspaceSyncInFlight = true;
         try {
-          await requestJson('/api/workspace', {
+          await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
             method: 'PUT',
             body: JSON.stringify(workspacePayload())
           });
         } catch (error) {
-          // Browser storage remains a fallback while the persistence service reconnects.
+          if (error.status === 409) {
+            // 版本冲突不自动重试写入，按工作区策略处理。
+            workspaceSyncQueued = false;
+            const snapshot = error.payload?.detail?.workspace;
+            const policy = settingsDraft.conflictPolicy;
+            if (policy === 'ask' || !snapshot) {
+              // 响应异常缺失快照时，server/local 策略静默降级为 ask 行为。
+              showConflictBanner(snapshot);
+            } else if (policy === 'local') {
+              await pushLocalWorkspace('检测到冲突，已自动用本地版本覆盖服务器');
+            } else {
+              adoptServerSnapshot(snapshot, true);
+            }
+          }
+          // 其余失败仍静默降级：浏览器存储兜底，等待持久化服务恢复。
         } finally {
           workspaceSyncInFlight = false;
           if (workspaceSyncQueued) {
@@ -296,9 +377,51 @@ createApp({
       }, 350);
     }
 
+    function showConflictBanner(snapshot) {
+      conflictSnapshot.value = snapshot;
+      conflictVisible.value = true;
+      showToast('其他页面已更新工作区数据，请选择保留哪一版', 'error');
+    }
+
+    function adoptServerSnapshot(snapshot, auto = false) {
+      watchlistCodes.value = snapshot.watchlist || [];
+      plans.value = snapshot.plans || [];
+      alerts.value = snapshot.alerts || [];
+      workspaceRevision.value = Number(snapshot.revision || 0);
+      persist();
+      showToast(auto ? '检测到其他页面更新，已自动采用服务器版本' : '已采用服务器最新数据');
+    }
+
+    async function adoptServerWorkspace() {
+      const snapshot = conflictSnapshot.value;
+      conflictVisible.value = false;
+      if (!snapshot) return;
+      adoptServerSnapshot(snapshot, false);
+    }
+
+    async function pushLocalWorkspace(successMessage) {
+      try {
+        const saved = await requestJson('/api/workspace?force=true', {
+          method: 'PUT',
+          body: JSON.stringify(workspacePayload())
+        });
+        workspaceRevision.value = Number(saved.revision || 0);
+        persist();
+        showToast(successMessage);
+      } catch (error) {
+        showToast(error.message || '覆盖失败', 'error');
+      }
+    }
+
+    async function forceSaveWorkspace() {
+      conflictVisible.value = false;
+      await pushLocalWorkspace('已用本地数据覆盖服务器');
+    }
+
     async function loadWorkspace() {
       try {
         const remote = await requestJson('/api/workspace');
+        workspaceRevision.value = Number(remote.revision || 0);
         const hasRemoteData = (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
         if (hasRemoteData) {
           watchlistCodes.value = remote.watchlist || [];
@@ -319,6 +442,7 @@ createApp({
         const payload = await requestJson('/api/settings');
         Object.assign(settingsDraft, payload.data || {});
         dataSources.value = payload.sources || [];
+        appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
       } catch (error) {
         showToast('设置读取失败，正在使用本地默认值', 'error');
       } finally {
@@ -331,6 +455,7 @@ createApp({
       try {
         const payload = await requestJson('/api/settings', { method: 'PUT', body: JSON.stringify(settingsDraft) });
         Object.assign(settingsDraft, payload.data || {});
+        appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
         monitorEnabled.value = settingsDraft.monitorEnabled;
         armRefreshTimer();
         showToast('网站设置已保存');
@@ -384,37 +509,48 @@ createApp({
       }
     }
 
+    let refreshInFlight = false;
+
     async function refreshAll(options = {}) {
       const silent = Boolean(options.silent);
+      if (refreshInFlight) {
+        // 已有刷新进行中：定时轮询直接跳过，避免慢网络下请求堆积。
+        if (silent) return;
+      }
       if (!silent) loading.value = true;
-      errorMessage.value = '';
-      const tasks = [fetchMarket(), fetchScreener()];
-      const now = Date.now();
-      if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
-        tasks.push(fetchHistory('000001', 'index'));
+      refreshInFlight = true;
+      try {
+        errorMessage.value = '';
+        const tasks = [fetchMarket(), fetchScreener()];
+        const now = Date.now();
+        if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
+          tasks.push(fetchHistory('000001', 'index'));
+        }
+        if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
+          tasks.push(fetchHistory(selectedCode.value, 'selected'));
+        }
+        const results = await Promise.allSettled(tasks);
+        const failures = results.filter((result) => result.status === 'rejected');
+        if (failures.length && !market.quotes.length && !screenRows.value.length) {
+          dataState.value = 'error';
+          errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
+        } else if (failures.length) {
+          dataState.value = 'stale';
+          errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
+        } else {
+          dataState.value = 'live';
+        }
+        if (market.errors.length && !errorMessage.value) {
+          errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
+        }
+        expirePlans();
+        if (failures.length === 0) persist();
+      } finally {
+        refreshInFlight = false;
+        loading.value = false;
+        await nextTick();
+        renderIcons();
       }
-      if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
-        tasks.push(fetchHistory(selectedCode.value, 'selected'));
-      }
-      const results = await Promise.allSettled(tasks);
-      const failures = results.filter((result) => result.status === 'rejected');
-      if (failures.length && !market.quotes.length && !screenRows.value.length) {
-        dataState.value = 'error';
-        errorMessage.value = failures[0].reason?.message || '真实行情暂时不可用';
-      } else if (failures.length) {
-        dataState.value = 'stale';
-        errorMessage.value = '行情接口部分失败，当前页面保留最近一次成功数据。';
-      } else {
-        dataState.value = 'live';
-      }
-      if (market.errors.length && !errorMessage.value) {
-        errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
-      }
-      expirePlans();
-      if (failures.length === 0) persist();
-      loading.value = false;
-      await nextTick();
-      renderIcons();
     }
 
     async function ensureQuote(code) {
@@ -889,22 +1025,32 @@ createApp({
       });
     }
 
+    let lastToast = { message: '', tone: '', at: 0 };
+
     function showToast(message, tone = 'success') {
       const region = document.getElementById('toast-region');
       if (!region) return;
+      const messageText = String(message ?? '');
+      const now = Date.now();
+      // 同文案同色调 8 秒内只弹一条，避免冲突自愈等重复事件刷屏。
+      if (messageText === lastToast.message && tone === lastToast.tone && now - lastToast.at < 8000) return;
+      lastToast = { message: messageText, tone, at: now };
       const toast = document.createElement('div');
       toast.className = `toast ${tone === 'error' ? 'error' : ''}`;
       const icon = document.createElement('i');
       icon.setAttribute('data-lucide', tone === 'error' ? 'triangle-alert' : 'check-circle-2');
       icon.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
-      text.textContent = String(message ?? '');
+      text.textContent = messageText;
       toast.appendChild(icon);
       toast.appendChild(text);
       region.appendChild(toast);
       renderIcons();
-      clearTimeout(lastToastTimer.value);
-      lastToastTimer.value = setTimeout(() => toast.remove(), 3200);
+      const timer = setTimeout(() => {
+        toast.remove();
+        toastTimers.delete(timer);
+      }, 3200);
+      toastTimers.add(timer);
     }
 
     function renderIcons() {
@@ -970,6 +1116,7 @@ createApp({
     onBeforeUnmount(() => {
       clearInterval(refreshTimer.value);
       clearTimeout(workspaceSyncTimer.value);
+      toastTimers.forEach((timer) => clearTimeout(timer));
     });
 
     return {
@@ -995,9 +1142,22 @@ createApp({
       alerts,
       unreadAlerts,
       monitorEnabled,
+      presetHits,
+      strategyStats,
+      riskStats,
+      gridProvenance,
+      mobileExecTab,
+      execShowsPlans,
+      execShowsAlerts,
+      conflictVisible,
+      adoptServerWorkspace,
+      forceSaveWorkspace,
       settingsDraft,
       dataSources,
       settingsLoading,
+      settingsTab,
+      settingsTabs: SETTINGS_TABS,
+      settingsDirty,
       draft,
       gridDraft,
       gridLoading,
@@ -1014,6 +1174,7 @@ createApp({
       deleteGridStrategy,
       draftDirty,
       filters,
+      screenRows,
       screenTotal,
       filteredRows,
       presetName,

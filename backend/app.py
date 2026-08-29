@@ -17,6 +17,7 @@ from backend.storage import (
     delete_grid_strategy,
     DEFAULT_WORKSPACE_SETTINGS,
     get_workspace,
+    get_workspace_revision,
     get_workspace_settings,
     get_grid_strategy,
     initialize_storage,
@@ -78,9 +79,22 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
 
     @app.put("/api/workspace")
-    def update_workspace(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+    def update_workspace(
+        payload: dict = Body(...),
+        workspace_id: str = Query(default="default", alias="workspace"),
+        base_revision: int | None = Query(default=None, alias="baseRevision"),
+        force: bool = Query(default=False),
+    ):
         try:
+            current = get_workspace_revision(workspace_id)
+            if base_revision is not None and base_revision != current and not force:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"error": "其他页面已更新工作区数据", "revision": current, "workspace": get_workspace(workspace_id)},
+                )
             return save_workspace(payload, workspace_id)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
 

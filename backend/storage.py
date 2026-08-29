@@ -124,6 +124,16 @@ class WorkspaceSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class WorkspaceState(Base):
+    __tablename__ = "workspace_state"
+
+    workspace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -201,6 +211,12 @@ def _alert_dict(alert: Alert) -> dict[str, Any]:
     }
 
 
+def get_workspace_revision(workspace_id: str = "default") -> int:
+    with SessionLocal() as session:
+        row = session.get(WorkspaceState, workspace_id)
+        return int(row.revision) if row else 0
+
+
 def get_workspace(workspace_id: str = "default") -> dict[str, Any]:
     with SessionLocal() as session:
         watchlist = session.scalars(
@@ -212,7 +228,12 @@ def get_workspace(workspace_id: str = "default") -> dict[str, Any]:
         alerts = session.scalars(
             select(Alert).where(Alert.workspace_id == workspace_id).order_by(Alert.created_at.desc()).limit(100)
         ).all()
-        return {"watchlist": watchlist, "plans": [_plan_dict(plan) for plan in plans], "alerts": [_alert_dict(alert) for alert in alerts]}
+        return {
+            "watchlist": watchlist,
+            "plans": [_plan_dict(plan) for plan in plans],
+            "alerts": [_alert_dict(alert) for alert in alerts],
+            "revision": get_workspace_revision(workspace_id),
+        }
 
 
 DEFAULT_WORKSPACE_SETTINGS = {
@@ -227,6 +248,7 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "cacheSeconds": 8,
     "timeoutSeconds": 10,
     "retryCount": 1,
+    "conflictPolicy": "server",
 }
 
 
@@ -243,6 +265,7 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["cacheSeconds"] = max(0, min(int(data["cacheSeconds"]), 300))
     data["timeoutSeconds"] = max(2, min(int(data["timeoutSeconds"]), 60))
     data["retryCount"] = max(0, min(int(data["retryCount"]), 5))
+    data["conflictPolicy"] = data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"
     data["fallbackEnabled"] = bool(data["fallbackEnabled"])
     data["monitorEnabled"] = bool(data["monitorEnabled"])
     return data
@@ -264,6 +287,14 @@ def save_workspace_settings(payload: dict[str, Any], workspace_id: str = "defaul
         else:
             row.data = data
     return data
+
+
+def _bump_workspace_revision(session, workspace_id: str) -> None:
+    row = session.get(WorkspaceState, workspace_id)
+    if row is None:
+        session.add(WorkspaceState(workspace_id=workspace_id, revision=1))
+    else:
+        row.revision = int(row.revision) + 1
 
 
 def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
@@ -314,6 +345,7 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
             alert.title = item.get("title", "提醒")
             alert.message = item.get("message", "")
             alert.read = bool(item.get("read", False))
+        _bump_workspace_revision(session, workspace_id)
     return get_workspace(workspace_id)
 
 
