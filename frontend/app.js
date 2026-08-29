@@ -412,7 +412,7 @@ createApp({
         .filter((row) => row.pb !== null && row.pb <= Number(filters.pbMax))
         .filter((row) => row.volumeRatio !== null && row.volumeRatio >= Number(filters.volumeMin))
         .filter((row) => row.change !== null && row.change >= Number(filters.changeMin))
-        .sort((left, right) => (right.change + (right.volumeRatio || 0)) - (left.change + (left.volumeRatio || 0)));
+        .sort((left, right) => (right.change - left.change) || ((right.volumeRatio || 0) - (left.volumeRatio || 0)));
     });
     const breadth = computed(() => {
       const rows = screenRows.value.filter((row) => row.change !== null);

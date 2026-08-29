@@ -22,21 +22,20 @@ server.py                 Dev entrypoint — starts uvicorn on 127.0.0.1:4173
 backend/
   app.py                  FastAPI app, all /api routes, serves frontend
   main.py                 python -m backend.main entrypoint
-  data_source.py          Tencent quote API adapter + classification + fetch/retry
-  grid_strategy.py        Grid math: build_grid, suggest_grid, backtest_grid, optimize_grid
+  data_source.py          Tencent quote API adapter + classification + fetch/retry + runtime config
+  grid_strategy.py        Grid math: build_grid, suggest_grid, backtest_grid, optimize_grid (+ benchmark/risk metrics)
   grid_scheduler.py       APScheduler wrappers for daily grid backtests (Asia/Shanghai)
   storage.py              SQLAlchemy models + persistence helpers (workspace, plans, alerts, grid)
-  settings.py             pydantic-settings; env (POSTGRES_*, REDIS_*, TUSHARE_TOKEN, HTTP_TIMEOUT, HTTP_RETRY)
+  settings.py             pydantic-settings; env (POSTGRES_*, REDIS_*, TUSHARE_TOKEN)
 frontend/
   index.html              Vue template (single file, all views inline)
   app.js                  Vue app setup + all logic (~1200 lines, no build)
   styles.css              All styling (single file, CSS variables)
   vendor/                 Vendored vue.global.prod.js + lucide.min.js (no CDN)
 tests/
-  test_backend_api.py     FastAPI routes + data_source parsing
-  test_grid_strategy.py   Grid math
+  test_backend_api.py     FastAPI routes + data_source parsing (+ HTTP retry/backoff, runtime config)
+  test_grid_strategy.py   Grid math (+ benchmark/risk metrics, candidate robustness)
   test_settings_api.py    Settings API + default settings assertions
-  test_data_source_retry.py  HTTP retry/backoff (recent)
 docs/superpowers/          specs/ + plans/ (design & implementation docs)
 .worktrees/                git worktrees (git-ignored)
 ```
@@ -67,13 +66,13 @@ There is **no JS test runner** in this repo. Frontend behavior is verified manua
 
 - **Never fill missing data with mock values.** The frontend shows `--` / empty states instead. Quote failures must surface as cache/stale/error states, never fabricated prices.
 - **Preserve existing API field names.** Adding fields is fine; renaming/removing breaks the Vue frontend.
-- **Timestamps:** `createdAt` is epoch **milliseconds** (`Date.now()` on the frontend, `int(created_at.timestamp() * 1000)` on the backend). Format for display with `formatTime(ms)`.
+- **Timestamps:** the canonical machine timestamp is `createdAtMs` — epoch **milliseconds** (`Date.now()` on the frontend, `int(created_at.timestamp() * 1000)` on the backend). `createdAt` is a display convenience string (`HH:MM`). Format for display with `formatTime(ms)`.
 - **Plan `status` values:** `执行中`, `已触发`, `已过期`, `已归档`. `activePlans` on the frontend shows only `执行中`/`已触发`.
 - **Price-trigger semantics are direction-aware:** for a `buy` plan, `price <= stop` (stop-loss) and `price >= target` (take-profit); for a `sell` plan (already holding), `price >= target` (take-profit sell) and `price <= stop` (stop-loss sell).
 - **Grid backtest assumptions are deliberately conservative and disclosed** (T+1, 100-share lots, min commission, stamp duty, transfer fee, slippage, price limits, suspensions; 70/30 train/validation split). Do not present backtest returns as future performance.
 - **Classify instruments** via `classify_code()` (exchange / board / securityType). Price-limit ratios differ by board (北交所 30%, 创业板/科创板 20%, else 10%).
 - **Security:** XSS-sensitive spots are `showToast` (must use `textContent`) and `chartSvg` (must `escapeHtml` interpolated labels). Keep that discipline.
-- **Frontend polling** is driven by `setupRefreshTimer()` and honors `settingsDraft.refreshInterval`; `refreshAll()` guards against concurrent runs via `refreshInFlight`.
+- **Frontend polling** is driven by `armRefreshTimer()` and honors `settingsDraft.refreshInterval`; `refreshAll()` guards against concurrent runs via `refreshInFlight`.
 
 ## Git Workflow — Git Flow (mandatory)
 
@@ -99,7 +98,7 @@ There is **no JS test runner** in this repo. Frontend behavior is verified manua
 
 ## Storage & Data Notes
 
-- PostgreSQL stores watchlist, trade plans, alerts, grid strategies/backtests, market bars, and workspace settings. Redis is only pinged for `storage_status()`; the actual quote cache is an in-memory `dict` in `data_source.py` with an 8s TTL.
+- PostgreSQL stores watchlist, trade plans, alerts, grid strategies/backtests, market bars, and workspace settings. Redis is only pinged for `storage_status()`; the actual quote cache is an in-memory `dict` in `data_source.py`. The HTTP timeout/retry/cache-TTL are driven by workspace settings via `data_source.apply_runtime_config(...)` (defaults: TTL 8s, timeout 10s, retry 1).
 - The screener currently uses a curated ~50-stock universe (`REAL_UNIVERSE` in `data_source.py`). Expanding to the full A-share market is Phase 2 — do not silently expand it.
 - `storage.py` uses raw `ALTER TABLE ... IF NOT EXISTS` for forward migrations rather than Alembic. Prefer adding to that mechanism over a new migration framework.
 
