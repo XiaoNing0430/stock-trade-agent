@@ -16,21 +16,27 @@ from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
 from backend.storage import (
     delete_grid_strategy,
+    delete_strategy as delete_generic_strategy,
     DEFAULT_WORKSPACE_SETTINGS,
     get_workspace,
     get_workspace_revision,
     get_workspace_settings,
     get_grid_strategy,
+    get_strategy,
     initialize_storage,
     list_grid_strategies,
+    list_strategies,
     load_market_bars,
     save_grid_backtest,
     save_grid_strategy,
     save_market_bars,
+    save_strategy,
+    save_strategy_backtest,
     save_workspace,
     save_workspace_settings,
     storage_status,
 )
+from backend.strategy_engines import STRATEGY_ENGINES
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
@@ -268,6 +274,93 @@ def create_app() -> FastAPI:
     def delete_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
         try:
             if not delete_grid_strategy(strategy_id, workspace_id):
+                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+            unschedule_strategy(strategy_id)
+            return {"deleted": True, "id": strategy_id}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.post("/api/strategy/preview")
+    def strategy_preview(payload: dict = Body(...)):
+        try:
+            strategy_type = str(payload.get("strategyType", ""))
+            engine = STRATEGY_ENGINES.get(strategy_type)
+            if not engine:
+                raise HTTPException(status_code=422, detail={"error": f"未知策略类型：{strategy_type}"})
+            config = dict(payload.get("config") or {})
+            suggestion = {}
+            for field in engine["configSchema"]:
+                key = field["key"]
+                if key not in config:
+                    suggestion[key] = field.get("default")
+            return {
+                "strategyType": strategy_type,
+                "suggestion": suggestion,
+                "note": "已应用该策略类型的默认参数，可手动调整后回测。",
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+
+    @app.post("/api/strategy/backtest")
+    def strategy_backtest(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            strategy_type = str(payload.get("strategyType", ""))
+            engine = STRATEGY_ENGINES.get(strategy_type)
+            if not engine:
+                raise HTTPException(status_code=422, detail={"error": f"未知策略类型：{strategy_type}"})
+            code = str(payload["code"])
+            profile = classify_code(code)
+            lookback = max(20, min(int(payload.get("lookback", 120)), 240))
+            history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
+            config = dict(payload.get("config") or {})
+            config.update({
+                "capital": float(payload.get("capital", 100000)),
+                "feeBps": float(payload.get("feeBps", 3)),
+                "securityType": profile["securityType"],
+                "exchange": profile["exchange"],
+                "lookback": lookback,
+            })
+            result = engine["backtest"](history, config)
+            response = {"code": code, "profile": profile, "history": history, "strategyType": strategy_type, "config": {**config, "dataAsOf": data_as_of}, "dataSource": data_source_flag, "dataAsOf": data_as_of, **result}
+            if payload.get("save"):
+                strategy = save_strategy({"id": payload.get("id") or f"strategy-{uuid4().hex}", "code": code, "name": payload.get("name"), "strategyType": strategy_type, "config": config, "capital": config["capital"], "feeBps": config["feeBps"], "schedule": payload.get("schedule", "manual"), "status": "启用", "lookback": lookback}, workspace_id)
+                save_strategy_backtest(strategy["id"], code, strategy_type, response["config"], result, workspace_id)
+                schedule_strategy(strategy)
+                response["strategy"] = get_strategy(strategy["id"])
+            return response
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+
+    @app.get("/api/strategy/strategies")
+    def strategy_strategies(workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            return {"strategies": list_strategies(workspace_id)}
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.patch("/api/strategy/strategies/{strategy_id}")
+    def update_strategy_status(strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            strategy = get_strategy(strategy_id)
+            if not strategy or strategy["workspaceId"] != workspace_id:
+                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+            strategy.update({key: value for key, value in payload.items() if key in {"status", "schedule"}})
+            saved = save_strategy(strategy, workspace_id)
+            schedule_strategy(saved)
+            return saved
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+
+    @app.delete("/api/strategy/strategies/{strategy_id}")
+    def remove_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
+        try:
+            if not delete_generic_strategy(strategy_id, workspace_id):
                 raise HTTPException(status_code=404, detail={"error": "策略不存在"})
             unschedule_strategy(strategy_id)
             return {"deleted": True, "id": strategy_id}

@@ -98,6 +98,44 @@ class GridBacktest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class Strategy(Base):
+    """通用策略（双均线/DCA/MACD 等非网格类型）。网格继续使用 GridStrategy。"""
+    __tablename__ = "strategies"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    strategy_type: Mapped[str] = mapped_column(String(24), index=True)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    capital: Mapped[float] = mapped_column(Float)
+    fee_bps: Mapped[float] = mapped_column(Float, default=3)
+    schedule: Mapped[str] = mapped_column(String(32), default="manual")
+    status: Mapped[str] = mapped_column(String(32), default="启用")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_backtest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latest_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
+class StrategyBacktest(Base):
+    """通用策略回测记录。"""
+    __tablename__ = "strategy_backtests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[str] = mapped_column(String(96), index=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    strategy_type: Mapped[str] = mapped_column(String(24), index=True)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
+    trade_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 class MarketBar(Base):
     __tablename__ = "market_bars"
     __table_args__ = (UniqueConstraint("code", "trade_date", "adjustment", name="uq_market_bars_code_date_adjustment"),)
@@ -515,6 +553,111 @@ def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], resu
             )
         )
         strategy = session.get(GridStrategy, strategy_id)
+        if strategy:
+            strategy.last_backtest_at = datetime.now(timezone.utc)
+            strategy.latest_metrics = result["metrics"]
+
+
+def _strategy_dict(strategy: Strategy) -> dict[str, Any]:
+    return {
+        "id": strategy.id,
+        "workspaceId": strategy.workspace_id,
+        "code": strategy.code,
+        "name": strategy.name,
+        "strategyType": strategy.strategy_type,
+        "config": strategy.config,
+        "capital": strategy.capital,
+        "feeBps": strategy.fee_bps,
+        "schedule": strategy.schedule,
+        "status": strategy.status,
+        "nextRunAt": strategy.next_run_at.isoformat() if strategy.next_run_at else None,
+        "lastBacktestAt": strategy.last_backtest_at.isoformat() if strategy.last_backtest_at else None,
+        "latestMetrics": strategy.latest_metrics,
+        "updatedAt": strategy.updated_at.astimezone().isoformat(),
+    }
+
+
+def save_strategy(payload: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
+    strategy_id = str(payload["id"])
+    with SessionLocal.begin() as session:
+        strategy = session.get(Strategy, strategy_id)
+        if strategy is None:
+            strategy = Strategy(
+                id=strategy_id,
+                workspace_id=workspace_id,
+                code=str(payload["code"]),
+                name=str(payload.get("name") or f"{payload['code']} 策略"),
+                strategy_type=str(payload.get("strategyType", "ma_cross")),
+                capital=0,
+            )
+            session.add(strategy)
+        strategy.workspace_id = workspace_id
+        strategy.code = str(payload["code"])
+        strategy.name = str(payload.get("name") or f"{payload['code']} 策略")
+        strategy.strategy_type = str(payload.get("strategyType", "ma_cross"))
+        strategy.config = payload.get("config") or {}
+        strategy.capital = float(payload.get("capital", 100000))
+        strategy.fee_bps = float(payload.get("feeBps", 3))
+        strategy.schedule = str(payload.get("schedule", "manual"))
+        strategy.status = str(payload.get("status", "启用"))
+    with SessionLocal() as session:
+        return _strategy_dict(session.get(Strategy, strategy_id))
+
+
+def list_strategies(workspace_id: str = "default") -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(Strategy).where(Strategy.workspace_id == workspace_id).order_by(Strategy.updated_at.desc())
+        ).all()
+        return [_strategy_dict(row) for row in rows]
+
+
+def get_strategy(strategy_id: str) -> dict[str, Any] | None:
+    with SessionLocal() as session:
+        strategy = session.get(Strategy, strategy_id)
+        return _strategy_dict(strategy) if strategy else None
+
+
+def delete_strategy(strategy_id: str, workspace_id: str = "default") -> bool:
+    with SessionLocal.begin() as session:
+        strategy = session.get(Strategy, strategy_id)
+        if not strategy or strategy.workspace_id != workspace_id:
+            return False
+        for backtest in session.scalars(select(StrategyBacktest).where(StrategyBacktest.strategy_id == strategy_id)).all():
+            session.delete(backtest)
+        session.delete(strategy)
+    return True
+
+
+def list_scheduled_strategies() -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(Strategy).where(Strategy.status == "启用", Strategy.schedule == "daily")
+        ).all()
+        return [_strategy_dict(row) for row in rows]
+
+
+def set_strategy_next_run(strategy_id: str, next_run_at: datetime | None) -> None:
+    with SessionLocal.begin() as session:
+        strategy = session.get(Strategy, strategy_id)
+        if strategy:
+            strategy.next_run_at = next_run_at
+
+
+def save_strategy_backtest(strategy_id: str, code: str, strategy_type: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default") -> None:
+    with SessionLocal.begin() as session:
+        session.add(
+            StrategyBacktest(
+                strategy_id=strategy_id,
+                workspace_id=workspace_id,
+                code=code,
+                strategy_type=strategy_type,
+                config=config,
+                metrics=result["metrics"],
+                trade_count=int(result["metrics"]["tradeCount"]),
+            )
+        )
+        strategy = session.get(Strategy, strategy_id)
         if strategy:
             strategy.last_backtest_at = datetime.now(timezone.utc)
             strategy.latest_metrics = result["metrics"]
