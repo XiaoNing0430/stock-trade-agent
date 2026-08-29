@@ -627,9 +627,8 @@ textarea:focus-visible {
 }
 
 .screener-view {
-  display: grid !important;
-  grid-template-rows: auto minmax(0, 1fr) 210px;
-  overflow: hidden !important;
+  display: block !important;
+  overflow: auto !important;
 }
 
 .screener-view .view-heading {
@@ -637,10 +636,11 @@ textarea:focus-visible {
 }
 
 .screener-view .screener-layout {
-  grid-row: 2;
+  grid-row: auto;
   height: auto;
   min-height: 0;
   margin-bottom: 14px;
+  align-items: start;
 }
 
 .screener-view .filter-panel,
@@ -648,21 +648,22 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .screener-view .filter-panel {
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .screener-view .results-table-wrap {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .screener-view .selected-stock-panel {
-  grid-row: 3;
+  grid-row: auto;
   min-height: 0;
 }
 
@@ -2988,7 +2989,7 @@ textarea:focus-visible {
   }
 
   .screener-view .screener-layout {
-    grid-template-rows: minmax(220px, 1fr) minmax(260px, 1fr);
+    grid-template-rows: none;
   }
 
   .filter-panel {
@@ -3129,7 +3130,7 @@ textarea:focus-visible {
 
   .screener-view .filter-panel,
   .screener-view .results-panel {
-    overflow: hidden;
+    overflow: visible;
   }
 
   .screener-view .selected-stock-panel {
