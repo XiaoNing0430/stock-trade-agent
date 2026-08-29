@@ -2,7 +2,47 @@ from fastapi.testclient import TestClient
 
 from backend import app as app_module
 from backend import data_source
-from backend.data_source import parse_quote_body
+from backend.data_source import index_symbol, parse_quote_body, tencent_symbol
+
+
+def test_tencent_symbol_000001_maps_to_stock_not_index():
+    # 000001 is both 平安银行 (sz000001) and the SH index (sh000001). Treat it as a stock.
+    assert tencent_symbol("000001") == "sz000001"
+    assert data_source.classify_code("000001")["exchange"] == "深交所"
+    assert data_source.classify_code("000001")["securityType"] == "股票"
+
+
+def test_index_symbol_maps_to_dedicated_index_codes():
+    assert index_symbol("000001") == "sh000001"
+    assert index_symbol("399001") == "sz399001"
+    assert index_symbol("399006") == "sz399006"
+
+
+def test_load_history_index_flag_uses_index_symbol(monkeypatch):
+    captured = {}
+
+    def fake_fetch_json(url, params):
+        captured["params"] = params
+        return {"data": {"sh000001": {"qfqday": [["2026-08-06", 10, 11, 12, 9, 1000]]}}}
+
+    monkeypatch.setattr(data_source, "fetch_json", fake_fetch_json)
+    history = data_source.load_history("000001", limit=40, is_index=True)
+
+    assert captured["params"]["param"].startswith("sh000001,day")
+    assert history[-1]["close"] == 11
+
+
+def test_load_history_stock_000001_uses_stock_symbol(monkeypatch):
+    captured = {}
+
+    def fake_fetch_json(url, params):
+        captured["params"] = params
+        return {"data": {"sz000001": {"qfqday": [["2026-08-06", 10, 11, 12, 9, 1000]]}}}
+
+    monkeypatch.setattr(data_source, "fetch_json", fake_fetch_json)
+    data_source.load_history("000001", limit=40, is_index=False)
+
+    assert captured["params"]["param"].startswith("sz000001,day")
 
 
 def test_fetch_text_decodes_tencent_gbk_response(monkeypatch):
@@ -162,7 +202,7 @@ def test_screener_returns_real_market_rows(monkeypatch):
 
 
 def test_history_returns_daily_kline(monkeypatch):
-    def fake_history(code):
+    def fake_history(code, limit=40, is_index=False):
         return [{"date": "2026-08-06", "open": 10, "close": 11, "high": 12, "low": 9, "volume": 1000}]
 
     monkeypatch.setattr(app_module, "load_history", fake_history)

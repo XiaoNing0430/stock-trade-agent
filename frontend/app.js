@@ -116,6 +116,37 @@ function formatAmount(value) {
   return `${Math.round(amount).toLocaleString()} 元`;
 }
 
+function validityExpiry(createdAtMs, validity) {
+  if (!createdAtMs) return null;
+  const base = new Date(createdAtMs);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const date = base.getDate();
+  let end;
+  if (validity === '本月内') {
+    end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+  } else if (validity === '本周内') {
+    // ISO week ends on Sunday; Monday is the first day of the week.
+    const dayOfWeek = base.getDay();
+    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    end = new Date(year, month, date + daysUntilSunday, 23, 59, 59, 999);
+  } else {
+    // Default (今日) and any unknown validity: end of the creation day.
+    end = new Date(year, month, date, 23, 59, 59, 999);
+  }
+  return end.getTime();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
+}
+
 function trendClass(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'trend-flat';
   return Number(value) >= 0 ? 'trend-up' : 'trend-down';
@@ -157,9 +188,10 @@ function chartSvg(points, accent, label) {
     })
     .join('');
   const last = coords[coords.length - 1];
+  const safeLabel = escapeHtml(label);
   return `
-    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${label}">
-      <title>${label}</title>
+    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${safeLabel}">
+      <title>${safeLabel}</title>
       ${grid}
       <path class="chart-area" style="fill:${accent}16" d="${areaPath}"></path>
       <path class="chart-line" style="stroke:${accent}" d="${linePath}"></path>
@@ -325,7 +357,7 @@ createApp({
       }
       return [...map.values()];
     });
-    const activePlans = computed(() => plans.value.filter((plan) => plan.status !== '已归档'));
+    const activePlans = computed(() => plans.value.filter((plan) => plan.status === '执行中' || plan.status === '已触发'));
     const unreadAlerts = computed(() => alerts.value.filter((alert) => !alert.read).length);
     const presetDescription = computed(() => {
       return presets.find((preset) => preset.name === presetName.value)?.description || '';
@@ -503,8 +535,9 @@ createApp({
     }
 
     async function fetchHistory(code, type = 'selected') {
-      const payload = await requestJson(`/api/history?code=${encodeURIComponent(code)}`);
-      if (type === 'index') {
+      const isIndex = type === 'index';
+      const payload = await requestJson(`/api/history?code=${encodeURIComponent(code)}${isIndex ? '&index=1' : ''}`);
+      if (isIndex) {
         indexHistory.value = payload.history || [];
         indexHistoryFetchedAt.value = Date.now();
       } else {
@@ -540,6 +573,7 @@ createApp({
       if (market.errors.length && !errorMessage.value) {
         errorMessage.value = '部分股票报价暂时不可用，已保留其他实时结果。';
       }
+      expirePlans();
       if (failures.length === 0) persist();
       loading.value = false;
       await nextTick();
@@ -669,6 +703,24 @@ createApp({
       });
     }
 
+    function expirePlans() {
+      const now = Date.now();
+      let expired = 0;
+      plans.value.forEach((plan) => {
+        if (plan.status !== '执行中') return;
+        const expiresAt = validityExpiry(plan.createdAtMs, plan.validity);
+        if (!expiresAt) return;
+        if (now > expiresAt) {
+          plan.status = '已过期';
+          expired += 1;
+        }
+      });
+      if (expired) {
+        addAlert('info', '有交易计划已到期', `${expired} 份计划超过有效期，已自动归档为已过期。`);
+        persist();
+      }
+    }
+
     function addAlert(kind, title, message) {
       const item = {
         id: `alert-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -705,6 +757,7 @@ createApp({
         note: draft.note || '未填写交易逻辑',
         status: '执行中',
         createdAt: formatTime(Date.now()).slice(0, 5),
+        createdAtMs: Date.now(),
         triggered: {}
       };
       plans.value.unshift(plan);
@@ -1004,7 +1057,13 @@ createApp({
       if (!region) return;
       const toast = document.createElement('div');
       toast.className = `toast ${tone === 'error' ? 'error' : ''}`;
-      toast.innerHTML = `<i data-lucide="${tone === 'error' ? 'triangle-alert' : 'check-circle-2'}" aria-hidden="true"></i><span>${message}</span>`;
+      const icon = document.createElement('i');
+      icon.setAttribute('data-lucide', tone === 'error' ? 'triangle-alert' : 'check-circle-2');
+      icon.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.textContent = String(message ?? '');
+      toast.appendChild(icon);
+      toast.appendChild(text);
       region.appendChild(toast);
       renderIcons();
       clearTimeout(lastToastTimer.value);

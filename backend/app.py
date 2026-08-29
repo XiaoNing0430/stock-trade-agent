@@ -104,13 +104,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
 
     @app.get("/api/history")
-    def history(code: str = Query(default="600519")):
+    def history(code: str = Query(default="600519"), index: bool = Query(default=False)):
         try:
             return {
                 "code": code,
                 "provider": "Tencent public quote API",
                 "fetchedAt": int(time.time() * 1000),
-                "history": load_history(code),
+                "history": load_history(code, is_index=index),
             }
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})

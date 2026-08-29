@@ -49,17 +49,22 @@ def numeric(value: Any) -> float | None:
         return None
 
 
+INDEX_SYMBOLS = {
+    "000001": "sh000001",  # 上证指数
+    "399001": "sz399001",  # 深证成指
+    "399006": "sz399006",  # 创业板指
+}
+
+
 def tencent_symbol(code: str) -> str:
     code = code.strip()
-    if code == "000001":
-        return "sh000001"
-    if code == "399001":
-        return "sz399001"
-    if code == "399006":
-        return "sz399006"
     exchange = classify_code(code)["exchange"]
     prefix = {"上交所": "sh", "深交所": "sz", "北交所": "bj"}.get(exchange, "sz")
     return f"{prefix}{code}"
+
+
+def index_symbol(code: str) -> str:
+    return INDEX_SYMBOLS.get(code.strip(), tencent_symbol(code))
 
 
 def classify_code(code: str) -> dict[str, str]:
@@ -201,8 +206,8 @@ def load_quotes(codes: list[str]) -> list[dict[str, Any]]:
     return load_quote_symbols([tencent_symbol(code) for code in unique_codes])
 
 
-def load_history(code: str, limit: int = 40) -> list[dict[str, Any]]:
-    symbol = tencent_symbol(code)
+def load_history(code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
+    symbol = index_symbol(code) if is_index else tencent_symbol(code)
     payload = cached(
         f"history:{symbol}:{limit}",
         lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},qfq"}),
@@ -231,9 +236,11 @@ def load_history(code: str, limit: int = 40) -> list[dict[str, Any]]:
 
 def load_market(codes: list[str]) -> dict[str, Any]:
     index_codes = ["000001", "399001", "399006"]
-    quote_codes = [code for code in codes if code and code not in index_codes]
+    # `codes` are always treated as individual stocks (e.g. 000001 = 平安银行).
+    # Indices are fetched separately via INDEX_SYMBOLS to avoid the code clash.
+    quote_codes = [code for code in codes if code]
     stock_quotes = load_quotes(quote_codes)
-    index_quotes = load_quotes(index_codes)
+    index_quotes = load_quote_symbols([index_symbol(code) for code in index_codes])
     index_names = {
         "000001": ("上证指数", "沪市"),
         "399001": ("深证成指", "深市"),
