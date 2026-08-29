@@ -238,6 +238,16 @@ def backtest_grid(
         "totalFees": total_fees,
         "turnoverMultiple": turnover_multiple,
     }
+    round_trip_returns = _round_trip_returns(trades)
+    win_count = sum(1 for r in round_trip_returns if r > 0)
+    total_count = len(round_trip_returns)
+    gross_profit = sum(r for r in round_trip_returns if r > 0)
+    gross_loss = abs(sum(r for r in round_trip_returns if r < 0))
+    metrics["winRatePct"] = round(win_count / total_count * 100, 1) if total_count else None
+    metrics["avgGridReturnPct"] = round(mean(round_trip_returns) * 100, 2) if round_trip_returns else None
+    metrics["medianGridReturnPct"] = round(median(round_trip_returns) * 100, 2) if round_trip_returns else None
+    metrics["maxDrawdownDurationDays"] = _max_drawdown_duration(equity_curve)
+    metrics["profitFactor"] = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (None if not total_count else float("inf"))
     return {
         "levels": levels,
         "trades": trades[-100:],
@@ -248,6 +258,46 @@ def backtest_grid(
                         f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"
                         "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"),
     }
+
+
+def _round_trip_returns(trades: list[dict[str, Any]]) -> list[float]:
+    """FIFO 配对买卖，返回每笔完整 round trip 的收益率。"""
+    buy_queue: list[list[float]] = []  # [shares, cost, fee_per_share]
+    returns: list[float] = []
+    for t in trades:
+        if t["side"] == "buy":
+            buy_queue.append([float(t["shares"]), float(t["price"]), float(t["fee"]) / float(t["shares"])])
+        elif t["side"] == "sell":
+            remaining = float(t["shares"])
+            sell_proceeds = remaining * float(t["price"]) - float(t["fee"])
+            buy_cost = 0.0
+            while remaining > 0.001 and buy_queue:
+                entry = buy_queue[0]
+                consume = min(entry[0], remaining)
+                buy_cost += consume * (entry[1] + entry[2])
+                entry[0] -= consume
+                remaining -= consume
+                if entry[0] < 0.001:
+                    buy_queue.pop(0)
+            if buy_cost > 0:
+                returns.append((sell_proceeds - buy_cost) / buy_cost)
+    return returns
+
+
+def _max_drawdown_duration(equity_curve: list[float]) -> int:
+    """从权益曲线计算最长回撤持续期（交易日数）。"""
+    if not equity_curve:
+        return 0
+    peak_idx = 0
+    max_duration = 0
+    for i, eq in enumerate(equity_curve):
+        if eq >= equity_curve[peak_idx]:
+            peak_idx = i
+        else:
+            duration = i - peak_idx
+            if duration > max_duration:
+                max_duration = duration
+    return max_duration
 
 
 def optimize_grid(
