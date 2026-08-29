@@ -289,6 +289,23 @@ def test_screener_sorts_zero_change_above_negative(monkeypatch):
     assert [row["change"] for row in payload["rows"]] == [2.0, 0.0, -1.0, None]
 
 
+def test_alert_dict_includes_created_at_ms():
+    from datetime import datetime, timezone
+
+    from backend.storage import _alert_dict
+
+    class FakeAlert:
+        id = "alert-x"
+        kind = "system"
+        title = "事件"
+        message = "详情"
+        read = False
+        created_at = datetime(2026, 8, 29, 8, 0, tzinfo=timezone.utc)
+
+    data = _alert_dict(FakeAlert())
+    assert data["createdAtMs"] == int(FakeAlert.created_at.timestamp() * 1000)
+
+
 def test_workspace_get_includes_revision(monkeypatch):
     monkeypatch.setattr(
         app_module, "get_workspace",

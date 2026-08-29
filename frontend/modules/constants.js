@@ -51,7 +51,7 @@ export const NAV_ITEMS = [
   { id: 'grid', label: '网格策略', icon: 'grid-3x3' },
   { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
   { id: 'monitor', label: '盯盘中心', icon: 'radar' },
-  { id: 'settings', label: '设置', icon: 'settings-2' }
+  { id: 'settings', label: '个人中心', icon: 'user-round' }
 ];
 
 export const VIEW_META = {
@@ -59,8 +59,8 @@ export const VIEW_META = {
   screener: ['选股器', '从实时市场数据里筛出值得研究的标的'],
   grid: ['网格策略', '用历史波动生成网格，并以回测结果校验参数'],
   plans: ['交易计划', '把想法写成可以执行的规则'],
-  monitor: ['盯盘中心', '真实报价触发计划条件时，提醒会出现在这里'],
-  settings: ['网站设置', '管理工作区、数据获取和数据源连接状态']
+  monitor: ['盯盘中心', '添加标的并开启自动扫描，触发结果进入个人中心'],
+  settings: ['个人中心', '提醒中心与网站设置的统一入口']
 };
 
 export const SETTINGS_TABS = [
