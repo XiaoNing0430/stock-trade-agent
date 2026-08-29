@@ -351,8 +351,11 @@ def _normalize_rank_item(item: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             return None
 
+    symbol = str(item.get("code") or "")
+    code = symbol[-6:] if len(symbol) >= 6 else symbol
     return {
-        "code": str(item.get("code") or ""),
+        "code": code,
+        "symbol": symbol,
         "name": str(item.get("name") or ""),
         "price": n(item.get("zxj")),
         "change": n(item.get("zd")),

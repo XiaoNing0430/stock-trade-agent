@@ -504,7 +504,8 @@ def test_screener_v2_returns_paginated_results(monkeypatch):
     assert result["pageSize"] == 10
     assert len(result["rows"]) == 1
     row = result["rows"][0]
-    assert row["code"] == "sh600519"
+    assert row["code"] == "600519"
+    assert row["symbol"] == "sh600519"
     assert row["name"] == "贵州茅台"
     assert row["price"] == 1297.4
     assert row["changePct"] == 0.39
