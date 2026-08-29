@@ -486,3 +486,59 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=absent")
     assert response.status_code == 502
+
+
+def test_screener_v2_returns_paginated_results(monkeypatch):
+    fake_data = {"data": {"rank_list": [{"code": "sh600519", "name": "贵州茅台", "zxj": "1297.4", "zdf": "0.39", "hsl": "0.13",
+        "ltsz": "16218.56", "pe_ttm": "19.92", "pn": "6.46", "turnover": "208601", "zf": "0.77", "lb": "0.54",
+        "zdf_d5": "1.93", "zdf_d10": "-3.32", "zdf_d20": "-3.94", "zdf_d60": "4.63", "zdf_w52": "-6.94", "zdf_y": "-3.84",
+        "volume": "16126.00", "speed": "0.02", "zd": "5.10", "zsz": "16218.56", "zljlr": "-7495.96",
+        "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
+    class FakeResponse:
+        def json(self): return fake_data
+    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: FakeResponse())
+    from backend.data_source import load_screener_v2
+    result = load_screener_v2(page=1, page_size=10, sort_by="changePct", sort_dir="desc")
+    assert result["total"] == 4596
+    assert result["page"] == 1
+    assert result["pageSize"] == 10
+    assert len(result["rows"]) == 1
+    row = result["rows"][0]
+    assert row["code"] == "600519"
+    assert row["symbol"] == "sh600519"
+    assert row["name"] == "贵州茅台"
+    assert row["price"] == 1297.4
+    assert row["changePct"] == 0.39
+    assert row["change"] == 5.10
+    assert row["turnoverRate"] == 0.13
+    assert row["volumeRatio"] == 0.54
+    assert row["peTtm"] is not None
+    assert row["amount"] is not None
+    assert row["totalMarketCap"] is not None
+
+
+def test_screener_v2_when_upstream_fails(monkeypatch):
+    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: (_ for _ in ()).throw(ConnectionError("timeout")))
+    from backend.data_source import load_screener_v2
+    import pytest
+    with pytest.raises(RuntimeError, match="全市场选股器请求失败"):
+        load_screener_v2()
+
+
+def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
+    fake_data = {"data": {"rank_list": [{"code": "sh600519", "name": "贵州茅台", "zxj": "1297.4", "zdf": "0.39", "hsl": "0.13",
+        "ltsz": "16218.56", "pe_ttm": "19.92", "pn": "6.46", "turnover": "208601", "zf": "0.77", "lb": "0.54",
+        "zdf_d5": "1.93", "zdf_d10": "-3.32", "zdf_d20": "-3.94", "zdf_d60": "4.63", "zdf_w52": "-6.94", "zdf_y": "-3.84",
+        "volume": "16126.00", "speed": "0.02", "zd": "5.10", "zsz": "16218.56", "zljlr": "-7495.96",
+        "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
+    class FakeResponse:
+        def json(self): return fake_data
+    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: FakeResponse())
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2?page=1&pageSize=10&sortBy=changePct&sortDir=desc")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 4596
+    assert data["page"] == 1
+    assert len(data["rows"]) == 1

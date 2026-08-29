@@ -40,6 +40,13 @@ createApp({
     const screenRows = ref([]);
     const screenTotal = ref(0);
     const screenerUpdatedAt = ref(0);
+    const screenerMode = ref('featured');
+    const screenerAllRows = ref([]);
+    const screenerAllTotal = ref(0);
+    const screenerPage = ref(1);
+    const screenerSortBy = ref('changePct');
+    const screenerSortDir = ref('desc');
+    const screenerLoading = ref(false);
     const presetName = ref(saved.presetName || '趋势突破');
     const watchlistCodes = ref(Array.isArray(saved.watchlist) ? saved.watchlist : DEFAULT_WATCHLIST);
     const plans = ref(Array.isArray(saved.plans) ? saved.plans : []);
@@ -522,6 +529,60 @@ createApp({
       screenerUpdatedAt.value = payload.fetchedAt || Date.now();
     }
 
+    async function fetchScreenerAll() {
+      screenerLoading.value = true;
+      try {
+        const payload = await requestJson(`/api/screener/v2?page=${screenerPage.value}&pageSize=50&sortBy=${encodeURIComponent(screenerSortBy.value)}&sortDir=${screenerSortDir.value}`);
+        screenerAllRows.value = payload.rows || [];
+        screenerAllTotal.value = Number(payload.total || 0);
+        screenerUpdatedAt.value = payload.fetchedAt || Date.now();
+      } finally {
+        screenerLoading.value = false;
+      }
+    }
+
+    function switchScreenerMode(mode) {
+      if (screenerMode.value === mode) return;
+      screenerMode.value = mode;
+      if (mode === 'all') {
+        screenerPage.value = 1;
+        fetchScreenerAll();
+      } else {
+        scanNow();
+      }
+    }
+
+    function screenerSort(column) {
+      if (screenerSortBy.value === column) {
+        screenerSortDir.value = screenerSortDir.value === 'desc' ? 'asc' : 'desc';
+      } else {
+        screenerSortBy.value = column;
+        screenerSortDir.value = 'desc';
+      }
+      screenerPage.value = 1;
+      fetchScreenerAll();
+    }
+
+    function screenerPageUp() {
+      const maxPage = Math.max(1, Math.ceil(screenerAllTotal.value / 50));
+      if (screenerPage.value < maxPage) {
+        screenerPage.value += 1;
+        fetchScreenerAll();
+      }
+    }
+
+    function screenerPageDown() {
+      if (screenerPage.value > 1) {
+        screenerPage.value -= 1;
+        fetchScreenerAll();
+      }
+    }
+
+    function screenerSortIcon(column) {
+      if (screenerSortBy.value !== column) return '';
+      return screenerSortDir.value === 'desc' ? '↓' : '↑';
+    }
+
     async function fetchHistory(code, type = 'selected') {
       const isIndex = type === 'index';
       const payload = await requestJson(`/api/history?code=${encodeURIComponent(code)}${isIndex ? '&index=1' : ''}`);
@@ -860,6 +921,11 @@ createApp({
     }
 
     async function scanNow() {
+      if (screenerMode.value === 'all') {
+        await fetchScreenerAll();
+        showToast(`已刷新全市场排名，共 ${screenerAllTotal.value.toLocaleString()} 只`);
+        return;
+      }
       loading.value = true;
       try {
         await fetchScreener();
@@ -1277,6 +1343,18 @@ createApp({
       lastUpdatedLabel,
       fetchedLabel,
       screenerUpdatedLabel,
+      screenerMode,
+      screenerAllRows,
+      screenerAllTotal,
+      screenerPage,
+      screenerSortBy,
+      screenerSortDir,
+      screenerLoading,
+      switchScreenerMode,
+      screenerSort,
+      screenerSortIcon,
+      screenerPageUp,
+      screenerPageDown,
       todayLabel,
       refreshIntervalLabel,
       breadth,

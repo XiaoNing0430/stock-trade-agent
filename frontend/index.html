@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101a2b">
   <meta name="description" content="连接真实 A 股行情的选股、交易计划和盯盘工作台">
   <title>Atlas 交易工作台</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260829-7">
+  <link rel="stylesheet" href="/assets/styles.css?v=20260830-1">
   <script src="/assets/vendor/vue.global.prod.js?v=20260806-1"></script>
   <script src="/assets/vendor/lucide.min.js?v=20260806-1"></script>
 </head>
@@ -340,7 +340,12 @@
             </div>
           </div>
 
-          <div class="screener-layout">
+          <div class="screener-tabs">
+            <button :class="['screener-tab', { 'is-active': screenerMode === 'featured' }]" type="button" @click="switchScreenerMode('featured')">精选 50</button>
+            <button :class="['screener-tab', { 'is-active': screenerMode === 'all' }]" type="button" @click="switchScreenerMode('all')">全市场</button>
+          </div>
+
+          <div v-if="screenerMode === 'featured'" class="screener-layout">
             <section class="filter-panel surface">
               <div class="surface-heading">
                 <div>
@@ -411,6 +416,62 @@
               <div v-if="loading && !filteredRows.length" class="empty-state"><i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取真实行情</strong><span>行情列表返回后会显示筛选结果。</span></div>
               <div v-else-if="!filteredRows.length" class="empty-state"><i data-lucide="search-x" aria-hidden="true"></i><strong>没有找到符合条件的股票</strong><span>可以放宽 PE、PB 或涨幅条件再试一次。</span></div>
             </section>
+          </div>
+
+          <div v-else class="all-market-panel surface">
+            <div class="surface-heading results-heading">
+              <div>
+                <span class="section-kicker">FULL MARKET</span>
+                <h3><span>{{ screenerAllTotal.toLocaleString() }}</span> 只沪深 A 股</h3>
+              </div>
+              <div class="results-actions">
+                <span class="muted-count">第 {{ screenerPage }} 页 · 每页 50 只</span>
+                <button class="icon-button" type="button" aria-label="刷新全市场" data-tooltip="刷新全市场" @click="scanNow">
+                  <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                </button>
+              </div>
+            </div>
+            <div class="table-responsive results-table-wrap">
+              <table class="data-table data-table-dense">
+                <thead><tr>
+                  <th class="screener-sort" @click="screenerSort('code')">代码 <span class="sort-arrow">{{ screenerSortIcon('code') }}</span></th>
+                  <th>名称</th>
+                  <th class="text-end screener-sort" @click="screenerSort('price')">现价 <span class="sort-arrow">{{ screenerSortIcon('price') }}</span></th>
+                  <th class="text-end screener-sort" @click="screenerSort('changePct')">涨跌幅 <span class="sort-arrow">{{ screenerSortIcon('changePct') }}</span></th>
+                  <th class="text-end screener-sort" @click="screenerSort('amount')">成交额 <span class="sort-arrow">{{ screenerSortIcon('amount') }}</span></th>
+                  <th class="text-end">换手率</th>
+                  <th class="text-end">量比</th>
+                  <th class="text-end">PE</th>
+                  <th class="text-end">PB</th>
+                  <th class="text-end">总市值</th>
+                  <th class="text-end">主力净流入</th>
+                  <th class="text-end">操作</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="stock in screenerAllRows" :key="stock.symbol" class="clickable-row" @click="selectStock(stock.code)">
+                    <td>{{ stock.code }}</td>
+                    <td><div class="stock-cell"><span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong></div></div></td>
+                    <td class="text-end">{{ formatNullable(stock.price) }}</td>
+                    <td class="text-end" :class="trendClass(stock.changePct)">{{ formatPctNullable(stock.changePct) }}</td>
+                    <td class="text-end">{{ formatAmount(stock.amount) }}</td>
+                    <td class="text-end">{{ formatNullable(stock.turnoverRate, 2) }}%</td>
+                    <td class="text-end">{{ formatNullable(stock.volumeRatio, 2) }}</td>
+                    <td class="text-end">{{ formatNullable(stock.peTtm, 1) }}</td>
+                    <td class="text-end">{{ formatNullable(stock.pb, 2) }}</td>
+                    <td class="text-end">{{ stock.totalMarketCap != null ? stock.totalMarketCap.toLocaleString() + ' 亿' : '--' }}</td>
+                    <td class="text-end" :class="trendClass(stock.netMoneyFlow)">{{ stock.netMoneyFlow != null ? stock.netMoneyFlow.toLocaleString() + ' 万' : '--' }}</td>
+                    <td class="text-end"><button class="table-action" type="button" :aria-label="isWatched(stock.code) ? '移出自选' : '加入自选'" :data-tooltip="isWatched(stock.code) ? '移出自选' : '加入自选'" @click.stop="toggleWatch(stock.code)"><i :data-lucide="isWatched(stock.code) ? 'star-off' : 'star'" aria-hidden="true"></i></button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="screenerLoading" class="empty-state"><i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取全市场行情</strong><span>腾讯排名接口返回后会显示结果。</span></div>
+            <div v-else-if="!screenerAllRows.length" class="empty-state"><i data-lucide="search-x" aria-hidden="true"></i><strong>暂时没有数据</strong><span>全市场排名接口暂时不可用，请稍后重试。</span></div>
+            <div class="pagination">
+              <button class="button button-secondary" type="button" :disabled="screenerPage <= 1" @click="screenerPageDown"><i data-lucide="chevron-left" aria-hidden="true"></i>上一页</button>
+              <span class="pagination-info">{{ screenerPage }} / {{ Math.max(1, Math.ceil(screenerAllTotal / 50)) }}</span>
+              <button class="button button-secondary" type="button" :disabled="screenerPage >= Math.ceil(screenerAllTotal / 50)" @click="screenerPageUp">下一页<i data-lucide="chevron-right" aria-hidden="true"></i></button>
+            </div>
           </div>
 
           <section class="selected-stock-panel surface">
@@ -632,6 +693,6 @@
   </div>
 
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/assets/app.js?v=20260830-2"></script>
+  <script type="module" src="/assets/app.js?v=20260830-3"></script>
 </body>
 </html>
