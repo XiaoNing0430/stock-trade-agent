@@ -144,3 +144,60 @@ def test_buy_and_hold_benchmark_buys_lots_and_charges_fee():
     assert benchmark["endEquity"] > 100000
     assert benchmark["returnPct"] > 0
     assert len(benchmark["curve"]) == 2
+
+
+def _make_bar(date, open_, high, low, close, volume):
+    return {"date": date, "open": open_, "high": high, "low": low, "close": close, "volume": volume}
+
+
+def test_one_price_limit_up_day_allows_sells_only():
+    bars = [
+        _make_bar("2026-01-01", 10.0, 10.0, 10.0, 10.0, 10000),
+        _make_bar("2026-01-02", 11.0, 11.0, 11.0, 11.0, 4000),
+    ]
+
+    result = backtest_grid(bars, lower=9.0, upper=12.0, grid_count=3, capital=100000, mode="classic")
+    metrics = result["metrics"]
+    buys = [t for t in result["trades"] if t["side"] == "buy"]
+    sells = [t for t in result["trades"] if t["side"] == "sell"]
+
+    assert metrics["onePriceLimitUpDays"] == 1
+    assert metrics["onePriceLimitDownDays"] == 0
+    assert metrics["skippedSuspensionDays"] == 0
+    assert len(sells) == 1
+    assert sells[0]["price"] == 11.0
+    assert not buys
+
+
+def test_one_price_limit_down_day_allows_buys_only():
+    bars = [
+        _make_bar("2026-01-01", 10.0, 10.0, 10.0, 10.0, 10000),
+        _make_bar("2026-01-02", 9.0, 9.0, 9.0, 9.0, 4000),
+    ]
+
+    result = backtest_grid(bars, lower=8.0, upper=12.0, grid_count=4, capital=100000, mode="classic")
+    metrics = result["metrics"]
+    buys = [t for t in result["trades"] if t["side"] == "buy"]
+    sells = [t for t in result["trades"] if t["side"] == "sell"]
+
+    assert metrics["onePriceLimitDownDays"] == 1
+    assert metrics["onePriceLimitUpDays"] == 0
+    assert metrics["skippedSuspensionDays"] == 0
+    assert len(buys) == 1
+    assert buys[0]["price"] == 9.0
+    assert not sells
+
+
+def test_zero_volume_day_is_still_suspension():
+    bars = [
+        _make_bar("2026-01-01", 10.0, 10.0, 10.0, 10.0, 10000),
+        _make_bar("2026-01-02", 10.0, 10.0, 10.0, 10.0, 0),
+    ]
+
+    result = backtest_grid(bars, lower=9.0, upper=11.0, grid_count=2, capital=100000, mode="classic")
+    metrics = result["metrics"]
+
+    assert metrics["skippedSuspensionDays"] == 1
+    assert metrics["onePriceLimitUpDays"] == 0
+    assert metrics["onePriceLimitDownDays"] == 0
+    assert result["trades"] == []
