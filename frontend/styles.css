@@ -3365,9 +3365,9 @@ textarea:focus-visible {
 }
 
 .alert-filter-chip.is-active {
-  border-color: #ef6d53;
-  color: #eef2f8;
-  background: rgba(239, 109, 83, 0.12);
+  border-color: var(--coral);
+  color: var(--coral-dark);
+  background: var(--coral-soft);
 }
 
 .notif-wrap {
@@ -3662,9 +3662,9 @@ textarea:focus-visible {
 }
 
 .settings-tab.is-active {
-  border-color: #ef6d53;
-  color: #eef2f8;
-  background: rgba(239, 109, 83, 0.12);
+  border-color: var(--coral);
+  color: var(--coral-dark);
+  background: var(--coral-soft);
 }
 
 @media (max-width: 1260px) {
