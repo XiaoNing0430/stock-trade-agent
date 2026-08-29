@@ -32,6 +32,7 @@ createApp({
     const chartDataSource = ref('live');
     const errorMessage = ref('');
     const selectedCode = ref(saved.selectedCode || DEFAULT_WATCHLIST[0]);
+    const detailReturnView = ref('screener');
     const selectedHistory = ref([]);
     const selectedHistoryCode = ref('');
     const selectedHistoryFetchedAt = ref(0);
@@ -668,11 +669,12 @@ createApp({
       }
     }
 
-    async function selectStock(code) {
+    async function selectStock(code, fromView) {
       if (!code) return;
+      detailReturnView.value = fromView || view.value || 'screener';
       selectedCode.value = code;
       persist();
-      switchView('screener');
+      view.value = 'stock-detail';
       await ensureQuote(code);
       try {
         await fetchHistory(code, 'selected');
@@ -681,6 +683,12 @@ createApp({
       }
       await nextTick();
       renderIcons();
+    }
+
+    function backFromDetail() {
+      view.value = detailReturnView.value;
+      persist();
+      nextTick(renderIcons);
     }
 
     function isWatched(code) {
@@ -1275,6 +1283,7 @@ createApp({
       chartDataSource,
       errorMessage,
       selectedCode,
+      detailReturnView,
       selectedStock,
       selectedIndex,
       selectedHistory,
@@ -1388,6 +1397,7 @@ createApp({
       backtestGrid,
       optimizeGrid,
       selectStock,
+      backFromDetail,
       toggleWatch,
       createPlan,
       savePlan,
