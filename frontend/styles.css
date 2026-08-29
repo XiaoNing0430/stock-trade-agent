@@ -3343,3 +3343,107 @@ textarea:focus-visible {
 .conflict-banner svg {
   color: #ef6d53;
 }
+
+/* ===== P1 unified trading desk ===== */
+.desk-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.desk-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+
+.desk-kpi-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--muted-strong);
+}
+
+.desk-kpi strong {
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.desk-kpi-note {
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.desk-workspaces {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.desk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+
+.preset-hits {
+  display: grid;
+  gap: 8px;
+}
+
+.preset-hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.preset-hit:hover {
+  border-color: #ef6d53;
+}
+
+.preset-hit-name {
+  font-weight: 600;
+}
+
+.preset-hit-count {
+  margin-left: auto;
+  font-size: 16px;
+}
+
+.desk-stat-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.desk-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 13px;
+}
+
+.desk-stat-row-risk strong {
+  color: #ef6d53;
+}
+
+@media (max-width: 1260px) {
+  .desk-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .desk-workspaces {
+    grid-template-columns: 1fr;
+  }
+}

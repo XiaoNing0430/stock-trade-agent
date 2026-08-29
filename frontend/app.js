@@ -51,6 +51,40 @@ createApp({
     const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
     const conflictVisible = ref(false);
     const conflictSnapshot = ref(null);
+
+    const presetHits = computed(() => presets.map((preset) => ({
+      name: preset.name,
+      icon: preset.icon,
+      iconClass: preset.iconClass,
+      filters: preset.filters,
+      count: screenRows.value.filter((row) => (
+        row.pe !== null && row.pe <= preset.filters.peMax
+        && row.pb !== null && row.pb <= preset.filters.pbMax
+        && row.volumeRatio !== null && row.volumeRatio >= preset.filters.volumeMin
+        && row.change !== null && row.change >= preset.filters.changeMin
+      )).length
+    })));
+
+    const strategyStats = computed(() => {
+      const running = gridStrategies.value.filter((strategy) => strategy.status === '启用');
+      const now = Date.now();
+      const pending = running.filter((strategy) => !strategy.lastBacktestAt || now - new Date(strategy.lastBacktestAt).getTime() > 24 * 3600 * 1000);
+      const withExcess = gridStrategies.value.filter((strategy) => strategy.latestMetrics && strategy.latestMetrics.excessReturnPct != null);
+      return {
+        running: running.length,
+        pending: pending.length,
+        latestExcess: withExcess.length ? withExcess[0].latestMetrics.excessReturnPct : null
+      };
+    });
+
+    const riskStats = computed(() => {
+      const stopHit = activePlans.value.filter((plan) => {
+        if (plan.triggered && plan.triggered.stop) return true;
+        const quote = quoteFor(plan.code);
+        return quote && quote.price != null && quote.price <= plan.stop;
+      }).length;
+      return { active: activePlans.value.length, stopHit, unread: unreadAlerts.value };
+    });
     const workspaceSyncTimer = ref(null);
     const draft = reactive({
       code: selectedCode.value,
@@ -1073,6 +1107,9 @@ createApp({
       alerts,
       unreadAlerts,
       monitorEnabled,
+      presetHits,
+      strategyStats,
+      riskStats,
       conflictVisible,
       adoptServerWorkspace,
       forceSaveWorkspace,
