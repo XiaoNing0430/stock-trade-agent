@@ -29,6 +29,7 @@ createApp({
     const globalSearch = ref('');
     const dataState = ref('connecting');
     const serverStaleAge = ref(null);
+    const chartDataSource = ref('live');
     const errorMessage = ref('');
     const selectedCode = ref(saved.selectedCode || DEFAULT_WATCHLIST[0]);
     const selectedHistory = ref([]);
@@ -93,11 +94,12 @@ createApp({
       const first = result.history[0]?.date || '--';
       const last = result.history[result.history.length - 1]?.date || '--';
       const metrics = result.metrics || {};
+      const src = result.dataSource === 'local' ? '本地缓存' : providerLabel.value;
       const parts = [
         `数据区间 ${first} ~ ${last}`,
         `${result.history.length} 个交易日`,
         '前复权日线',
-        `来源 ${providerLabel.value}`,
+        `来源 ${src}`,
         `数据截止 ${result.config?.dataAsOf || last}`,
         `涨跌停跳过 ${metrics.skippedLimitUpDays ?? 0}/${metrics.skippedLimitDownDays ?? 0}`,
         `一字板 ${metrics.onePriceLimitUpDays ?? 0}/${metrics.onePriceLimitDownDays ?? 0}`,
@@ -531,6 +533,7 @@ createApp({
         selectedHistoryCode.value = code;
         selectedHistoryFetchedAt.value = Date.now();
       }
+      chartDataSource.value = payload.dataSource === 'local' ? 'local' : 'live';
     }
 
     let refreshInFlight = false;
@@ -1203,6 +1206,7 @@ createApp({
       globalSearch,
       dataState,
       serverStaleAge,
+      chartDataSource,
       errorMessage,
       selectedCode,
       selectedStock,

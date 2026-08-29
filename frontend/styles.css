@@ -3676,3 +3676,21 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.chart-source-row {
+  margin-top: 8px;
+  text-align: right;
+}
+
+.source-badge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.source-badge.source-badge-local {
+  background: var(--gold-soft);
+  color: var(--gold);
+}

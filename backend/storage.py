@@ -452,6 +452,35 @@ def set_grid_next_run(strategy_id: str, next_run_at: datetime | None) -> None:
             strategy.next_run_at = next_run_at
 
 
+def load_market_bars(code: str, adjustment: str = "qfq", limit: int = 240) -> list[dict[str, Any]]:
+    """从本地 market_bars 表读取历史日线，按交易日升序返回最近 limit 条。"""
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(MarketBar)
+            .where(MarketBar.code == code, MarketBar.adjustment == adjustment)
+            .order_by(MarketBar.trade_date.desc())
+            .limit(limit)
+        ).all()
+        if not rows:
+            return []
+        return sorted(
+            [
+                {
+                    "date": row.trade_date,
+                    "open": row.open,
+                    "high": row.high,
+                    "low": row.low,
+                    "close": row.close,
+                    "volume": row.volume,
+                    "amount": row.amount,
+                    "fetchedAt": row.fetched_at.isoformat() if row.fetched_at else None,
+                }
+                for row in rows
+            ],
+            key=lambda r: r["date"],
+        )
+
+
 def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "qfq") -> str | None:
     latest_date = None
     with SessionLocal.begin() as session:
