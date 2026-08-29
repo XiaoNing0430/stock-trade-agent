@@ -1,4 +1,4 @@
-import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META } from './modules/constants.js';
+import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS } from './modules/constants.js';
 import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
 
@@ -152,6 +152,9 @@ createApp({
     const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server' });
     const dataSources = ref([]);
     const settingsLoading = ref(false);
+    const settingsTab = ref('workspace');
+    const appliedSettings = ref(null);
+    const settingsDirty = computed(() => Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value));
     if (saved.filters?.market === '沪A') {
       filters.exchange = '上交所';
       filters.market = '全部';
@@ -439,6 +442,7 @@ createApp({
         const payload = await requestJson('/api/settings');
         Object.assign(settingsDraft, payload.data || {});
         dataSources.value = payload.sources || [];
+        appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
       } catch (error) {
         showToast('设置读取失败，正在使用本地默认值', 'error');
       } finally {
@@ -451,6 +455,7 @@ createApp({
       try {
         const payload = await requestJson('/api/settings', { method: 'PUT', body: JSON.stringify(settingsDraft) });
         Object.assign(settingsDraft, payload.data || {});
+        appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
         monitorEnabled.value = settingsDraft.monitorEnabled;
         armRefreshTimer();
         showToast('网站设置已保存');
@@ -1143,6 +1148,9 @@ createApp({
       settingsDraft,
       dataSources,
       settingsLoading,
+      settingsTab,
+      settingsTabs: SETTINGS_TABS,
+      settingsDirty,
       draft,
       gridDraft,
       gridLoading,

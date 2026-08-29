@@ -3546,6 +3546,29 @@ textarea:focus-visible {
   }
 }
 
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.settings-tab {
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-tab.is-active {
+  border-color: #ef6d53;
+  color: #eef2f8;
+  background: rgba(239, 109, 83, 0.12);
+}
+
 @media (max-width: 1260px) {
   .desk-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));

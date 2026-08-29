@@ -62,3 +62,9 @@ export const VIEW_META = {
   monitor: ['盯盘中心', '真实报价触发计划条件时，提醒会出现在这里'],
   settings: ['网站设置', '管理工作区、数据获取和数据源连接状态']
 };
+
+export const SETTINGS_TABS = [
+  { id: 'workspace', label: '工作台' },
+  { id: 'data', label: '数据获取' },
+  { id: 'connection', label: '连接状态' }
+];
