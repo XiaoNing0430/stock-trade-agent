@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from math import ceil, floor
-from statistics import median
+from statistics import mean, median, stdev
 from typing import Any
 
 
@@ -47,6 +47,40 @@ def suggest_grid(bars: list[dict[str, Any]], grid_count: int = 8, capital: float
     }
 
 
+def transaction_fee(side: str, value: float, fee_bps: float, security_type: str = "股票", exchange: str = "上交所") -> float:
+    commission_rate = fee_bps / 10000
+    commission = max(5.0, value * commission_rate)
+    stamp_duty = value * 0.0005 if security_type == "股票" and side == "sell" else 0.0
+    transfer = value * 0.00001 if security_type == "股票" and exchange == "上交所" else 0.0
+    return commission + stamp_duty + transfer
+
+
+def buy_and_hold_benchmark(
+    bars: list[dict[str, Any]], capital: float, fee_bps: float = 3,
+    security_type: str = "股票", exchange: str = "上交所",
+) -> dict[str, Any]:
+    """Buy-and-hold reference: fill max 100-share lots on the first close, hold to the last."""
+    if not bars:
+        raise ValueError("历史数据不能为空")
+    first_close = float(bars[0]["close"])
+    last_close = float(bars[-1]["close"])
+    lots = floor(capital / first_close / 100) * 100
+    while lots and lots * first_close + transaction_fee("buy", lots * first_close, fee_bps, security_type, exchange) > capital:
+        lots -= 100
+    invested = lots * first_close if lots else 0
+    cash = capital - invested - (transaction_fee("buy", invested, fee_bps, security_type, exchange) if lots else 0)
+    end_equity = cash + lots * last_close if lots else cash
+    curve = [
+        {"date": bar.get("date", ""), "equity": round((cash + lots * float(bar["close"])) / capital, 6)}
+        for bar in bars
+    ]
+    return {
+        "endEquity": round(end_equity, 2),
+        "returnPct": round((end_equity / capital - 1) * 100, 2),
+        "curve": curve,
+    }
+
+
 def backtest_grid(
     bars: list[dict[str, Any]], lower: float, upper: float, grid_count: int, capital: float,
     fee_bps: float = 3, mode: str = "classic", security_type: str = "股票",
@@ -57,13 +91,9 @@ def backtest_grid(
     if mode not in {"classic", "trend"}:
         raise ValueError("网格模式无效")
     levels = build_grid(lower, upper, grid_count)
-    commission_rate = fee_bps / 10000
 
     def fee(side: str, value: float) -> float:
-        commission = max(5.0, value * commission_rate)
-        stamp_duty = value * 0.0005 if security_type == "股票" and side == "sell" else 0.0
-        transfer = value * 0.00001 if security_type == "股票" and exchange == "上交所" else 0.0
-        return commission + stamp_duty + transfer
+        return transaction_fee(side, value, fee_bps, security_type, exchange)
 
     first_close = float(bars[0]["close"])
     cash = capital
@@ -155,9 +185,53 @@ def backtest_grid(
     days = max(1, len(bars) - 1)
     total_return = end_equity / capital - 1
     annualized = (max(end_equity, 1) / capital) ** (252 / days) - 1 if days >= 20 else None
+
+    benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
+    benchmark_return_pct = benchmark["returnPct"]
+    excess_return_pct = round(total_return * 100 - benchmark_return_pct, 2)
+
+    # Risk-adjusted metrics from the strategy daily equity curve.
+    daily_returns = [equity_curve[i] / equity_curve[i - 1] - 1 for i in range(1, len(equity_curve)) if equity_curve[i - 1]]
+    vol = None
+    if len(daily_returns) >= 2:
+        sample_vol = stdev(daily_returns)
+        if sample_vol > 0:
+            vol = sample_vol
+    mean_daily = mean(daily_returns) if daily_returns else 0.0
+    annualized_volatility = round(vol * (252 ** 0.5) * 100, 2) if vol else None
+    sharpe = round(mean_daily / vol * (252 ** 0.5), 2) if vol and len(daily_returns) >= 20 else None
+    total_fees = round(sum(trade["fee"] for trade in trades), 2)
+    turnover_multiple = round(sum(trade["price"] * trade["shares"] for trade in trades) / capital, 2)
+    equity_curve_normalized = [
+        {"date": bar.get("date", ""), "equity": round(eq / capital, 6)}
+        for bar, eq in zip(bars, equity_curve)
+    ]
+
+    metrics = {
+        "startEquity": round(capital, 2),
+        "endEquity": round(end_equity, 2),
+        "returnPct": round(total_return * 100, 2),
+        "annualizedReturnPct": round(annualized * 100, 2) if annualized is not None else None,
+        "maxDrawdownPct": round(max_drawdown * 100, 2),
+        "tradeCount": len(trades),
+        "buyCount": sum(item["side"] == "buy" for item in trades),
+        "sellCount": sum(item["side"] == "sell" for item in trades),
+        "skippedLimitUpDays": skipped_limit_up_days,
+        "skippedLimitDownDays": skipped_limit_down_days,
+        "skippedSuspensionDays": skipped_suspension_days,
+        "benchmarkReturnPct": benchmark_return_pct,
+        "excessReturnPct": excess_return_pct,
+        "annualizedVolatilityPct": annualized_volatility,
+        "sharpeRatio": sharpe,
+        "totalFees": total_fees,
+        "turnoverMultiple": turnover_multiple,
+    }
     return {
-        "levels": levels, "trades": trades[-100:],
-        "metrics": {"startEquity": round(capital, 2), "endEquity": round(end_equity, 2), "returnPct": round(total_return * 100, 2), "annualizedReturnPct": round(annualized * 100, 2) if annualized is not None else None, "maxDrawdownPct": round(max_drawdown * 100, 2), "tradeCount": len(trades), "buyCount": sum(item["side"] == "buy" for item in trades), "sellCount": sum(item["side"] == "sell" for item in trades), "skippedLimitUpDays": skipped_limit_up_days, "skippedLimitDownDays": skipped_limit_down_days, "skippedSuspensionDays": skipped_suspension_days},
+        "levels": levels,
+        "trades": trades[-100:],
+        "equityCurve": equity_curve_normalized,
+        "benchmarkCurve": benchmark["curve"],
+        "metrics": metrics,
         "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
                         f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"),
     }
@@ -177,5 +251,34 @@ def optimize_grid(
             lower, upper = max(0.01, center - lower_gap * multiplier), center + upper_gap * multiplier
             in_sample = backtest_grid(training_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct)
             out_of_sample = backtest_grid(validation_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct)
-            candidates.append({"gridCount": grid_count, "lower": round(lower, 2), "upper": round(upper, 2), "step": round((upper - lower) / grid_count, 3), "inSampleMetrics": in_sample["metrics"], **out_of_sample})
-    return sorted(candidates, key=lambda item: (item["metrics"]["returnPct"], -item["metrics"]["maxDrawdownPct"]), reverse=True)
+            in_metrics = in_sample["metrics"]
+            out_metrics = out_of_sample["metrics"]
+            if len(validation_bars) < 20:
+                flag = "样本外过短"
+            elif abs(in_metrics["returnPct"] - out_metrics["returnPct"]) > 10:
+                flag = "可能过拟合"
+            else:
+                flag = None
+            recommended = not (
+                out_metrics["tradeCount"] == 0
+                or out_metrics["buyCount"] == 0
+                or out_metrics["sellCount"] == 0
+                or out_metrics["excessReturnPct"] <= 0
+            )
+            candidates.append({
+                "gridCount": grid_count,
+                "lower": round(lower, 2),
+                "upper": round(upper, 2),
+                "step": round((upper - lower) / grid_count, 3),
+                "inSampleMetrics": in_metrics,
+                "metrics": out_metrics,
+                "flag": flag,
+                "recommended": recommended,
+            })
+
+    def sort_key(item: dict[str, Any]) -> tuple[float, float, float]:
+        m = item["metrics"]
+        diff = abs(item["inSampleMetrics"]["returnPct"] - m["returnPct"])
+        return (-m.get("excessReturnPct", -999.0), m.get("maxDrawdownPct", 999.0), diff)
+
+    return sorted(candidates, key=sort_key)

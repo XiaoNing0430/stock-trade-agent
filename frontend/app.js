@@ -201,6 +201,45 @@ function chartSvg(points, accent, label) {
   `;
 }
 
+function compareChartSvg(result) {
+  const strategy = (result?.equityCurve || []).map((point) => Number(point.equity));
+  const benchmark = (result?.benchmarkCurve || []).map((point) => Number(point.equity));
+  if (strategy.length < 2 || benchmark.length < 2) {
+    return '<div class="chart-empty">暂无足够的权益数据</div>';
+  }
+  const width = 640;
+  const height = 150;
+  const pad = { top: 12, right: 12, bottom: 24, left: 12 };
+  const innerWidth = width - pad.left - pad.right;
+  const innerHeight = height - pad.top - pad.bottom;
+  const all = [...strategy, ...benchmark];
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const range = max - min || 1;
+  const pathFor = (values) => values.map((value, index) => {
+    const x = pad.left + (index / (values.length - 1)) * innerWidth;
+    const y = pad.top + (1 - (value - min) / range) * innerHeight;
+    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  const grid = [0.25, 0.5, 0.75].map((ratio) => {
+    const y = pad.top + innerHeight * ratio;
+    return `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}"></line>`;
+  }).join('');
+  const label = escapeHtml('网格策略与持有基准的归一化权益对比');
+  return `
+    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${label}">
+      <title>${label}</title>
+      ${grid}
+      <path class="chart-line chart-line-benchmark" style="stroke:#9aa7bd" d="${pathFor(benchmark)}"></path>
+      <path class="chart-line chart-line-strategy" style="stroke:#ef6d53" d="${pathFor(strategy)}"></path>
+    </svg>
+    <div class="chart-legend">
+      <span><i class="legend-line legend-line-strategy"></i>网格策略</span>
+      <span><i class="legend-line legend-line-benchmark"></i>持有基准</span>
+    </div>
+  `;
+}
+
 createApp({
   setup() {
     const saved = loadStorage();
@@ -892,7 +931,7 @@ createApp({
           gridDraft.lower = best.lower;
           gridDraft.upper = best.upper;
         }
-        showToast('已选出历史回测表现最优的参数');
+        showToast(best?.recommended ? '已选出历史回测表现最优的参数' : '已填入最优候选（暂不推荐，请查看稳健性标记）');
       } catch (error) {
         showToast(error.message || '参数优化失败', 'error');
       } finally {
@@ -1217,6 +1256,7 @@ createApp({
       formatDateLabel,
       trendClass,
       chartSvg,
+      compareChartSvg,
       quoteFor,
       planFor,
       calculateRr,
