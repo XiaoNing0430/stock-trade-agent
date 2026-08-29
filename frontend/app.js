@@ -46,7 +46,7 @@ createApp({
     const draftDirty = ref(false);
     const draftWatchSuppressed = ref(true);
     const refreshTimer = ref(null);
-    const lastToastTimer = ref(null);
+    const toastTimers = new Set();
     const workspaceSynced = ref(false);
     const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
     const conflictVisible = ref(false);
@@ -92,7 +92,7 @@ createApp({
       errors: []
     });
     const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
-    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1 });
+    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server' });
     const dataSources = ref([]);
     const settingsLoading = ref(false);
     if (saved.filters?.market === '沪A') {
@@ -292,10 +292,19 @@ createApp({
             body: JSON.stringify(workspacePayload())
           });
         } catch (error) {
-          if (error.status === 409 && error.payload?.detail?.workspace) {
-            // 版本冲突不自动重试，交给用户在横幅中决策，避免覆盖任何一端数据。
+          if (error.status === 409) {
+            // 版本冲突不自动重试写入，按工作区策略处理。
             workspaceSyncQueued = false;
-            showConflictBanner(error.payload.detail.workspace);
+            const snapshot = error.payload?.detail?.workspace;
+            const policy = settingsDraft.conflictPolicy;
+            if (policy === 'ask' || !snapshot) {
+              // 响应异常缺失快照时，server/local 策略静默降级为 ask 行为。
+              showConflictBanner(snapshot);
+            } else if (policy === 'local') {
+              await pushLocalWorkspace('检测到冲突，已自动用本地版本覆盖服务器');
+            } else {
+              adoptServerSnapshot(snapshot, true);
+            }
           }
           // 其余失败仍静默降级：浏览器存储兜底，等待持久化服务恢复。
         } finally {
@@ -314,20 +323,23 @@ createApp({
       showToast('其他页面已更新工作区数据，请选择保留哪一版', 'error');
     }
 
-    async function adoptServerWorkspace() {
-      const snapshot = conflictSnapshot.value;
-      conflictVisible.value = false;
-      if (!snapshot) return;
+    function adoptServerSnapshot(snapshot, auto = false) {
       watchlistCodes.value = snapshot.watchlist || [];
       plans.value = snapshot.plans || [];
       alerts.value = snapshot.alerts || [];
       workspaceRevision.value = Number(snapshot.revision || 0);
       persist();
-      showToast('已采用服务器最新数据');
+      showToast(auto ? '检测到其他页面更新，已自动采用服务器版本' : '已采用服务器最新数据');
     }
 
-    async function forceSaveWorkspace() {
+    async function adoptServerWorkspace() {
+      const snapshot = conflictSnapshot.value;
       conflictVisible.value = false;
+      if (!snapshot) return;
+      adoptServerSnapshot(snapshot, false);
+    }
+
+    async function pushLocalWorkspace(successMessage) {
       try {
         const saved = await requestJson('/api/workspace?force=true', {
           method: 'PUT',
@@ -335,10 +347,15 @@ createApp({
         });
         workspaceRevision.value = Number(saved.revision || 0);
         persist();
-        showToast('已用本地数据覆盖服务器');
+        showToast(successMessage);
       } catch (error) {
         showToast(error.message || '覆盖失败', 'error');
       }
+    }
+
+    async function forceSaveWorkspace() {
+      conflictVisible.value = false;
+      await pushLocalWorkspace('已用本地数据覆盖服务器');
     }
 
     async function loadWorkspace() {
@@ -960,8 +977,11 @@ createApp({
       toast.appendChild(text);
       region.appendChild(toast);
       renderIcons();
-      clearTimeout(lastToastTimer.value);
-      lastToastTimer.value = setTimeout(() => toast.remove(), 3200);
+      const timer = setTimeout(() => {
+        toast.remove();
+        toastTimers.delete(timer);
+      }, 3200);
+      toastTimers.add(timer);
     }
 
     function renderIcons() {
@@ -1027,6 +1047,7 @@ createApp({
     onBeforeUnmount(() => {
       clearInterval(refreshTimer.value);
       clearTimeout(workspaceSyncTimer.value);
+      toastTimers.forEach((timer) => clearTimeout(timer));
     });
 
     return {
