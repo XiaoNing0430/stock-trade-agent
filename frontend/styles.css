@@ -3345,6 +3345,30 @@ textarea:focus-visible {
   color: #ef6d53;
 }
 
+/* ===== P2 notification center ===== */
+.alert-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.alert-filter-chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.alert-filter-chip.is-active {
+  border-color: #ef6d53;
+  color: #eef2f8;
+  background: rgba(239, 109, 83, 0.12);
+}
+
 /* ===== P1 unified trading desk ===== */
 .desk-kpis {
   display: grid;

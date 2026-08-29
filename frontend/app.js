@@ -243,6 +243,13 @@ createApp({
     });
     const activePlans = computed(() => plans.value.filter((plan) => plan.status === '执行中' || plan.status === '已触发'));
     const unreadAlerts = computed(() => alerts.value.filter((alert) => !alert.read && alert.kind !== 'system').length);
+
+    const alertFilter = ref('all');
+    const filteredAlerts = computed(() => {
+      if (alertFilter.value === 'trade') return alerts.value.filter((alert) => alert.kind !== 'system');
+      if (alertFilter.value === 'system') return alerts.value.filter((alert) => alert.kind === 'system');
+      return alerts.value;
+    });
     const presetDescription = computed(() => {
       return presets.find((preset) => preset.name === presetName.value)?.description || '';
     });
@@ -1171,6 +1178,8 @@ createApp({
       monitorNextScan,
       activePlans,
       alerts,
+      alertFilter,
+      filteredAlerts,
       unreadAlerts,
       monitorEnabled,
       presetHits,
