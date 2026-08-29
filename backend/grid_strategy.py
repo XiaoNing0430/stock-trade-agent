@@ -188,6 +188,38 @@ def backtest_grid(
         previous_close = close
 
     end_equity = equity_curve[-1]
+    benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
+    equity_curve_normalized = [
+        {"date": bar.get("date", ""), "equity": round(eq / capital, 6)}
+        for bar, eq in zip(bars, equity_curve)
+    ]
+    metrics = _compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange,
+        skipped_limit_up_days, skipped_limit_down_days, skipped_suspension_days,
+        one_price_limit_up_days, one_price_limit_down_days)
+    return {
+        "levels": levels,
+        "trades": trades[-100:],
+        "equityCurve": equity_curve_normalized,
+        "benchmarkCurve": benchmark["curve"],
+        "metrics": metrics,
+        "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
+                        f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"
+                        "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"),
+    }
+
+
+def _compute_metrics(
+    bars: list[dict[str, Any]], trades: list[dict[str, Any]], equity_curve: list[float],
+    capital: float, fee_bps: float, security_type: str, exchange: str,
+    skipped_limit_up_days: int = 0, skipped_limit_down_days: int = 0,
+    skipped_suspension_days: int = 0, one_price_limit_up_days: int = 0,
+    one_price_limit_down_days: int = 0,
+) -> dict[str, Any]:
+    """统一指标计算：收益/回撤/夏普/胜率/round-trip/利润因子等。
+
+    被 backtest_grid 与各策略引擎共用，保证行为一致。
+    """
+    end_equity = equity_curve[-1]
     peak, max_drawdown = equity_curve[0], 0.0
     for equity in equity_curve:
         peak = max(peak, equity)
@@ -212,10 +244,6 @@ def backtest_grid(
     sharpe = round(mean_daily / vol * (252 ** 0.5), 2) if vol and len(daily_returns) >= 20 else None
     total_fees = round(sum(trade["fee"] for trade in trades), 2)
     turnover_multiple = round(sum(trade["price"] * trade["shares"] for trade in trades) / capital, 2)
-    equity_curve_normalized = [
-        {"date": bar.get("date", ""), "equity": round(eq / capital, 6)}
-        for bar, eq in zip(bars, equity_curve)
-    ]
 
     metrics = {
         "startEquity": round(capital, 2),
@@ -248,16 +276,7 @@ def backtest_grid(
     metrics["medianGridReturnPct"] = round(median(round_trip_returns) * 100, 2) if round_trip_returns else None
     metrics["maxDrawdownDurationDays"] = _max_drawdown_duration(equity_curve)
     metrics["profitFactor"] = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (None if not total_count else float("inf"))
-    return {
-        "levels": levels,
-        "trades": trades[-100:],
-        "equityCurve": equity_curve_normalized,
-        "benchmarkCurve": benchmark["curve"],
-        "metrics": metrics,
-        "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
-                        f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"
-                        "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"),
-    }
+    return metrics
 
 
 def _round_trip_returns(trades: list[dict[str, Any]]) -> list[float]:
