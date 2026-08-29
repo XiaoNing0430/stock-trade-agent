@@ -46,7 +46,7 @@ createApp({
     const draftDirty = ref(false);
     const draftWatchSuppressed = ref(true);
     const refreshTimer = ref(null);
-    const lastToastTimer = ref(null);
+    const toastTimers = new Set();
     const workspaceSynced = ref(false);
     const workspaceRevision = ref(Number(saved.workspaceRevision) || 0);
     const conflictVisible = ref(false);
@@ -977,8 +977,11 @@ createApp({
       toast.appendChild(text);
       region.appendChild(toast);
       renderIcons();
-      clearTimeout(lastToastTimer.value);
-      lastToastTimer.value = setTimeout(() => toast.remove(), 3200);
+      const timer = setTimeout(() => {
+        toast.remove();
+        toastTimers.delete(timer);
+      }, 3200);
+      toastTimers.add(timer);
     }
 
     function renderIcons() {
@@ -1044,6 +1047,7 @@ createApp({
     onBeforeUnmount(() => {
       clearInterval(refreshTimer.value);
       clearTimeout(workspaceSyncTimer.value);
+      toastTimers.forEach((timer) => clearTimeout(timer));
     });
 
     return {
