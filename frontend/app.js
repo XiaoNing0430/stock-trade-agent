@@ -1,5 +1,28 @@
-import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS, STRATEGY_TYPES, STRATEGY_SCHEMAS } from './modules/constants.js';
-import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
+import {
+  STORAGE_KEY,
+  DEFAULT_WATCHLIST,
+  DEFAULT_FILTERS,
+  DEFAULT_ALERTS,
+  PRESETS,
+  NAV_ITEMS,
+  VIEW_META,
+  SETTINGS_TABS,
+  STRATEGY_TYPES,
+  STRATEGY_SCHEMAS,
+} from './modules/constants.js';
+import {
+  formatNumber,
+  formatPct,
+  formatTime,
+  formatDateLabel,
+  formatAmount,
+  formatMoney,
+  formatNullable,
+  formatPctNullable,
+  trendClass,
+  escapeHtml,
+  validityExpiry,
+} from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
 import { APP_CTX } from './modules/views/context.js';
 import ViewSettings from './modules/views/ViewSettings.js';
@@ -10,17 +33,7 @@ import ViewStockDetail from './modules/views/ViewStockDetail.js';
 import ViewGrid from './modules/views/ViewGrid.js';
 import ViewPlans from './modules/views/ViewPlans.js';
 
-const {
-  createApp,
-  ref,
-  reactive,
-  computed,
-  watch,
-  onMounted,
-  onBeforeUnmount,
-  nextTick,
-  provide
-} = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, provide } = Vue;
 
 function loadStorage() {
   try {
@@ -71,28 +84,39 @@ const appOptions = {
     const conflictVisible = ref(false);
     const conflictSnapshot = ref(null);
 
-    const presetHits = computed(() => presets.map((preset) => ({
-      name: preset.name,
-      icon: preset.icon,
-      iconClass: preset.iconClass,
-      filters: preset.filters,
-      count: screenRows.value.filter((row) => (
-        row.pe !== null && row.pe <= preset.filters.peMax
-        && row.pb !== null && row.pb <= preset.filters.pbMax
-        && row.volumeRatio !== null && row.volumeRatio >= preset.filters.volumeMin
-        && row.change !== null && row.change >= preset.filters.changeMin
-      )).length
-    })));
+    const presetHits = computed(() =>
+      presets.map((preset) => ({
+        name: preset.name,
+        icon: preset.icon,
+        iconClass: preset.iconClass,
+        filters: preset.filters,
+        count: screenRows.value.filter(
+          (row) =>
+            row.pe !== null &&
+            row.pe <= preset.filters.peMax &&
+            row.pb !== null &&
+            row.pb <= preset.filters.pbMax &&
+            row.volumeRatio !== null &&
+            row.volumeRatio >= preset.filters.volumeMin &&
+            row.change !== null &&
+            row.change >= preset.filters.changeMin
+        ).length,
+      }))
+    );
 
     const strategyStats = computed(() => {
       const running = gridStrategies.value.filter((strategy) => strategy.status === '启用');
       const now = Date.now();
-      const pending = running.filter((strategy) => !strategy.lastBacktestAt || now - new Date(strategy.lastBacktestAt).getTime() > 24 * 3600 * 1000);
-      const withExcess = gridStrategies.value.filter((strategy) => strategy.latestMetrics && strategy.latestMetrics.excessReturnPct != null);
+      const pending = running.filter(
+        (strategy) => !strategy.lastBacktestAt || now - new Date(strategy.lastBacktestAt).getTime() > 24 * 3600 * 1000
+      );
+      const withExcess = gridStrategies.value.filter(
+        (strategy) => strategy.latestMetrics && strategy.latestMetrics.excessReturnPct != null
+      );
       return {
         running: running.length,
         pending: pending.length,
-        latestExcess: withExcess.length ? withExcess[0].latestMetrics.excessReturnPct : null
+        latestExcess: withExcess.length ? withExcess[0].latestMetrics.excessReturnPct : null,
       };
     });
 
@@ -120,7 +144,7 @@ const appOptions = {
         `数据截止 ${result.config?.dataAsOf || last}`,
         `涨跌停跳过 ${metrics.skippedLimitUpDays ?? 0}/${metrics.skippedLimitDownDays ?? 0}`,
         `一字板 ${metrics.onePriceLimitUpDays ?? 0}/${metrics.onePriceLimitDownDays ?? 0}`,
-        `停牌 ${metrics.skippedSuspensionDays ?? 0}`
+        `停牌 ${metrics.skippedSuspensionDays ?? 0}`,
       ];
       return parts.join(' · ');
     });
@@ -138,7 +162,7 @@ const appOptions = {
       target: 0,
       capital: 100000,
       position: 30,
-      note: ''
+      note: '',
     });
     const gridDraft = reactive({
       id: '',
@@ -153,7 +177,7 @@ const appOptions = {
       mode: 'classic',
       settlementDays: 1,
       slippageBps: 5,
-      schedule: 'daily'
+      schedule: 'daily',
     });
     const gridLoading = ref(false);
     const gridSuggestion = ref(null);
@@ -174,22 +198,39 @@ const appOptions = {
       feeBps: 3,
       schedule: 'manual',
       lookback: 120,
-      config: {}
+      config: {},
     });
     const market = reactive({
       provider: saved.marketCache?.provider || '',
       fetchedAt: saved.marketCache?.fetchedAt || 0,
       quotes: saved.marketCache?.quotes || [],
       indices: saved.marketCache?.indices || [],
-      errors: []
+      errors: [],
     });
     const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
-    const settingsDraft = reactive({ workspaceName: '个人工作区', defaultCapital: 100000, monitorEnabled: true, realtimeSource: 'tencent', historySource: 'tencent', screenerSource: 'tencent', fallbackEnabled: true, refreshInterval: 15, cacheSeconds: 8, timeoutSeconds: 10, retryCount: 1, conflictPolicy: 'server', notifyDesktopAlert: true, notifyDesktopSystem: false });
+    const settingsDraft = reactive({
+      workspaceName: '个人工作区',
+      defaultCapital: 100000,
+      monitorEnabled: true,
+      realtimeSource: 'tencent',
+      historySource: 'tencent',
+      screenerSource: 'tencent',
+      fallbackEnabled: true,
+      refreshInterval: 15,
+      cacheSeconds: 8,
+      timeoutSeconds: 10,
+      retryCount: 1,
+      conflictPolicy: 'server',
+      notifyDesktopAlert: true,
+      notifyDesktopSystem: false,
+    });
     const dataSources = ref([]);
     const settingsLoading = ref(false);
     const settingsTab = ref('workspace');
     const appliedSettings = ref(null);
-    const settingsDirty = computed(() => Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value));
+    const settingsDirty = computed(
+      () => Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value)
+    );
     if (saved.filters?.market === '沪A') {
       filters.exchange = '上交所';
       filters.market = '全部';
@@ -205,7 +246,7 @@ const appOptions = {
       return { title: meta[0], subtitle: meta[1] };
     });
     const hasLiveQuotes = computed(() => market.quotes.length > 0 || screenRows.value.length > 0);
-    const providerLabel = computed(() => market.provider ? 'Tencent 行情' : '行情代理');
+    const providerLabel = computed(() => (market.provider ? 'Tencent 行情' : '行情代理'));
     const marketStatus = computed(() => {
       if (dataState.value === 'live' && hasLiveQuotes.value) return '已连接';
       if (dataState.value === 'stale') return '缓存';
@@ -225,21 +266,25 @@ const appOptions = {
 
     const quoteFor = (code) => {
       if (!code) return null;
-      return market.quotes.find((quote) => quote.code === code)
-        || screenRows.value.find((row) => row.code === code)
-        || null;
+      return (
+        market.quotes.find((quote) => quote.code === code) || screenRows.value.find((row) => row.code === code) || null
+      );
     };
     const quoteMap = computed(() => Object.fromEntries(market.quotes.map((quote) => [quote.code, quote])));
     const selectedStock = computed(() => quoteFor(selectedCode.value));
     const normalizedGridCode = computed(() => String(gridDraft.code || '').trim());
     const gridInstrument = computed(() => quoteFor(normalizedGridCode.value));
-    const hasGridSuggestion = computed(() => Boolean(gridSuggestion.value) && gridSuggestedCode.value === normalizedGridCode.value);
+    const hasGridSuggestion = computed(
+      () => Boolean(gridSuggestion.value) && gridSuggestedCode.value === normalizedGridCode.value
+    );
     const hasGridResult = computed(() => Boolean(gridResult.value));
     const strategySchema = computed(() => STRATEGY_SCHEMAS[strategyType.value] || []);
     const normalizedStrategyCode = computed(() => String(strategyDraft.code || '').trim());
     const strategyInstrument = computed(() => quoteFor(normalizedStrategyCode.value));
     const hasStrategyResult = computed(() => Boolean(strategyResult.value));
-    const strategyTypeLabel = computed(() => (STRATEGY_TYPES.find((item) => item.id === strategyType.value) || {}).label || '策略');
+    const strategyTypeLabel = computed(
+      () => (STRATEGY_TYPES.find((item) => item.id === strategyType.value) || {}).label || '策略'
+    );
     const strategyProvenance = computed(() => {
       const result = strategyResult.value;
       if (!result || !Array.isArray(result.history) || !result.history.length) return '';
@@ -250,19 +295,23 @@ const appOptions = {
     });
     const selectedIndex = computed(() => market.indices[0] || null);
     const indices = computed(() => market.indices || []);
-    const watchlistQuotes = computed(() => watchlistCodes.value.map((code) => {
-      const quote = quoteFor(code);
-      return quote || {
-        code,
-        name: code,
-        exchange: '未知',
-        board: '未知',
-        market: '未知',
-        price: null,
-        change: null,
-        volumeRatio: null
-      };
-    }));
+    const watchlistQuotes = computed(() =>
+      watchlistCodes.value.map((code) => {
+        const quote = quoteFor(code);
+        return (
+          quote || {
+            code,
+            name: code,
+            exchange: '未知',
+            board: '未知',
+            market: '未知',
+            price: null,
+            change: null,
+            volumeRatio: null,
+          }
+        );
+      })
+    );
     const hasWatchTargets = computed(() => watchlistCodes.value.length > 0);
     const monitorStatusLabel = computed(() => {
       if (!hasWatchTargets.value) return '等待添加标的';
@@ -284,12 +333,14 @@ const appOptions = {
           name: selectedCode.value,
           exchange: '未知',
           board: '未知',
-          market: '未知'
+          market: '未知',
         });
       }
       return [...map.values()];
     });
-    const activePlans = computed(() => plans.value.filter((plan) => plan.status === '执行中' || plan.status === '已触发'));
+    const activePlans = computed(() =>
+      plans.value.filter((plan) => plan.status === '执行中' || plan.status === '已触发')
+    );
     const unreadAlerts = computed(() => alerts.value.filter((alert) => !alert.read && alert.kind !== 'system').length);
 
     const alertFilter = ref('all');
@@ -311,7 +362,7 @@ const appOptions = {
         .filter((row) => row.pb !== null && row.pb <= Number(filters.pbMax))
         .filter((row) => row.volumeRatio !== null && row.volumeRatio >= Number(filters.volumeMin))
         .filter((row) => row.change !== null && row.change >= Number(filters.changeMin))
-        .sort((left, right) => (right.change - left.change) || ((right.volumeRatio || 0) - (left.volumeRatio || 0)));
+        .sort((left, right) => right.change - left.change || (right.volumeRatio || 0) - (left.volumeRatio || 0));
     });
     const breadth = computed(() => {
       const rows = screenRows.value.filter((row) => row.change !== null);
@@ -325,7 +376,7 @@ const appOptions = {
         flat,
         upRatio: Math.round((up / total) * 100),
         flatRatio: Math.round((flat / total) * 100),
-        downRatio: Math.max(0, 100 - Math.round((up / total) * 100) - Math.round((flat / total) * 100))
+        downRatio: Math.max(0, 100 - Math.round((up / total) * 100) - Math.round((flat / total) * 100)),
       };
     });
     const planMetrics = computed(() => {
@@ -341,23 +392,26 @@ const appOptions = {
 
     function persistLocal() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          view: view.value,
-          selectedCode: selectedCode.value,
-          presetName: presetName.value,
-          watchlist: watchlistCodes.value,
-          plans: plans.value,
-          alerts: alerts.value,
-          monitorEnabled: monitorEnabled.value,
-          workspaceRevision: workspaceRevision.value,
-          filters: { ...filters },
-          marketCache: {
-            provider: market.provider,
-            fetchedAt: market.fetchedAt,
-            quotes: market.quotes,
-            indices: market.indices
-          }
-        }));
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            view: view.value,
+            selectedCode: selectedCode.value,
+            presetName: presetName.value,
+            watchlist: watchlistCodes.value,
+            plans: plans.value,
+            alerts: alerts.value,
+            monitorEnabled: monitorEnabled.value,
+            workspaceRevision: workspaceRevision.value,
+            filters: { ...filters },
+            marketCache: {
+              provider: market.provider,
+              fetchedAt: market.fetchedAt,
+              quotes: market.quotes,
+              indices: market.indices,
+            },
+          })
+        );
       } catch (error) {
         // Storage is optional; real quotes continue to work without it.
       }
@@ -372,7 +426,7 @@ const appOptions = {
       const response = await fetch(url, {
         cache: 'no-store',
         ...options,
-        headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
+        headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) },
       });
       const staleHeader = response.headers.get('x-atlas-stale');
       if (staleHeader !== null) {
@@ -393,7 +447,7 @@ const appOptions = {
       return {
         watchlist: watchlistCodes.value,
         plans: plans.value,
-        alerts: alerts.value
+        alerts: alerts.value,
       };
     }
 
@@ -413,7 +467,7 @@ const appOptions = {
         try {
           await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
             method: 'PUT',
-            body: JSON.stringify(workspacePayload())
+            body: JSON.stringify(workspacePayload()),
           });
         } catch (error) {
           if (error.status === 409) {
@@ -431,7 +485,9 @@ const appOptions = {
             }
           } else {
             // 同步失败事件只留本地（deferPersist）：避免"失败→记录→再同步→再失败"的请求循环。
-            addAlert('system', '工作区同步失败', error.message || '持久化服务暂不可用，浏览器存储兜底。', { deferPersist: true });
+            addAlert('system', '工作区同步失败', error.message || '持久化服务暂不可用，浏览器存储兜底。', {
+              deferPersist: true,
+            });
           }
         } finally {
           workspaceSyncInFlight = false;
@@ -454,10 +510,17 @@ const appOptions = {
       const localReadIds = new Set(alerts.value.filter((alert) => alert.read).map((alert) => alert.id));
       watchlistCodes.value = snapshot.watchlist || [];
       plans.value = snapshot.plans || [];
-      alerts.value = (snapshot.alerts || []).map((alert) => (localReadIds.has(alert.id) ? { ...alert, read: true } : alert));
+      alerts.value = (snapshot.alerts || []).map((alert) =>
+        localReadIds.has(alert.id) ? { ...alert, read: true } : alert
+      );
       workspaceRevision.value = Number(snapshot.revision || 0);
       // 冲突自愈事件只入本地列表，随下次真实编辑同步；adopt 本身不再触发网络写，切断双页互踩振荡。
-      addAlert('system', '工作区冲突已自动处理', auto ? '检测到其他页面更新，已自动采用服务器版本。' : '已手动采用服务器最新数据。', { deferPersist: true });
+      addAlert(
+        'system',
+        '工作区冲突已自动处理',
+        auto ? '检测到其他页面更新，已自动采用服务器版本。' : '已手动采用服务器最新数据。',
+        { deferPersist: true }
+      );
       persistLocal();
       showToast(auto ? '检测到其他页面更新，已自动采用服务器版本' : '已采用服务器最新数据');
     }
@@ -473,7 +536,7 @@ const appOptions = {
       try {
         const saved = await requestJson('/api/workspace?force=true', {
           method: 'PUT',
-          body: JSON.stringify(workspacePayload())
+          body: JSON.stringify(workspacePayload()),
         });
         workspaceRevision.value = Number(saved.revision || 0);
         addAlert('system', '工作区已用本地版本覆盖', successMessage);
@@ -493,7 +556,8 @@ const appOptions = {
       try {
         const remote = await requestJson('/api/workspace');
         workspaceRevision.value = Number(remote.revision || 0);
-        const hasRemoteData = (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
+        const hasRemoteData =
+          (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
         if (hasRemoteData) {
           watchlistCodes.value = remote.watchlist || [];
           plans.value = remote.plans || [];
@@ -550,11 +614,9 @@ const appOptions = {
     }
 
     async function fetchMarket() {
-      const codes = [...new Set([
-        ...watchlistCodes.value,
-        selectedCode.value,
-        ...activePlans.value.map((plan) => plan.code)
-      ])];
+      const codes = [
+        ...new Set([...watchlistCodes.value, selectedCode.value, ...activePlans.value.map((plan) => plan.code)]),
+      ];
       const payload = await requestJson(`/api/market?codes=${encodeURIComponent(codes.join(','))}`);
       mergeMarket(payload);
       checkPlanTriggers();
@@ -571,7 +633,9 @@ const appOptions = {
     async function fetchScreenerAll() {
       screenerLoading.value = true;
       try {
-        const payload = await requestJson(`/api/screener/v2?page=${screenerPage.value}&pageSize=50&sortBy=${encodeURIComponent(screenerSortBy.value)}&sortDir=${screenerSortDir.value}`);
+        const payload = await requestJson(
+          `/api/screener/v2?page=${screenerPage.value}&pageSize=50&sortBy=${encodeURIComponent(screenerSortBy.value)}&sortDir=${screenerSortDir.value}`
+        );
         screenerAllRows.value = payload.rows || [];
         screenerAllTotal.value = Number(payload.total || 0);
         screenerUpdatedAt.value = payload.fetchedAt || Date.now();
@@ -654,11 +718,15 @@ const appOptions = {
         if (!indexHistory.value.length || now - indexHistoryFetchedAt.value > 60000) {
           tasks.push(fetchHistory('000001', 'index'));
         }
-        if (!selectedHistory.value.length || selectedHistoryCode.value !== selectedCode.value || now - selectedHistoryFetchedAt.value > 60000) {
+        if (
+          !selectedHistory.value.length ||
+          selectedHistoryCode.value !== selectedCode.value ||
+          now - selectedHistoryFetchedAt.value > 60000
+        ) {
           tasks.push(fetchHistory(selectedCode.value, 'selected'));
         }
         const results = await Promise.allSettled(tasks);
-        serverStaleAge.value = null;  // 每轮刷新重置服务端陈旧标记
+        serverStaleAge.value = null; // 每轮刷新重置服务端陈旧标记
         const failures = results.filter((result) => result.status === 'rejected');
         if (failures.length && !market.quotes.length && !screenRows.value.length && !serverStaleAge.value) {
           dataState.value = 'error';
@@ -865,7 +933,7 @@ const appOptions = {
         message,
         time: '刚刚',
         read: false,
-        createdAtMs: now
+        createdAtMs: now,
       };
       alerts.value.unshift(item);
       alerts.value = alerts.value.slice(0, 24);
@@ -879,7 +947,9 @@ const appOptions = {
     const notifOpen = ref(false);
     const hubTab = ref('alerts');
     const notificationPermission = ref(typeof Notification !== 'undefined' ? Notification.permission : 'denied');
-    const unreadSystemCount = computed(() => alerts.value.filter((alert) => alert.kind === 'system' && !alert.read).length);
+    const unreadSystemCount = computed(
+      () => alerts.value.filter((alert) => alert.kind === 'system' && !alert.read).length
+    );
     const unreadTotalCount = computed(() => alerts.value.filter((alert) => !alert.read).length);
     const recentNotifs = computed(() => filteredAlerts.value.slice(0, 8));
 
@@ -895,7 +965,14 @@ const appOptions = {
     }
 
     function savePlan() {
-      if (!draft.code || !draft.entry || !draft.stop || !draft.target || draft.stop >= draft.entry || draft.target <= draft.entry) {
+      if (
+        !draft.code ||
+        !draft.entry ||
+        !draft.stop ||
+        !draft.target ||
+        draft.stop >= draft.entry ||
+        draft.target <= draft.entry
+      ) {
         showToast('请检查计划价、止损价和目标价的关系', 'error');
         return;
       }
@@ -914,11 +991,15 @@ const appOptions = {
         status: '执行中',
         createdAt: formatTime(Date.now()).slice(0, 5),
         createdAtMs: Date.now(),
-        triggered: {}
+        triggered: {},
       };
       plans.value.unshift(plan);
       if (!isWatched(plan.code)) watchlistCodes.value.push(plan.code);
-      addAlert('success', `${stock?.name || plan.code} 交易计划已保存`, `计划价 ${formatNumber(plan.entry)}，止损 ${formatNumber(plan.stop)}，目标 ${formatNumber(plan.target)}。`);
+      addAlert(
+        'success',
+        `${stock?.name || plan.code} 交易计划已保存`,
+        `计划价 ${formatNumber(plan.entry)}，止损 ${formatNumber(plan.stop)}，目标 ${formatNumber(plan.target)}。`
+      );
       draftDirty.value = false;
       persist();
       showToast('交易计划已保存');
@@ -997,7 +1078,7 @@ const appOptions = {
         await ensureQuote(code);
         const payload = await requestJson('/api/grid/preview', {
           method: 'POST',
-          body: JSON.stringify(gridDraft)
+          body: JSON.stringify(gridDraft),
         });
         gridDraft.lower = payload.suggestion.lower;
         gridDraft.upper = payload.suggestion.upper;
@@ -1022,7 +1103,7 @@ const appOptions = {
       try {
         const payload = await requestJson('/api/grid/backtest', {
           method: 'POST',
-          body: JSON.stringify({ ...gridDraft, save })
+          body: JSON.stringify({ ...gridDraft, save }),
         });
         gridResult.value = payload;
         if (payload.strategy) {
@@ -1043,7 +1124,7 @@ const appOptions = {
       try {
         const payload = await requestJson('/api/grid/optimize', {
           method: 'POST',
-          body: JSON.stringify(gridDraft)
+          body: JSON.stringify(gridDraft),
         });
         gridCandidates.value = payload.candidates || [];
         const best = gridCandidates.value[0];
@@ -1083,7 +1164,7 @@ const appOptions = {
         mode: strategy.mode,
         settlementDays: strategy.settlementDays,
         slippageBps: strategy.slippageBps,
-        schedule: strategy.schedule
+        schedule: strategy.schedule,
       });
       gridSuggestion.value = null;
       gridSuggestedCode.value = '';
@@ -1096,7 +1177,7 @@ const appOptions = {
       try {
         await requestJson(`/api/grid/strategies/${encodeURIComponent(strategy.id)}`, {
           method: 'PATCH',
-          body: JSON.stringify({ status })
+          body: JSON.stringify({ status }),
         });
         await loadGridStrategies();
       } catch (error) {
@@ -1137,7 +1218,7 @@ const appOptions = {
       try {
         const payload = await requestJson('/api/strategy/preview', {
           method: 'POST',
-          body: JSON.stringify({ strategyType: strategyType.value, config: strategyDraft.config })
+          body: JSON.stringify({ strategyType: strategyType.value, config: strategyDraft.config }),
         });
         strategySuggestion.value = payload.suggestion || null;
         if (payload.suggestion) {
@@ -1163,7 +1244,12 @@ const appOptions = {
       try {
         const payload = await requestJson('/api/strategy/backtest', {
           method: 'POST',
-          body: JSON.stringify({ ...strategyDraft, strategyType: strategyType.value, config: strategyDraft.config, save })
+          body: JSON.stringify({
+            ...strategyDraft,
+            strategyType: strategyType.value,
+            config: strategyDraft.config,
+            save,
+          }),
         });
         strategyResult.value = payload;
         if (payload.strategy) {
@@ -1197,7 +1283,7 @@ const appOptions = {
         feeBps: strategy.feeBps,
         schedule: strategy.schedule,
         lookback: strategy.config?.lookback || 120,
-        config: { ...(strategy.config || {}) }
+        config: { ...(strategy.config || {}) },
       });
       strategyType.value = strategy.strategyType;
       strategyResult.value = null;
@@ -1211,7 +1297,7 @@ const appOptions = {
       try {
         await requestJson(`/api/strategy/strategies/${encodeURIComponent(strategy.id)}`, {
           method: 'PATCH',
-          body: JSON.stringify({ status })
+          body: JSON.stringify({ status }),
         });
         await loadStrategies();
       } catch (error) {
@@ -1284,10 +1370,9 @@ const appOptions = {
     function searchSymbol() {
       const query = globalSearch.value.trim().toLowerCase();
       if (!query) return;
-      const match = [
-        ...market.quotes,
-        ...screenRows.value
-      ].find((stock) => `${stock.code}${stock.name}`.toLowerCase().includes(query));
+      const match = [...market.quotes, ...screenRows.value].find((stock) =>
+        `${stock.code}${stock.name}`.toLowerCase().includes(query)
+      );
       if (match) {
         selectStock(match.code);
         showToast(`已定位到 ${match.name}`);
@@ -1311,7 +1396,7 @@ const appOptions = {
         stock.pe ?? '',
         stock.pb ?? '',
         stock.volumeRatio ?? '',
-        stock.turnoverRate ?? ''
+        stock.turnoverRate ?? '',
       ]);
       const csv = [header, ...rows].map((row) => row.join(',')).join('\n');
       const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
@@ -1380,27 +1465,40 @@ const appOptions = {
       }
     }
 
-    watch(() => [filters.exchange, filters.market], () => {
-      persist();
-      if (!loading.value) scanNow();
-    });
-    watch(() => draft.code, async () => {
-      if (!draftWatchSuppressed.value && !draftDirty.value) {
-        selectedCode.value = draft.code;
-        await ensureQuote(draft.code);
-        hydrateDraft();
+    watch(
+      () => [filters.exchange, filters.market],
+      () => {
+        persist();
+        if (!loading.value) scanNow();
       }
-    });
-    watch(draft, () => {
-      if (!draftWatchSuppressed.value) draftDirty.value = true;
-    }, { deep: true });
+    );
+    watch(
+      () => draft.code,
+      async () => {
+        if (!draftWatchSuppressed.value && !draftDirty.value) {
+          selectedCode.value = draft.code;
+          await ensureQuote(draft.code);
+          hydrateDraft();
+        }
+      }
+    );
+    watch(
+      draft,
+      () => {
+        if (!draftWatchSuppressed.value) draftDirty.value = true;
+      },
+      { deep: true }
+    );
     watch(view, () => nextTick(renderIcons));
-    watch(() => gridDraft.code, () => {
-      if (gridSuggestedCode.value !== normalizedGridCode.value) {
-        gridSuggestion.value = null;
-        gridResult.value = null;
+    watch(
+      () => gridDraft.code,
+      () => {
+        if (gridSuggestedCode.value !== normalizedGridCode.value) {
+          gridSuggestion.value = null;
+          gridResult.value = null;
+        }
       }
-    });
+    );
     watch(monitorEnabled, () => {
       persist();
       showToast(monitorStatusLabel.value);
@@ -1426,12 +1524,17 @@ const appOptions = {
       renderIcons();
       armRefreshTimer();
       document.addEventListener('keydown', (event) => {
-        if (event.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        if (
+          event.key === '/' &&
+          document.activeElement?.tagName !== 'INPUT' &&
+          document.activeElement?.tagName !== 'TEXTAREA'
+        ) {
           event.preventDefault();
           document.querySelector('.global-search input')?.focus();
         }
-        const shortcut = { '1': 'overview', '2': 'screener', '3': 'grid', '4': 'plans', '5': 'monitor' }[event.key];
-        if (shortcut && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') switchView(shortcut);
+        const shortcut = { 1: 'overview', 2: 'screener', 3: 'grid', 4: 'plans', 5: 'monitor' }[event.key];
+        if (shortcut && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA')
+          switchView(shortcut);
       });
     });
 
@@ -1735,9 +1838,9 @@ const appOptions = {
       resetFilters,
       applyPreset,
       exportResults,
-      searchSymbol
+      searchSymbol,
     };
-  }
+  },
 };
 
 // 组件化注册（P3-1 方案 B）

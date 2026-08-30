@@ -64,15 +64,20 @@ export function compareChartSvg(result) {
   const min = Math.min(...all);
   const max = Math.max(...all);
   const range = max - min || 1;
-  const pathFor = (values) => values.map((value, index) => {
-    const x = pad.left + (index / (values.length - 1)) * innerWidth;
-    const y = pad.top + (1 - (value - min) / range) * innerHeight;
-    return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-  const grid = [0.25, 0.5, 0.75].map((ratio) => {
-    const y = pad.top + innerHeight * ratio;
-    return `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}"></line>`;
-  }).join('');
+  const pathFor = (values) =>
+    values
+      .map((value, index) => {
+        const x = pad.left + (index / (values.length - 1)) * innerWidth;
+        const y = pad.top + (1 - (value - min) / range) * innerHeight;
+        return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join(' ');
+  const grid = [0.25, 0.5, 0.75]
+    .map((ratio) => {
+      const y = pad.top + innerHeight * ratio;
+      return `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}"></line>`;
+    })
+    .join('');
   const label = escapeHtml('网格策略与持有基准的归一化权益对比');
   return `
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${label}">

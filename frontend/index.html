@@ -1,174 +1,265 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101a2b">
-  <meta name="description" content="连接真实 A 股行情的选股、交易计划和盯盘工作台">
-  <title>Atlas 交易工作台</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260830-7">
-  <script src="/assets/vendor/vue.global.prod.js?v=20260806-1"></script>
-  <script src="/assets/vendor/lucide.min.js?v=20260806-1"></script>
-</head>
-<body>
-  <div id="app" v-cloak class="app-shell">
-    <div v-if="conflictVisible" class="conflict-banner" role="alert">
-      <i data-lucide="triangle-alert" aria-hidden="true"></i>
-      <span>检测到其他页面更新了工作区数据</span>
-      <button class="button button-secondary" type="button" @click="adoptServerWorkspace">采用服务器版本</button>
-      <button class="button button-primary" type="button" @click="forceSaveWorkspace">用本地覆盖</button>
-      <button class="icon-button" type="button" aria-label="忽略冲突提示" @click="conflictVisible = false"><i data-lucide="x" aria-hidden="true"></i></button>
-    </div>
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">A</div>
-        <div class="brand-copy">
-          <strong>Atlas</strong>
-          <span>交易工作台</span>
-        </div>
-      </div>
-
-      <div class="market-switcher" aria-label="市场">
-        <div class="market-switcher-copy">
-          <span class="live-dot"></span>
-          <div>
-            <strong>A股市场</strong>
-            <span>实时行情代理</span>
-          </div>
-        </div>
-        <span class="market-state">{{ marketStatus }}</span>
-      </div>
-
-      <nav class="primary-nav" aria-label="主导航">
-        <button
-          v-for="item in navItems"
-          :key="item.id"
-          class="nav-item"
-          :class="{ 'is-active': view === item.id }"
-          type="button"
-          :aria-label="item.label"
-          @click="switchView(item.id)"
-        >
-          <i :data-lucide="item.icon" aria-hidden="true"></i>
-          <span>{{ item.label }}</span>
-          <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em>
-        </button>
-      </nav>
-
-      <div class="sidebar-section-label">数据连接</div>
-      <div class="sidebar-data-note">
-        <span class="status-dot" :class="dataState"></span>
-        <div>
-          <strong>{{ providerLabel }}</strong>
-          <span>{{ dataStatusText }}</span>
-        </div>
-      </div>
-
-      <div class="sidebar-spacer"></div>
-
-      <div class="sidebar-note">
-        <div class="sidebar-note-icon">
-          <i data-lucide="shield-check" aria-hidden="true"></i>
-        </div>
-        <div>
-          <strong>先计划，再执行</strong>
-          <span>真实行情只负责触发规则，不替你做决定。</span>
-        </div>
-      </div>
-
-      <div class="user-profile">
-        <div class="avatar">林</div>
-        <div class="user-copy">
-          <strong>林默</strong>
-          <span>个人工作区</span>
-        </div>
-        <button class="icon-button icon-button-dark" type="button" aria-label="打开用户菜单" data-tooltip="用户菜单">
-          <i data-lucide="more-horizontal" aria-hidden="true"></i>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101a2b" />
+    <meta name="description" content="连接真实 A 股行情的选股、交易计划和盯盘工作台" />
+    <title>Atlas 交易工作台</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260830-7" />
+    <script src="/assets/vendor/vue.global.prod.js?v=20260806-1"></script>
+    <script src="/assets/vendor/lucide.min.js?v=20260806-1"></script>
+  </head>
+  <body>
+    <div id="app" v-cloak class="app-shell">
+      <div v-if="conflictVisible" class="conflict-banner" role="alert">
+        <i data-lucide="triangle-alert" aria-hidden="true"></i>
+        <span>检测到其他页面更新了工作区数据</span>
+        <button class="button button-secondary" type="button" @click="adoptServerWorkspace">采用服务器版本</button>
+        <button class="button button-primary" type="button" @click="forceSaveWorkspace">用本地覆盖</button>
+        <button class="icon-button" type="button" aria-label="忽略冲突提示" @click="conflictVisible = false">
+          <i data-lucide="x" aria-hidden="true"></i>
         </button>
       </div>
-    </aside>
-
-    <main class="main-area">
-      <header class="topbar">
-        <div class="topbar-context">
-          <span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>
-          <div class="topbar-title-row">
-            <h1>{{ currentViewMeta.title }}</h1>
-            <span class="demo-badge" :class="{ 'demo-badge-stale': dataState !== 'live' }">
-              <span class="live-dot"></span>{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情' : '行情连接中' }}
-            </span>
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">A</div>
+          <div class="brand-copy">
+            <strong>Atlas</strong>
+            <span>交易工作台</span>
           </div>
-          <p>{{ currentViewMeta.subtitle }}</p>
         </div>
 
-        <div class="topbar-actions">
-          <div class="global-search">
-            <i data-lucide="search" aria-hidden="true"></i>
-            <input v-model.trim="globalSearch" type="search" placeholder="搜索股票代码或名称" aria-label="搜索股票代码或名称" @keydown.enter="searchSymbol">
-            <kbd>/</kbd>
-          </div>
-          <div class="notif-wrap">
-            <button class="icon-button" type="button" aria-label="通知中心" data-tooltip="通知中心" @click="toggleNotifCenter">
-              <i data-lucide="bell" aria-hidden="true"></i>
-              <span v-if="unreadTotalCount" class="notif-badge">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</span>
-            </button>
-            <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
-            <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
-              <div class="notif-head"><strong>通知中心</strong><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button></div>
-              <div class="alert-filters" role="tablist" aria-label="通知分类">
-                <button v-for="option in [{ id: 'all', label: '全部' }, { id: 'trade', label: '盯盘' }, { id: 'system', label: '系统' }]" :key="option.id" type="button" role="tab" :class="['alert-filter-chip', { 'is-active': alertFilter === option.id }]" :aria-selected="alertFilter === option.id" @click="alertFilter = option.id">{{ option.label }}</button>
-              </div>
-              <div class="notif-list">
-                <div v-for="alert in recentNotifs" :key="alert.id" class="alert-item" :class="{ unread: !alert.read }">
-                  <div :class="['alert-icon', alert.kind === 'success' ? 'success' : alert.kind === 'info' || alert.kind === 'system' ? 'info' : '']"><i :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : alert.kind === 'system' ? 'wrench' : 'bell-ring'" aria-hidden="true"></i></div>
-                  <div class="alert-copy"><strong>{{ alert.title }}</strong><span>{{ alert.message }}</span><div class="alert-meta"><span>{{ alert.time }}</span><button v-if="!alert.read" class="text-button" type="button" @click="markAlertRead(alert.id)">标记已读</button></div></div>
-                </div>
-                <div v-if="!recentNotifs.length" class="empty-state"><i data-lucide="bell-off" aria-hidden="true"></i><strong>暂无提醒</strong><span>切换分类查看其他提醒。</span></div>
-              </div>
-              <div class="notif-foot">
-                <button class="text-button" type="button" @click="goAlertCenter"><i data-lucide="arrow-right" aria-hidden="true"></i>前往提醒中心</button>
-                <button v-if="notificationPermission !== 'granted'" class="text-button" type="button" @click="requestNotifications"><i data-lucide="bell-plus" aria-hidden="true"></i>开启桌面通知</button>
-              </div>
+        <div class="market-switcher" aria-label="市场">
+          <div class="market-switcher-copy">
+            <span class="live-dot"></span>
+            <div>
+              <strong>A股市场</strong>
+              <span>实时行情代理</span>
             </div>
           </div>
-          <button class="topbar-date" type="button" data-tooltip="刷新行情" @click="refreshAll()">
-            <i data-lucide="refresh-cw" aria-hidden="true" :class="{ spinning: loading }"></i>
-            <span>{{ lastUpdatedLabel }}</span>
+          <span class="market-state">{{ marketStatus }}</span>
+        </div>
+
+        <nav class="primary-nav" aria-label="主导航">
+          <button
+            v-for="item in navItems"
+            :key="item.id"
+            class="nav-item"
+            :class="{ 'is-active': view === item.id }"
+            type="button"
+            :aria-label="item.label"
+            @click="switchView(item.id)"
+          >
+            <i :data-lucide="item.icon" aria-hidden="true"></i>
+            <span>{{ item.label }}</span>
+            <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count"
+              >{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em
+            >
+          </button>
+        </nav>
+
+        <div class="sidebar-section-label">数据连接</div>
+        <div class="sidebar-data-note">
+          <span class="status-dot" :class="dataState"></span>
+          <div>
+            <strong>{{ providerLabel }}</strong>
+            <span>{{ dataStatusText }}</span>
+          </div>
+        </div>
+
+        <div class="sidebar-spacer"></div>
+
+        <div class="sidebar-note">
+          <div class="sidebar-note-icon">
+            <i data-lucide="shield-check" aria-hidden="true"></i>
+          </div>
+          <div>
+            <strong>先计划，再执行</strong>
+            <span>真实行情只负责触发规则，不替你做决定。</span>
+          </div>
+        </div>
+
+        <div class="user-profile">
+          <div class="avatar">林</div>
+          <div class="user-copy">
+            <strong>林默</strong>
+            <span>个人工作区</span>
+          </div>
+          <button class="icon-button icon-button-dark" type="button" aria-label="打开用户菜单" data-tooltip="用户菜单">
+            <i data-lucide="more-horizontal" aria-hidden="true"></i>
           </button>
         </div>
-      </header>
+      </aside>
 
-      <div class="content-area">
-        <view-overview v-if="view === 'overview'"></view-overview>
-<view-screener v-else-if="view === 'screener'"></view-screener>
-<view-stock-detail v-else-if="view === 'stock-detail'"></view-stock-detail>
-<view-grid v-else-if="view === 'grid'"></view-grid>
-<section v-else-if="view === 'exec'" class="mobile-exec-tabs" role="tablist" aria-label="执行分组">
-          <button type="button" role="tab" :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'plans' }]" :aria-selected="mobileExecTab === 'plans'" @click="mobileExecTab = 'plans'">交易计划</button>
-          <button type="button" role="tab" :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'alerts' }]" :aria-selected="mobileExecTab === 'alerts'" @click="mobileExecTab = 'alerts'">盯盘</button>
-        </section>
+      <main class="main-area">
+        <header class="topbar">
+          <div class="topbar-context">
+            <span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>
+            <div class="topbar-title-row">
+              <h1>{{ currentViewMeta.title }}</h1>
+              <span class="demo-badge" :class="{ 'demo-badge-stale': dataState !== 'live' }">
+                <span class="live-dot"></span>{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情'
+                : '行情连接中' }}
+              </span>
+            </div>
+            <p>{{ currentViewMeta.subtitle }}</p>
+          </div>
 
-        <view-plans v-else-if="view === 'plans' || execShowsPlans"></view-plans>
-<view-monitor v-else-if="view === 'monitor' || execShowsAlerts"></view-monitor>
-<view-settings v-else-if="view === 'settings'"></view-settings>
+          <div class="topbar-actions">
+            <div class="global-search">
+              <i data-lucide="search" aria-hidden="true"></i>
+              <input
+                v-model.trim="globalSearch"
+                type="search"
+                placeholder="搜索股票代码或名称"
+                aria-label="搜索股票代码或名称"
+                @keydown.enter="searchSymbol"
+              />
+              <kbd>/</kbd>
+            </div>
+            <div class="notif-wrap">
+              <button
+                class="icon-button"
+                type="button"
+                aria-label="通知中心"
+                data-tooltip="通知中心"
+                @click="toggleNotifCenter"
+              >
+                <i data-lucide="bell" aria-hidden="true"></i>
+                <span v-if="unreadTotalCount" class="notif-badge"
+                  >{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</span
+                >
+              </button>
+              <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
+              <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
+                <div class="notif-head">
+                  <strong>通知中心</strong
+                  ><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
+                </div>
+                <div class="alert-filters" role="tablist" aria-label="通知分类">
+                  <button
+                    v-for="option in [{ id: 'all', label: '全部' }, { id: 'trade', label: '盯盘' }, { id: 'system', label: '系统' }]"
+                    :key="option.id"
+                    type="button"
+                    role="tab"
+                    :class="['alert-filter-chip', { 'is-active': alertFilter === option.id }]"
+                    :aria-selected="alertFilter === option.id"
+                    @click="alertFilter = option.id"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+                <div class="notif-list">
+                  <div
+                    v-for="alert in recentNotifs"
+                    :key="alert.id"
+                    class="alert-item"
+                    :class="{ unread: !alert.read }"
+                  >
+                    <div
+                      :class="['alert-icon', alert.kind === 'success' ? 'success' : alert.kind === 'info' || alert.kind === 'system' ? 'info' : '']"
+                    >
+                      <i
+                        :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : alert.kind === 'system' ? 'wrench' : 'bell-ring'"
+                        aria-hidden="true"
+                      ></i>
+                    </div>
+                    <div class="alert-copy">
+                      <strong>{{ alert.title }}</strong><span>{{ alert.message }}</span>
+                      <div class="alert-meta">
+                        <span>{{ alert.time }}</span
+                        ><button v-if="!alert.read" class="text-button" type="button" @click="markAlertRead(alert.id)">
+                          标记已读
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="!recentNotifs.length" class="empty-state">
+                    <i data-lucide="bell-off" aria-hidden="true"></i><strong>暂无提醒</strong
+                    ><span>切换分类查看其他提醒。</span>
+                  </div>
+                </div>
+                <div class="notif-foot">
+                  <button class="text-button" type="button" @click="goAlertCenter">
+                    <i data-lucide="arrow-right" aria-hidden="true"></i>前往提醒中心
+                  </button>
+                  <button
+                    v-if="notificationPermission !== 'granted'"
+                    class="text-button"
+                    type="button"
+                    @click="requestNotifications"
+                  >
+                    <i data-lucide="bell-plus" aria-hidden="true"></i>开启桌面通知
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button class="topbar-date" type="button" data-tooltip="刷新行情" @click="refreshAll()">
+              <i data-lucide="refresh-cw" aria-hidden="true" :class="{ spinning: loading }"></i>
+              <span>{{ lastUpdatedLabel }}</span>
+            </button>
+          </div>
+        </header>
 
-        <footer class="app-footer">
-          <span>Atlas Trading Desk · A 股真实行情工作台</span>
-          <span>行情接口：{{ providerLabel }} · 研究工具不构成投资建议</span>
-        </footer>
-      </div>
-    </main>
+        <div class="content-area">
+          <view-overview v-if="view === 'overview'"></view-overview>
+          <view-screener v-else-if="view === 'screener'"></view-screener>
+          <view-stock-detail v-else-if="view === 'stock-detail'"></view-stock-detail>
+          <view-grid v-else-if="view === 'grid'"></view-grid>
+          <section v-else-if="view === 'exec'" class="mobile-exec-tabs" role="tablist" aria-label="执行分组">
+            <button
+              type="button"
+              role="tab"
+              :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'plans' }]"
+              :aria-selected="mobileExecTab === 'plans'"
+              @click="mobileExecTab = 'plans'"
+            >
+              交易计划
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'alerts' }]"
+              :aria-selected="mobileExecTab === 'alerts'"
+              @click="mobileExecTab = 'alerts'"
+            >
+              盯盘
+            </button>
+          </section>
 
-    <nav class="bottom-nav" aria-label="手机端主导航">
-      <button type="button" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span></button>
-      <button type="button" :class="{ 'is-active': view === 'screener' }" @click="switchView('screener')"><i data-lucide="scan-search" aria-hidden="true"></i><span>选股</span></button>
-      <button type="button" :class="{ 'is-active': view === 'grid' }" @click="switchView('grid')"><i data-lucide="grid-3x3" aria-hidden="true"></i><span>网格</span></button>
-      <button type="button" :class="{ 'is-active': view === 'exec' }" @click="switchView('exec')"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>执行</span></button>
-      <button type="button" :class="{ 'is-active': view === 'settings' }" @click="switchView('settings')"><i data-lucide="user-round" aria-hidden="true"></i><span>我的</span><em v-if="unreadTotalCount" class="nav-count">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em></button>
-    </nav>
-  </div>
+          <view-plans v-else-if="view === 'plans' || execShowsPlans"></view-plans>
+          <view-monitor v-else-if="view === 'monitor' || execShowsAlerts"></view-monitor>
+          <view-settings v-else-if="view === 'settings'"></view-settings>
 
-  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/assets/app.js?v=20260830-10"></script>
-</body>
+          <footer class="app-footer">
+            <span>Atlas Trading Desk · A 股真实行情工作台</span>
+            <span>行情接口：{{ providerLabel }} · 研究工具不构成投资建议</span>
+          </footer>
+        </div>
+      </main>
+
+      <nav class="bottom-nav" aria-label="手机端主导航">
+        <button type="button" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')">
+          <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
+        </button>
+        <button type="button" :class="{ 'is-active': view === 'screener' }" @click="switchView('screener')">
+          <i data-lucide="scan-search" aria-hidden="true"></i><span>选股</span>
+        </button>
+        <button type="button" :class="{ 'is-active': view === 'grid' }" @click="switchView('grid')">
+          <i data-lucide="grid-3x3" aria-hidden="true"></i><span>网格</span>
+        </button>
+        <button type="button" :class="{ 'is-active': view === 'exec' }" @click="switchView('exec')">
+          <i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>执行</span>
+        </button>
+        <button type="button" :class="{ 'is-active': view === 'settings' }" @click="switchView('settings')">
+          <i data-lucide="user-round" aria-hidden="true"></i><span>我的</span
+          ><em v-if="unreadTotalCount" class="nav-count">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em>
+        </button>
+      </nav>
+    </div>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="/assets/app.js?v=20260830-10"></script>
+  </body>
 </html>

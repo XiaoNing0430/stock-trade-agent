@@ -3,7 +3,7 @@ export function formatNumber(value, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
   return Number(value).toLocaleString('zh-CN', {
     minimumFractionDigits: digits,
-    maximumFractionDigits: digits
+    maximumFractionDigits: digits,
   });
 }
 
@@ -17,7 +17,7 @@ export function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
   });
 }
 
@@ -53,13 +53,17 @@ export function trendClass(value) {
 }
 
 export function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[char]));
+  return String(value ?? '').replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char]
+  );
 }
 
 export function validityExpiry(createdAtMs, validity) {

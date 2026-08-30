@@ -41,7 +41,7 @@
 html {
   background: var(--canvas);
   color: var(--ink);
-  font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
   font-size: 15px;
   line-height: 1.5;
   text-rendering: optimizeLegibility;
@@ -209,7 +209,10 @@ textarea:focus-visible {
   background: transparent;
   color: var(--sidebar-muted);
   text-align: left;
-  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
 }
 
 .nav-item:hover {
@@ -544,7 +547,10 @@ textarea:focus-visible {
   border-radius: 8px;
   background: var(--surface);
   color: var(--muted-strong);
-  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease;
 }
 
 .icon-button:hover,
@@ -616,7 +622,7 @@ textarea:focus-visible {
 }
 
 .view-panel.is-active::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.10);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 4px;
 }
 
@@ -626,7 +632,7 @@ textarea:focus-visible {
 
 .view-panel.is-active {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.10) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
 .screener-view {
@@ -703,7 +709,9 @@ textarea:focus-visible {
   border: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
   margin-bottom: -1px;
 }
 
@@ -819,7 +827,11 @@ textarea:focus-visible {
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
 }
 
 .button:hover {
@@ -1543,8 +1555,8 @@ textarea:focus-visible {
 }
 
 .field select,
-.field input[type="number"],
-.field input[type="search"],
+.field input[type='number'],
+.field input[type='search'],
 .field textarea {
   width: 100%;
   min-width: 0;
@@ -1557,8 +1569,8 @@ textarea:focus-visible {
 }
 
 .field select,
-.field input[type="number"],
-.field input[type="search"] {
+.field input[type='number'],
+.field input[type='search'] {
   height: 34px;
   padding: 0 9px;
 }
@@ -1571,8 +1583,8 @@ textarea:focus-visible {
 }
 
 .field select:focus,
-.field input[type="number"]:focus,
-.field input[type="search"]:focus,
+.field input[type='number']:focus,
+.field input[type='search']:focus,
 .field textarea:focus,
 .global-search:focus-within,
 .number-input:focus-within {
@@ -1580,7 +1592,7 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(59, 111, 182, 0.09);
 }
 
-.field input[type="range"] {
+.field input[type='range'] {
   display: block;
   width: 100%;
   min-width: 0;
@@ -2536,7 +2548,7 @@ textarea:focus-visible {
   height: 5px;
   border-radius: 50%;
   background: var(--coral);
-  content: "";
+  content: '';
 }
 
 .empty-state {
@@ -2608,8 +2620,8 @@ textarea:focus-visible {
 }
 
 /* 设置行控件统一样式：高度 36px、右缘对齐 */
-.settings-row input[type="text"],
-.settings-row input[type="number"],
+.settings-row input[type='text'],
+.settings-row input[type='number'],
 .settings-row select {
   height: 36px;
   min-width: 0;
@@ -2623,8 +2635,8 @@ textarea:focus-visible {
   box-sizing: border-box;
 }
 
-.settings-row input[type="text"]:focus,
-.settings-row input[type="number"]:focus,
+.settings-row input[type='text']:focus,
+.settings-row input[type='number']:focus,
 .settings-row select:focus {
   border-color: #b5cce8;
   box-shadow: 0 0 0 3px rgba(59, 111, 182, 0.09);
@@ -3506,7 +3518,9 @@ textarea:focus-visible {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 160ms ease, color 160ms ease;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
 }
 
 .settings-tab-primary:hover {
@@ -3630,7 +3644,10 @@ textarea:focus-visible {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color .15s, color .15s, background .15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
 }
 
 .screener-tab:hover {
