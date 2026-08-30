@@ -24,6 +24,6 @@ repos:
         pass_filenames: false
       - id: node-check
         name: node-check
-        entry: node --check frontend/app.js
+        entry: npx vue-tsc --noEmit
         language: system
         pass_filenames: false

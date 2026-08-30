@@ -223,7 +223,7 @@ def test_root_serves_vue_frontend():
         response = client.get("/")
 
     assert response.status_code == 200
-    assert "/assets/app.js" in response.text
+    assert "/src/main.ts" in response.text
 
 
 def test_apply_runtime_config_feeds_timeout_into_fetch(monkeypatch):

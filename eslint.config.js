@@ -27,6 +27,11 @@ export default [
       sourceType: 'module',
       globals: { ...globals.browser },
     },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // TS 全局类型（RequestInit 等）由 vue-tsc 校验，eslint 不重复检查
+      'no-undef': 'off',
+    },
   },
   {
     files: ['server.js'],
