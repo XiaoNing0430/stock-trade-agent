@@ -25,4 +25,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --cov=backend --cov-fail-under=80 --cov-report=term-missing"
