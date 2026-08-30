@@ -152,44 +152,28 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useScreenerStore } from '@/stores/useScreenerStore';
+import { usePlansStore } from '@/stores/usePlansStore';
 
-const ctx = inject(APP_CTX)!;
+const workspace = useWorkspaceStore();
+const quotes = useQuotesStore();
+const screener = useScreenerStore();
+const plans = usePlansStore();
+
 const {
-  screenerUpdatedLabel,
-  screenerMode,
-  switchScreenerMode,
-  presets,
-  presetName,
-  applyPreset,
-  filters,
-  resetFilters,
-  filteredRows,
-  screenTotal,
-  exportResults,
-  presetDescription,
-  screenerAllRows,
-  screenerAllTotal,
-  screenerPage,
-  screenerLoading,
-  screenerSort,
-  screenerSortIcon,
-  screenerPageUp,
-  screenerPageDown,
-  loading,
-  selectStock,
-  formatNullable,
-  formatPctNullable,
-  formatAmount,
-  trendClass,
-  signalClass,
-  signalText,
-  isWatched,
-  toggleWatch,
-  scanNow,
-  renderIcons,
-} = ctx;
+  screenerUpdatedLabel, screenerMode, presets, presetName, filters, filteredRows, screenTotal,
+  presetDescription, screenerAllRows, screenerAllTotal, screenerPage, screenerLoading,
+} = storeToRefs(screener);
+const { loading } = storeToRefs(quotes);
+const { signalClass, signalText } = plans;
+const { switchScreenerMode, applyPreset, resetFilters, exportResults, screenerSort, screenerSortIcon, screenerPageUp, screenerPageDown, scanNow } = screener;
+const { selectStock, isWatched, toggleWatch } = quotes;
+const { renderIcons } = workspace;
 
 onMounted(() => renderIcons());
 </script>

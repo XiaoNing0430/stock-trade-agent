@@ -185,42 +185,33 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { chartSvg } from '@/modules/chart';
+import { formatNumber, formatPct, formatNullable, formatPctNullable, trendClass } from '@/modules/format';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useScreenerStore } from '@/stores/useScreenerStore';
+import { useStrategyStore } from '@/stores/useStrategyStore';
+import { useGridStore } from '@/stores/useGridStore';
 
-const ctx = inject(APP_CTX)!;
+const workspace = useWorkspaceStore();
+const quotes = useQuotesStore();
+const screener = useScreenerStore();
+const strategy = useStrategyStore();
+const grid = useGridStore();
+
 const {
-  fetchedLabel,
-  todayLabel,
-  errorMessage,
-  refreshAll,
-  selectedIndex,
-  indices,
-  marketStatus,
-  loading,
-  indexHistory,
-  breadth,
-  chartSvg,
-  screenRows,
-  filteredRows,
-  presetName,
-  presetHits,
-  strategyStats,
-  riskStats,
-  unreadAlerts,
-  gridStrategies,
-  openGridStrategy,
-  alerts,
-  applyPreset,
-  switchView,
-  selectStock,
-  formatNumber,
-  formatPct,
-  formatNullable,
-  formatPctNullable,
-  trendClass,
-  renderIcons,
-} = ctx;
+  fetchedLabel, todayLabel, errorMessage, selectedIndex, indices, marketStatus, loading,
+  indexHistory, selectedStock,
+} = storeToRefs(quotes);
+const { breadth, screenRows, filteredRows, presetName, presetHits } = storeToRefs(screener);
+const { strategyStats, riskStats } = storeToRefs(strategy);
+const { gridStrategies } = storeToRefs(grid);
+const { unreadAlerts, alerts, refreshAll, renderIcons } = workspace;
+const { applyPreset } = screener;
+const { switchView, selectStock } = quotes;
+const { openGridStrategy } = grid;
 
 onMounted(() => renderIcons());
 </script>

@@ -35,32 +35,28 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import type { Plan } from '@/types/models';
+import { formatNullable, formatPctNullable, formatNumber, trendClass } from '@/modules/format';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useScreenerStore } from '@/stores/useScreenerStore';
+import { usePlansStore } from '@/stores/usePlansStore';
 
-const ctx = inject(APP_CTX)!;
-const {
-  monitorStatusLabel,
-  hasWatchTargets,
-  monitorEnabled,
-  scanNow,
-  switchView,
-  watchlistCodes,
-  monitorNextScan,
-  providerLabel,
-  fetchedLabel,
-  watchlistQuotes,
-  selectStock,
-  formatNullable,
-  formatPctNullable,
-  formatNumber,
-  trendClass,
-  planFor,
-  signalText,
-  signalClass,
-  toggleWatch,
-  renderIcons,
-} = ctx;
+const workspace = useWorkspaceStore();
+const quotes = useQuotesStore();
+const screener = useScreenerStore();
+const plans = usePlansStore();
+
+const { monitorStatusLabel, hasWatchTargets, monitorNextScan, providerLabel, fetchedLabel, watchlistQuotes } =
+  storeToRefs(quotes);
+const { monitorEnabled, watchlistCodes, renderIcons } = workspace;
+const { selectStock, toggleWatch, switchView } = quotes;
+const { scanNow } = screener;
+const { planFor: planForRaw, signalText, signalClass } = plans;
+// 模板有 v-if 守卫，包装为非空返回以满足模板类型检查
+const planFor = (code: string) => planForRaw(code) as Plan;
 
 onMounted(() => renderIcons());
 </script>

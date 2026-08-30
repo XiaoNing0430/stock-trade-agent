@@ -44,27 +44,23 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { formatMoney, formatNumber } from '@/modules/format';
+import { calculateRr, calculateShares } from '@/modules/planUtils';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { usePlansStore } from '@/stores/usePlansStore';
 
-const ctx = inject(APP_CTX)!;
-const {
-  activePlans,
-  draft,
-  draftDirty,
-  planOptions,
-  planMetrics,
-  savePlan,
-  formatMoney,
-  formatNumber,
-  quoteFor,
-  calculateRr,
-  calculateShares,
-  monitorPlan,
-  archivePlan,
-  switchView,
-  refreshAll,
-  renderIcons,
-} = ctx;
+const workspace = useWorkspaceStore();
+const quotes = useQuotesStore();
+const plans = usePlansStore();
+
+const { activePlans, draftDirty, refreshAll, renderIcons } = workspace;
+const { draft, planOptions, planMetrics } = storeToRefs(plans);
+const { quoteFor } = quotes;
+const { switchView } = quotes;
+const { savePlan, monitorPlan, archivePlan } = plans;
+
 onMounted(() => renderIcons());
 </script>

@@ -38,6 +38,8 @@ export interface Alert {
   read: boolean;
   createdAtMs: number;
   count?: number;
+  /** 显示用便捷时间串（HH:MM），仅前端 UX 状态，不入库 */
+  time?: string;
 }
 
 export interface HistoryBar {
