@@ -191,8 +191,7 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(102, 212, 172, 0.1);
 }
 
-.primary-nav,
-.secondary-nav {
+.primary-nav {
   display: grid;
   gap: 5px;
 }
@@ -484,8 +483,7 @@ textarea:focus-visible {
   gap: 10px;
 }
 
-.global-search,
-.table-search {
+.global-search {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -501,15 +499,13 @@ textarea:focus-visible {
   padding: 0 10px;
 }
 
-.global-search svg,
-.table-search svg {
+.global-search svg {
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
 }
 
-.global-search input,
-.table-search input {
+.global-search input {
   width: 100%;
   min-width: 0;
   padding: 9px 0;
@@ -520,8 +516,7 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
-.global-search input::placeholder,
-.table-search input::placeholder {
+.global-search input::placeholder {
   color: #a6afbd;
 }
 
@@ -577,17 +572,6 @@ textarea:focus-visible {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.05);
   color: #ffffff;
-}
-
-.notification-dot {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid var(--surface);
-  border-radius: 50%;
-  background: var(--coral);
 }
 
 .topbar-date {
@@ -920,18 +904,7 @@ textarea:focus-visible {
   color: var(--coral);
 }
 
-.overview-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.85fr);
-  gap: 18px;
-  margin-bottom: 18px;
-}
-
-.market-board,
-.pulse-summary,
-.watchlist-panel,
-.quick-screen-panel,
-.activity-panel {
+.market-board {
   padding: 22px;
 }
 
@@ -1163,107 +1136,6 @@ textarea:focus-visible {
   background: var(--green);
 }
 
-.focus-date {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.focus-list {
-  display: grid;
-  gap: 0;
-  margin-top: 22px;
-}
-
-.focus-item {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 10px;
-  padding: 13px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.focus-item:first-child {
-  padding-top: 0;
-}
-
-.focus-item:last-child {
-  border-bottom: 0;
-}
-
-.focus-number {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  place-items: center;
-  border-radius: 7px;
-  background: var(--coral-soft);
-  color: var(--coral-dark);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.focus-item:nth-child(2) .focus-number {
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.focus-item:nth-child(3) .focus-number {
-  background: var(--gold-soft);
-  color: var(--gold);
-}
-
-.focus-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.focus-copy strong {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.focus-copy span {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.focus-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.focus-footer strong {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-
-.content-grid {
-  display: grid;
-  gap: 18px;
-  margin-bottom: 18px;
-}
-
-.content-grid-main {
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.85fr);
-}
-
-.inline-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 15px;
-}
-
 .muted-count,
 .strategy-label {
   color: var(--muted);
@@ -1275,12 +1147,6 @@ textarea:focus-visible {
   border-radius: 5px;
   background: var(--coral-soft);
   color: var(--coral-dark);
-}
-
-.watchlist-panel .surface-heading,
-.quick-screen-panel .surface-heading,
-.activity-panel .surface-heading {
-  margin-bottom: 15px;
 }
 
 .data-table {
@@ -1322,10 +1188,6 @@ textarea:focus-visible {
 
 .text-end {
   text-align: right !important;
-}
-
-.text-center {
-  text-align: center !important;
 }
 
 .stock-cell {
@@ -1372,21 +1234,6 @@ textarea:focus-visible {
 .stock-dot.stock-dot-coral {
   background: var(--coral-soft);
   color: var(--coral-dark);
-}
-
-.stock-dot.stock-dot-red {
-  background: var(--red-soft);
-  color: var(--red);
-}
-
-.stock-dot.stock-dot-gold {
-  background: var(--gold-soft);
-  color: var(--gold);
-}
-
-.stock-dot.stock-dot-green {
-  background: var(--green-soft);
-  color: var(--green);
 }
 
 .stock-dot.stock-dot-blue {
@@ -1445,25 +1292,6 @@ textarea:focus-visible {
 .table-action svg {
   width: 14px;
   height: 14px;
-}
-
-.quick-screen-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 20px 0 10px;
-}
-
-.quick-screen-summary strong {
-  color: var(--ink);
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -0.04em;
-}
-
-.quick-screen-summary span {
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .mini-stock-list {
@@ -1573,12 +1401,6 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 11px;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity-time {
-  color: var(--muted);
-  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -1752,7 +1574,6 @@ textarea:focus-visible {
 .field input[type="number"]:focus,
 .field input[type="search"]:focus,
 .field textarea:focus,
-.table-search:focus-within,
 .global-search:focus-within,
 .number-input:focus-within {
   border-color: #b5cce8;
@@ -1801,15 +1622,6 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.table-search {
-  width: 178px;
-  padding: 0 9px;
-}
-
-.table-search input {
-  padding: 7px 0;
 }
 
 .result-insight {
@@ -2753,51 +2565,6 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
-.is-hidden {
-  display: none !important;
-}
-
-.placeholder-view {
-  min-height: 550px;
-}
-
-.placeholder-surface {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 90px 25px;
-  text-align: center;
-}
-
-.placeholder-icon {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  margin-bottom: 8px;
-  place-items: center;
-  border-radius: 12px;
-  background: var(--coral-soft);
-  color: var(--coral);
-}
-
-.placeholder-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
-.placeholder-surface h3 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.placeholder-surface p {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .settings-grid {
   display: grid;
   border: 1px solid var(--line);
@@ -3067,38 +2834,14 @@ textarea:focus-visible {
     display: none;
   }
 
-  .overview-layout,
-  .content-grid-main,
   .monitor-layout,
   .grid-strategy-layout,
   .grid-lists {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .content-grid-main > .surface {
-    min-width: 0;
-  }
-
-  .quick-screen-panel {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 22px;
-  }
-
-  .quick-screen-panel .surface-heading {
-    grid-column: 1 / -1;
-  }
-
-  .quick-screen-summary {
-    align-self: start;
-  }
-
   .mini-stock-list {
     margin-top: 2px;
-  }
-
-  .quick-screen-panel .button-full {
-    grid-column: 1 / -1;
   }
 }
 
@@ -3181,8 +2924,7 @@ textarea:focus-visible {
     display: none;
   }
 
-  .primary-nav,
-  .secondary-nav {
+  .primary-nav {
     display: flex;
     gap: 4px;
     flex: 1 1 auto;
@@ -3272,10 +3014,6 @@ textarea:focus-visible {
   }
 
   .market-board,
-  .pulse-summary,
-  .watchlist-panel,
-  .quick-screen-panel,
-  .activity-panel,
   .filter-panel,
   .results-panel,
   .plan-form-panel,
@@ -3304,14 +3042,6 @@ textarea:focus-visible {
     justify-content: flex-start;
   }
 
-  .quick-screen-panel {
-    display: block;
-  }
-
-  .quick-screen-summary {
-    margin-top: 15px;
-  }
-
   .table-responsive {
     overflow-x: auto;
     margin-right: -4px;
@@ -3337,11 +3067,6 @@ textarea:focus-visible {
 
   .results-actions {
     width: 100%;
-  }
-
-  .table-search {
-    flex: 1;
-    width: auto;
   }
 
   .filter-fields,
@@ -3676,8 +3401,7 @@ textarea:focus-visible {
 }
 
 @media (max-width: 680px) {
-  .primary-nav,
-  .secondary-nav {
+  .primary-nav {
     display: none;
   }
 
@@ -3946,12 +3670,6 @@ textarea:focus-visible {
   font-size: 13px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-
-.detail-return-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .view-panel.is-active .selected-stock-panel {
