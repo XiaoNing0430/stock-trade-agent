@@ -1,7 +1,9 @@
 // ViewSettings — 个人中心视图组件（P3-1 方案 B，B1 首个迁移视图）
-import { inject, onMounted } from 'vue';
+// 注意：项目无打包器，Vue 通过全局脚本加载，只能从 window.Vue 解构，不能 import from 'vue'。
 import { APP_CTX } from './context.js';
 import { SETTINGS_TABS } from '../constants.js';
+
+const { inject, onMounted } = Vue;
 
 export default {
   name: 'ViewSettings',
