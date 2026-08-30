@@ -1,8 +1,9 @@
-from fastapi.testclient import TestClient
+from datetime import UTC
 
 from backend import app as app_module
 from backend import data_source
 from backend.data_source import index_symbol, parse_quote_body, tencent_symbol
+from fastapi.testclient import TestClient
 
 
 def test_tencent_symbol_000001_maps_to_stock_not_index():
@@ -284,7 +285,6 @@ def test_cache_ttl_floor_enforced():
 
 def test_rate_limit_config_applied():
     """rate_limit_rps 配置更新 _min_request_interval。"""
-    old = data_source._min_request_interval
     data_source.apply_runtime_config(rate_limit_rps=10)
     assert data_source._min_request_interval == 0.1
     data_source.apply_runtime_config(rate_limit_rps=1)
@@ -331,7 +331,7 @@ def test_screener_sorts_zero_change_above_negative(monkeypatch):
 
 
 def test_alert_dict_includes_created_at_ms():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from backend.storage import _alert_dict
 
@@ -341,7 +341,7 @@ def test_alert_dict_includes_created_at_ms():
         title = "事件"
         message = "详情"
         read = False
-        created_at = datetime(2026, 8, 29, 8, 0, tzinfo=timezone.utc)
+        created_at = datetime(2026, 8, 29, 8, 0, tzinfo=UTC)
 
     data = _alert_dict(FakeAlert())
     assert data["createdAtMs"] == int(FakeAlert.created_at.timestamp() * 1000)
@@ -349,7 +349,8 @@ def test_alert_dict_includes_created_at_ms():
 
 def test_workspace_get_includes_revision(monkeypatch):
     monkeypatch.setattr(
-        app_module, "get_workspace",
+        app_module,
+        "get_workspace",
         lambda workspace_id="default": {"watchlist": ["600519"], "plans": [], "alerts": [], "revision": 3},
         raising=False,
     )
@@ -364,7 +365,8 @@ def test_workspace_get_includes_revision(monkeypatch):
 def test_workspace_put_rejects_stale_revision_with_409(monkeypatch):
     monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 7, raising=False)
     monkeypatch.setattr(
-        app_module, "get_workspace",
+        app_module,
+        "get_workspace",
         lambda workspace_id="default": {"watchlist": [], "plans": [], "alerts": [], "revision": 7},
         raising=False,
     )
@@ -393,7 +395,8 @@ def test_workspace_put_rejects_stale_revision_with_409(monkeypatch):
 def test_workspace_put_with_matching_revision_saves(monkeypatch):
     monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 7, raising=False)
     monkeypatch.setattr(
-        app_module, "get_workspace",
+        app_module,
+        "get_workspace",
         lambda workspace_id="default": {"watchlist": [], "plans": [], "alerts": [], "revision": 7},
         raising=False,
     )
@@ -416,7 +419,8 @@ def test_workspace_put_with_matching_revision_saves(monkeypatch):
 def test_workspace_put_with_force_overrides_stale_revision(monkeypatch):
     monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 7, raising=False)
     monkeypatch.setattr(
-        app_module, "get_workspace",
+        app_module,
+        "get_workspace",
         lambda workspace_id="default": {"watchlist": [], "plans": [], "alerts": [], "revision": 7},
         raising=False,
     )
@@ -511,8 +515,15 @@ def test_fallback_serves_local_when_upstream_fails(monkeypatch):
     from backend.storage import initialize_storage, save_market_bars
 
     initialize_storage()
-    save_market_bars("600888", [{"date": "2026-08-28", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10000}])
-    monkeypatch.setattr(app_module, "load_history", lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    save_market_bars(
+        "600888",
+        [{"date": "2026-08-28", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1000, "amount": 10000}],
+    )
+    monkeypatch.setattr(
+        app_module,
+        "load_history",
+        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+    )
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=600888")
     assert response.status_code == 200
@@ -523,7 +534,11 @@ def test_fallback_serves_local_when_upstream_fails(monkeypatch):
 
 
 def test_fallback_raises_when_no_local_data(monkeypatch):
-    monkeypatch.setattr(app_module, "load_history", lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    monkeypatch.setattr(
+        app_module,
+        "load_history",
+        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+    )
     monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=absent")
@@ -531,16 +546,49 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
 
 
 def test_screener_v2_returns_paginated_results(monkeypatch):
-    fake_data = {"data": {"rank_list": [{"code": "sh600519", "name": "贵州茅台", "zxj": "1297.4", "zdf": "0.39", "hsl": "0.13",
-        "ltsz": "16218.56", "pe_ttm": "19.92", "pn": "6.46", "turnover": "208601", "zf": "0.77", "lb": "0.54",
-        "zdf_d5": "1.93", "zdf_d10": "-3.32", "zdf_d20": "-3.94", "zdf_d60": "4.63", "zdf_w52": "-6.94", "zdf_y": "-3.84",
-        "volume": "16126.00", "speed": "0.02", "zd": "5.10", "zsz": "16218.56", "zljlr": "-7495.96",
-        "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
+    fake_data = {
+        "data": {
+            "rank_list": [
+                {
+                    "code": "sh600519",
+                    "name": "贵州茅台",
+                    "zxj": "1297.4",
+                    "zdf": "0.39",
+                    "hsl": "0.13",
+                    "ltsz": "16218.56",
+                    "pe_ttm": "19.92",
+                    "pn": "6.46",
+                    "turnover": "208601",
+                    "zf": "0.77",
+                    "lb": "0.54",
+                    "zdf_d5": "1.93",
+                    "zdf_d10": "-3.32",
+                    "zdf_d20": "-3.94",
+                    "zdf_d60": "4.63",
+                    "zdf_w52": "-6.94",
+                    "zdf_y": "-3.84",
+                    "volume": "16126.00",
+                    "speed": "0.02",
+                    "zd": "5.10",
+                    "zsz": "16218.56",
+                    "zljlr": "-7495.96",
+                    "state": "",
+                    "stock_type": "GP-A",
+                }
+            ],
+            "offset": 0,
+            "total": 4596,
+        }
+    }
+
     class FakeResponse:
-        def json(self): return fake_data
+        def json(self):
+            return fake_data
+
     data_source.cache.clear()
     monkeypatch.setattr(data_source, "_http_get", lambda url, params: FakeResponse())
     from backend.data_source import load_screener_v2
+
     result = load_screener_v2(page=1, page_size=10, sort_by="changePct", sort_dir="desc")
     assert result["total"] == 4596
     assert result["page"] == 1
@@ -563,23 +611,57 @@ def test_screener_v2_returns_paginated_results(monkeypatch):
 def test_screener_v2_when_upstream_fails(monkeypatch):
     data_source.cache.clear()
     monkeypatch.setattr(data_source, "_http_get", lambda url, params: (_ for _ in ()).throw(ConnectionError("timeout")))
-    from backend.data_source import load_screener_v2
     import pytest
+    from backend.data_source import load_screener_v2
+
     with pytest.raises(RuntimeError, match="全市场选股器请求失败"):
         load_screener_v2()
 
 
 def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
-    fake_data = {"data": {"rank_list": [{"code": "sh600519", "name": "贵州茅台", "zxj": "1297.4", "zdf": "0.39", "hsl": "0.13",
-        "ltsz": "16218.56", "pe_ttm": "19.92", "pn": "6.46", "turnover": "208601", "zf": "0.77", "lb": "0.54",
-        "zdf_d5": "1.93", "zdf_d10": "-3.32", "zdf_d20": "-3.94", "zdf_d60": "4.63", "zdf_w52": "-6.94", "zdf_y": "-3.84",
-        "volume": "16126.00", "speed": "0.02", "zd": "5.10", "zsz": "16218.56", "zljlr": "-7495.96",
-        "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
+    fake_data = {
+        "data": {
+            "rank_list": [
+                {
+                    "code": "sh600519",
+                    "name": "贵州茅台",
+                    "zxj": "1297.4",
+                    "zdf": "0.39",
+                    "hsl": "0.13",
+                    "ltsz": "16218.56",
+                    "pe_ttm": "19.92",
+                    "pn": "6.46",
+                    "turnover": "208601",
+                    "zf": "0.77",
+                    "lb": "0.54",
+                    "zdf_d5": "1.93",
+                    "zdf_d10": "-3.32",
+                    "zdf_d20": "-3.94",
+                    "zdf_d60": "4.63",
+                    "zdf_w52": "-6.94",
+                    "zdf_y": "-3.84",
+                    "volume": "16126.00",
+                    "speed": "0.02",
+                    "zd": "5.10",
+                    "zsz": "16218.56",
+                    "zljlr": "-7495.96",
+                    "state": "",
+                    "stock_type": "GP-A",
+                }
+            ],
+            "offset": 0,
+            "total": 4596,
+        }
+    }
+
     class FakeResponse:
-        def json(self): return fake_data
+        def json(self):
+            return fake_data
+
     data_source.cache.clear()
     monkeypatch.setattr(data_source, "_http_get", lambda url, params: FakeResponse())
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/screener/v2?page=1&pageSize=10&sortBy=changePct&sortDir=desc")
     assert resp.status_code == 200
@@ -601,12 +683,22 @@ def _strategy_bars(count=60, start=100.0):
         else:
             factor = 1.3 - ((progress - 0.7) / 0.3) * 0.6
         close = round(start * factor, 2)
-        bars.append({"date": f"2026-{1 + i // 22:02d}-{1 + i % 28:02d}", "open": close, "high": close, "low": close, "close": close, "volume": 10000})
+        bars.append(
+            {
+                "date": f"2026-{1 + i // 22:02d}-{1 + i % 28:02d}",
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 10000,
+            }
+        )
     return bars
 
 
 def test_strategy_preview_returns_default_config(monkeypatch):
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/strategy/preview", json={"strategyType": "ma_cross", "config": {}})
     assert resp.status_code == 200
@@ -618,6 +710,7 @@ def test_strategy_preview_returns_default_config(monkeypatch):
 
 def test_strategy_preview_rejects_unknown_type():
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/strategy/preview", json={"strategyType": "nope", "config": {}})
     assert resp.status_code == 422
@@ -626,6 +719,7 @@ def test_strategy_preview_rejects_unknown_type():
 
 def test_strategy_not_found_returns_code(monkeypatch):
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.patch("/api/strategy/strategies/absent", json={"status": "暂停"})
     assert resp.status_code == 404
@@ -634,6 +728,7 @@ def test_strategy_not_found_returns_code(monkeypatch):
 
 def test_grid_strategy_not_found_returns_code():
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.delete("/api/grid/strategies/absent")
     assert resp.status_code == 404
@@ -641,8 +736,11 @@ def test_grid_strategy_not_found_returns_code():
 
 
 def test_upstream_failure_returns_code(monkeypatch):
-    monkeypatch.setattr(app_module, "load_market", lambda codes: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    monkeypatch.setattr(
+        app_module, "load_market", lambda codes: (_ for _ in ()).throw(ConnectionError("upstream down"))
+    )
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/market?codes=600519")
     assert resp.status_code == 502
@@ -652,8 +750,14 @@ def test_upstream_failure_returns_code(monkeypatch):
 
 
 def test_storage_unavailable_returns_code(monkeypatch):
-    monkeypatch.setattr(app_module, "get_workspace", lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")), raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace",
+        lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/workspace")
     assert resp.status_code == 503
@@ -662,16 +766,22 @@ def test_storage_unavailable_returns_code(monkeypatch):
 
 def test_strategy_backtest_returns_unified_shape(monkeypatch):
     bars = _strategy_bars()
-    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30"))
+    monkeypatch.setattr(
+        app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30")
+    )
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
-        resp = client.post("/api/strategy/backtest", json={
-            "strategyType": "ma_cross",
-            "code": "600519",
-            "config": {"fastPeriod": 5, "slowPeriod": 20},
-            "capital": 100000,
-            "feeBps": 3,
-        })
+        resp = client.post(
+            "/api/strategy/backtest",
+            json={
+                "strategyType": "ma_cross",
+                "code": "600519",
+                "config": {"fastPeriod": 5, "slowPeriod": 20},
+                "capital": 100000,
+                "feeBps": 3,
+            },
+        )
     assert resp.status_code == 200
     data = resp.json()
     assert data["strategyType"] == "ma_cross"
@@ -683,7 +793,9 @@ def test_strategy_backtest_returns_unified_shape(monkeypatch):
 
 def test_strategy_backtest_save_persists_strategy(monkeypatch):
     bars = _strategy_bars()
-    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30"))
+    monkeypatch.setattr(
+        app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30")
+    )
     saved = {}
 
     def fake_save_strategy(payload, workspace_id="default"):
@@ -702,16 +814,20 @@ def test_strategy_backtest_save_persists_strategy(monkeypatch):
     monkeypatch.setattr(app_module, "save_strategy_backtest", fake_save_backtest)
     monkeypatch.setattr(app_module, "get_strategy", fake_get_strategy)
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
-        resp = client.post("/api/strategy/backtest", json={
-            "strategyType": "dca",
-            "code": "600519",
-            "name": "茅台定投",
-            "config": {"amountPerPeriod": 5000, "intervalDays": 5, "stopProfitPct": 20, "stopLossPct": 15},
-            "capital": 100000,
-            "schedule": "manual",
-            "save": True,
-        })
+        resp = client.post(
+            "/api/strategy/backtest",
+            json={
+                "strategyType": "dca",
+                "code": "600519",
+                "name": "茅台定投",
+                "config": {"amountPerPeriod": 5000, "intervalDays": 5, "stopProfitPct": 20, "stopLossPct": 15},
+                "capital": 100000,
+                "schedule": "manual",
+                "save": True,
+            },
+        )
     assert resp.status_code == 200
     assert saved["code"] == "600519"
     assert saved["strategyType"] == "dca"
@@ -720,14 +836,20 @@ def test_strategy_backtest_save_persists_strategy(monkeypatch):
 
 def test_strategy_backtest_falls_back_to_local_cache(monkeypatch):
     bars = _strategy_bars()
-    monkeypatch.setattr(app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "local", "2026-08-29"))
+    monkeypatch.setattr(
+        app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "local", "2026-08-29")
+    )
     from fastapi.testclient import TestClient
+
     with TestClient(app_module.create_app()) as client:
-        resp = client.post("/api/strategy/backtest", json={
-            "strategyType": "macd",
-            "code": "600519",
-            "config": {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9},
-        })
+        resp = client.post(
+            "/api/strategy/backtest",
+            json={
+                "strategyType": "macd",
+                "code": "600519",
+                "config": {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9},
+            },
+        )
     assert resp.status_code == 200
     data = resp.json()
     assert data["dataSource"] == "local"

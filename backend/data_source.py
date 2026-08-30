@@ -24,13 +24,56 @@ _min_request_interval: float = 1.0 / _rate_limit_rps
 _last_request_at: float = 0.0
 rate_lock = threading.Lock()
 REAL_UNIVERSE = [
-    "600519", "300750", "601318", "600036", "000858", "002594", "300760", "688981",
-    "000333", "600900", "000001", "601012", "601899", "600276", "603259", "601888",
-    "000651", "000725", "300059", "600030", "601166", "600031", "002415", "300124",
-    "002371", "300308", "688008", "603501", "600809", "600309", "601668", "601398",
-    "601939", "601288", "000538", "300015", "600887", "600585", "601857", "600028",
-    "601088", "600406", "002230", "002475", "000063", "300142", "688256", "688012",
-    "300782", "002714",
+    "600519",
+    "300750",
+    "601318",
+    "600036",
+    "000858",
+    "002594",
+    "300760",
+    "688981",
+    "000333",
+    "600900",
+    "000001",
+    "601012",
+    "601899",
+    "600276",
+    "603259",
+    "601888",
+    "000651",
+    "000725",
+    "300059",
+    "600030",
+    "601166",
+    "600031",
+    "002415",
+    "300124",
+    "002371",
+    "300308",
+    "688008",
+    "603501",
+    "600809",
+    "600309",
+    "601668",
+    "601398",
+    "601939",
+    "601288",
+    "000538",
+    "300015",
+    "600887",
+    "600585",
+    "601857",
+    "600028",
+    "601088",
+    "600406",
+    "002230",
+    "002475",
+    "000063",
+    "300142",
+    "688256",
+    "688012",
+    "300782",
+    "002714",
 ]
 
 cache: dict[str, tuple[float, Any]] = {}
@@ -52,7 +95,12 @@ def recent_stale(window: float = 2.0) -> dict[str, float] | None:
     return None
 
 
-def apply_runtime_config(timeout_seconds: int | None = None, retry_count: int | None = None, cache_seconds: int | None = None, rate_limit_rps: float | None = None) -> None:
+def apply_runtime_config(
+    timeout_seconds: int | None = None,
+    retry_count: int | None = None,
+    cache_seconds: int | None = None,
+    rate_limit_rps: float | None = None,
+) -> None:
     """Apply workspace settings to the quote adapter without persisting anything."""
     global _cache_ttl, _timeout_seconds, _retry_count, _rate_limit_rps, _min_request_interval
     if timeout_seconds is not None:
@@ -200,9 +248,8 @@ def price_limit_ratio(code: str) -> float:
     return 0.10
 
 
-def _http_get(url: str, params: dict[str, Any]):
+def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
     _throttle()  # 外部接口限频
-    last_exc: Exception | None = None
     for attempt in range(_retry_count + 1):
         try:
             response = requests.get(url, params=params, headers=REQUEST_HEADERS, timeout=_timeout_seconds)
@@ -211,8 +258,10 @@ def _http_get(url: str, params: dict[str, Any]):
         except requests.RequestException as exc:
             last_exc = exc
             if attempt < _retry_count:
-                time.sleep(0.5 * (2 ** attempt))
-    raise last_exc
+                time.sleep(0.5 * (2**attempt))
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("请求失败")
 
 
 def fetch_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -344,7 +393,9 @@ def load_screener(market: str, page_size: int = 300) -> dict[str, Any]:
     rows = load_quotes(codes)
     if market != "全部":
         rows = [row for row in rows if row["market"] == market]
-    rows.sort(key=lambda row: (row["change"] is not None, row["change"] if row["change"] is not None else -999), reverse=True)
+    rows.sort(
+        key=lambda row: (row["change"] is not None, row["change"] if row["change"] is not None else -999), reverse=True
+    )
     return {
         "total": len(rows),
         "rows": rows,
@@ -425,7 +476,9 @@ def _fetch_screener_v2(page: int, page_size: int, sort_by: str, sort_dir: str) -
         raise RuntimeError(f"全市场选股器请求失败: {exc}") from exc
 
 
-def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc") -> dict[str, Any]:
+def load_screener_v2(
+    page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc"
+) -> dict[str, Any]:
     """腾讯全市场排名接口，分页返回（约 4596 只沪深 A 股），带缓存与降级兜底。"""
     key = f"screener_v2:{sort_by}:{sort_dir}:{page}:{page_size}"
     return cached(key, lambda: _fetch_screener_v2(page, page_size, sort_by, sort_dir))

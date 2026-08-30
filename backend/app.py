@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
-import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,18 +11,25 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend.data_source import apply_runtime_config, classify_code, load_history, load_market, load_screener, price_limit_ratio, recent_stale
-from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
+from backend.data_source import (
+    apply_runtime_config,
+    classify_code,
+    load_history,
+    load_market,
+    load_screener,
+    price_limit_ratio,
+    recent_stale,
+)
 from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
+from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.storage import (
-    delete_grid_strategy,
-    delete_strategy as delete_generic_strategy,
     DEFAULT_WORKSPACE_SETTINGS,
+    delete_grid_strategy,
+    get_grid_strategy,
+    get_strategy,
     get_workspace,
     get_workspace_revision,
     get_workspace_settings,
-    get_grid_strategy,
-    get_strategy,
     initialize_storage,
     list_grid_strategies,
     list_strategies,
@@ -36,19 +43,23 @@ from backend.storage import (
     save_workspace_settings,
     storage_status,
 )
+from backend.storage import (
+    delete_strategy as delete_generic_strategy,
+)
 from backend.strategy_engines import STRATEGY_ENGINES
 
 # 结构化错误码（统一 API 错误契约）
-ERR_STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE"    # 503 持久化不可用
-ERR_WORKSPACE_CONFLICT = "WORKSPACE_CONFLICT"      # 409 工作区版本冲突
+ERR_STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE"  # 503 持久化不可用
+ERR_WORKSPACE_CONFLICT = "WORKSPACE_CONFLICT"  # 409 工作区版本冲突
 ERR_UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"  # 502 行情/排名上游失败
-ERR_VALIDATION_ERROR = "VALIDATION_ERROR"          # 422 参数/设置/策略类型
-ERR_NOT_FOUND = "NOT_FOUND"                        # 404 资源不存在
+ERR_VALIDATION_ERROR = "VALIDATION_ERROR"  # 422 参数/设置/策略类型
+ERR_NOT_FOUND = "NOT_FOUND"  # 404 资源不存在
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
     """统一错误构造：detail = {"error": message, "code": code, **extras}。"""
     return HTTPException(status_code=status_code, detail={"error": message, "code": code, **extras})
+
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
@@ -152,12 +163,43 @@ def create_app() -> FastAPI:
             data = dict(DEFAULT_WORKSPACE_SETTINGS)
         akshare_installed = find_spec("akshare") is not None
         tushare_installed = find_spec("tushare") is not None
-        tushare_configured = bool(getattr(__import__("backend.settings", fromlist=["get_settings"]).get_settings(), "tushare_token", ""))
-        return {"data": data, "sources": [
-                {"id": "tencent", "name": "腾讯公开行情", "realtime": True, "history": True, "screener": True, "available": True},
-                {"id": "akshare", "name": "AkShare", "realtime": False, "history": True, "screener": True, "available": False, "installed": akshare_installed, "reason": "暂未支持切换，适配器开发中" if akshare_installed else "未安装 AkShare"},
-                {"id": "tushare", "name": "Tushare", "realtime": False, "history": True, "screener": True, "available": False, "installed": tushare_installed, "tushareConfigured": tushare_configured, "reason": "暂未支持切换，适配器开发中" if tushare_configured else "未配置 TUSHARE_TOKEN"},
-            ]}
+        tushare_configured = bool(
+            getattr(__import__("backend.settings", fromlist=["get_settings"]).get_settings(), "tushare_token", "")
+        )
+        return {
+            "data": data,
+            "sources": [
+                {
+                    "id": "tencent",
+                    "name": "腾讯公开行情",
+                    "realtime": True,
+                    "history": True,
+                    "screener": True,
+                    "available": True,
+                },
+                {
+                    "id": "akshare",
+                    "name": "AkShare",
+                    "realtime": False,
+                    "history": True,
+                    "screener": True,
+                    "available": False,
+                    "installed": akshare_installed,
+                    "reason": "暂未支持切换，适配器开发中" if akshare_installed else "未安装 AkShare",
+                },
+                {
+                    "id": "tushare",
+                    "name": "Tushare",
+                    "realtime": False,
+                    "history": True,
+                    "screener": True,
+                    "available": False,
+                    "installed": tushare_installed,
+                    "tushareConfigured": tushare_configured,
+                    "reason": "暂未支持切换，适配器开发中" if tushare_configured else "未配置 TUSHARE_TOKEN",
+                },
+            ],
+        }
 
     @app.put("/api/settings")
     def update_settings(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
@@ -206,10 +248,15 @@ def create_app() -> FastAPI:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
 
     @app.get("/api/screener/v2")
-    def screener_v2(page: int = Query(default=1, ge=1), pageSize: int = Query(default=50, alias="pageSize", ge=1, le=200),
-                    sortBy: str = Query(default="changePct", alias="sortBy"), sortDir: str = Query(default="desc", alias="sortDir")):
+    def screener_v2(
+        page: int = Query(default=1, ge=1),
+        pageSize: int = Query(default=50, alias="pageSize", ge=1, le=200),
+        sortBy: str = Query(default="changePct", alias="sortBy"),
+        sortDir: str = Query(default="desc", alias="sortDir"),
+    ):
         try:
             from backend.data_source import load_screener_v2
+
             return load_screener_v2(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent rank API")
@@ -220,8 +267,19 @@ def create_app() -> FastAPI:
             code = str(payload["code"])
             profile = classify_code(code)
             grid_count = max(2, min(int(payload.get("gridCount", 8)), 30))
-            history, data_source_flag, data_as_of = _load_history_with_fallback(code, max(20, min(int(payload.get("lookback", 120)), 240)))
-            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "dataSource": data_source_flag, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
+            history, data_source_flag, data_as_of = _load_history_with_fallback(
+                code, max(20, min(int(payload.get("lookback", 120)), 240))
+            )
+            return {
+                "code": code,
+                "profile": profile,
+                "dataAsOf": data_as_of,
+                "dataSource": data_source_flag,
+                "history": history,
+                "suggestion": suggest_grid(
+                    history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic"))
+                ),
+            }
         except Exception as exc:
             raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
@@ -242,10 +300,59 @@ def create_app() -> FastAPI:
             lower = float(payload.get("lower") or suggestion["lower"])
             upper = float(payload.get("upper") or suggestion["upper"])
             limit_pct = price_limit_ratio(code)
-            result = backtest_grid(history, lower, upper, grid_count, capital, fee_bps, mode, profile["securityType"], profile["exchange"], settlement_days, slippage_bps, limit_pct)
-            response = {"code": code, "profile": profile, "history": history, "config": {"lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "lookback": lookback, "mode": mode, "settlementDays": settlement_days, "slippageBps": slippage_bps, "priceLimitPct": limit_pct * 100, "dataAsOf": data_as_of}, **result}
+            result = backtest_grid(
+                history,
+                lower,
+                upper,
+                grid_count,
+                capital,
+                fee_bps,
+                mode,
+                profile["securityType"],
+                profile["exchange"],
+                settlement_days,
+                slippage_bps,
+                limit_pct,
+            )
+            response = {
+                "code": code,
+                "profile": profile,
+                "history": history,
+                "config": {
+                    "lower": lower,
+                    "upper": upper,
+                    "gridCount": grid_count,
+                    "capital": capital,
+                    "feeBps": fee_bps,
+                    "lookback": lookback,
+                    "mode": mode,
+                    "settlementDays": settlement_days,
+                    "slippageBps": slippage_bps,
+                    "priceLimitPct": limit_pct * 100,
+                    "dataAsOf": data_as_of,
+                },
+                **result,
+            }
             if payload.get("save"):
-                strategy = save_grid_strategy({"id": payload.get("id") or f"grid-{uuid4().hex}", "code": code, "name": payload.get("name"), "lower": lower, "upper": upper, "gridCount": grid_count, "capital": capital, "feeBps": fee_bps, "mode": mode, "lookback": lookback, "settlementDays": settlement_days, "slippageBps": slippage_bps, "schedule": payload.get("schedule", "manual"), "status": "启用"}, workspace_id)
+                strategy = save_grid_strategy(
+                    {
+                        "id": payload.get("id") or f"grid-{uuid4().hex}",
+                        "code": code,
+                        "name": payload.get("name"),
+                        "lower": lower,
+                        "upper": upper,
+                        "gridCount": grid_count,
+                        "capital": capital,
+                        "feeBps": fee_bps,
+                        "mode": mode,
+                        "lookback": lookback,
+                        "settlementDays": settlement_days,
+                        "slippageBps": slippage_bps,
+                        "schedule": payload.get("schedule", "manual"),
+                        "status": "启用",
+                    },
+                    workspace_id,
+                )
                 save_grid_backtest(strategy["id"], code, response["config"], result, workspace_id)
                 schedule_strategy(strategy)
                 response["strategy"] = get_grid_strategy(strategy["id"])
@@ -261,7 +368,23 @@ def create_app() -> FastAPI:
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
             history = load_history(code, limit=lookback)
             data_as_of = save_market_bars(code, history)
-            return {"code": code, "profile": profile, "dataAsOf": data_as_of, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")), profile["securityType"], profile["exchange"], max(0, min(int(payload.get("settlementDays", 1)), 5)), max(0, min(float(payload.get("slippageBps", 5)), 100)), price_limit_ratio(code))}
+            return {
+                "code": code,
+                "profile": profile,
+                "dataAsOf": data_as_of,
+                "history": history,
+                "candidates": optimize_grid(
+                    history,
+                    float(payload.get("capital", 100000)),
+                    float(payload.get("feeBps", 3)),
+                    str(payload.get("mode", "classic")),
+                    profile["securityType"],
+                    profile["exchange"],
+                    max(0, min(int(payload.get("settlementDays", 1)), 5)),
+                    max(0, min(float(payload.get("slippageBps", 5)), 100)),
+                    price_limit_ratio(code),
+                ),
+            }
         except Exception as exc:
             raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
@@ -273,7 +396,9 @@ def create_app() -> FastAPI:
             raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.patch("/api/grid/strategies/{strategy_id}")
-    def update_grid_strategy_status(strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+    def update_grid_strategy_status(
+        strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")
+    ):
         try:
             strategy = get_grid_strategy(strategy_id)
             if not strategy or strategy["workspaceId"] != workspace_id:
@@ -332,17 +457,42 @@ def create_app() -> FastAPI:
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
             history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
             config = dict(payload.get("config") or {})
-            config.update({
-                "capital": float(payload.get("capital", 100000)),
-                "feeBps": float(payload.get("feeBps", 3)),
-                "securityType": profile["securityType"],
-                "exchange": profile["exchange"],
-                "lookback": lookback,
-            })
+            config.update(
+                {
+                    "capital": float(payload.get("capital", 100000)),
+                    "feeBps": float(payload.get("feeBps", 3)),
+                    "securityType": profile["securityType"],
+                    "exchange": profile["exchange"],
+                    "lookback": lookback,
+                }
+            )
             result = engine["backtest"](history, config)
-            response = {"code": code, "profile": profile, "history": history, "strategyType": strategy_type, "config": {**config, "dataAsOf": data_as_of}, "dataSource": data_source_flag, "dataAsOf": data_as_of, **result}
+            response = {
+                "code": code,
+                "profile": profile,
+                "history": history,
+                "strategyType": strategy_type,
+                "config": {**config, "dataAsOf": data_as_of},
+                "dataSource": data_source_flag,
+                "dataAsOf": data_as_of,
+                **result,
+            }
             if payload.get("save"):
-                strategy = save_strategy({"id": payload.get("id") or f"strategy-{uuid4().hex}", "code": code, "name": payload.get("name"), "strategyType": strategy_type, "config": config, "capital": config["capital"], "feeBps": config["feeBps"], "schedule": payload.get("schedule", "manual"), "status": "启用", "lookback": lookback}, workspace_id)
+                strategy = save_strategy(
+                    {
+                        "id": payload.get("id") or f"strategy-{uuid4().hex}",
+                        "code": code,
+                        "name": payload.get("name"),
+                        "strategyType": strategy_type,
+                        "config": config,
+                        "capital": config["capital"],
+                        "feeBps": config["feeBps"],
+                        "schedule": payload.get("schedule", "manual"),
+                        "status": "启用",
+                        "lookback": lookback,
+                    },
+                    workspace_id,
+                )
                 save_strategy_backtest(strategy["id"], code, strategy_type, response["config"], result, workspace_id)
                 schedule_strategy(strategy)
                 response["strategy"] = get_strategy(strategy["id"])
@@ -360,7 +510,9 @@ def create_app() -> FastAPI:
             raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.patch("/api/strategy/strategies/{strategy_id}")
-    def update_strategy_status(strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
+    def update_strategy_status(
+        strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")
+    ):
         try:
             strategy = get_strategy(strategy_id)
             if not strategy or strategy["workspaceId"] != workspace_id:
