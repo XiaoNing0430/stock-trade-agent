@@ -20,7 +20,6 @@ import {
   formatNullable,
   formatPctNullable,
   trendClass,
-  escapeHtml,
   validityExpiry,
 } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
@@ -38,7 +37,7 @@ const { createApp, ref, reactive, computed, watch, onMounted, onBeforeUnmount, n
 function loadStorage() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-  } catch (error) {
+  } catch {
     return {};
   }
 }
@@ -270,7 +269,6 @@ const appOptions = {
         market.quotes.find((quote) => quote.code === code) || screenRows.value.find((row) => row.code === code) || null
       );
     };
-    const quoteMap = computed(() => Object.fromEntries(market.quotes.map((quote) => [quote.code, quote])));
     const selectedStock = computed(() => quoteFor(selectedCode.value));
     const normalizedGridCode = computed(() => String(gridDraft.code || '').trim());
     const gridInstrument = computed(() => quoteFor(normalizedGridCode.value));
@@ -412,7 +410,7 @@ const appOptions = {
             },
           })
         );
-      } catch (error) {
+      } catch {
         // Storage is optional; real quotes continue to work without it.
       }
     }
@@ -563,7 +561,7 @@ const appOptions = {
           plans.value = remote.plans || [];
           alerts.value = remote.alerts || [];
         }
-      } catch (error) {
+      } catch {
         // Existing local state is intentionally retained for first-run or offline use.
       } finally {
         workspaceSynced.value = true;
@@ -578,7 +576,7 @@ const appOptions = {
         Object.assign(settingsDraft, payload.data || {});
         dataSources.value = payload.sources || [];
         appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
-      } catch (error) {
+      } catch {
         showToast('设置读取失败，正在使用本地默认值', 'error');
       } finally {
         settingsLoading.value = false;
@@ -770,7 +768,7 @@ const appOptions = {
         const payload = await requestJson(`/api/market?codes=${encodeURIComponent(code)}`);
         mergeMarket(payload);
         persist();
-      } catch (error) {
+      } catch {
         errorMessage.value = `无法读取 ${code} 的实时报价。`;
       }
     }
@@ -784,7 +782,7 @@ const appOptions = {
       await ensureQuote(code);
       try {
         await fetchHistory(code, 'selected');
-      } catch (error) {
+      } catch {
         errorMessage.value = '该股票的历史日线暂时不可用。';
       }
       await nextTick();
@@ -1145,7 +1143,7 @@ const appOptions = {
       try {
         const payload = await requestJson('/api/grid/strategies');
         gridStrategies.value = payload.strategies || [];
-      } catch (error) {
+      } catch {
         gridStrategies.value = [];
       }
     }
@@ -1269,7 +1267,7 @@ const appOptions = {
       try {
         const payload = await requestJson('/api/strategy/strategies');
         strategies.value = payload.strategies || [];
-      } catch (error) {
+      } catch {
         strategies.value = [];
       }
     }
@@ -1677,7 +1675,6 @@ const appOptions = {
       calculateShares,
       monitorPlan,
       archivePlan,
-      refreshAll,
     });
 
     return {
