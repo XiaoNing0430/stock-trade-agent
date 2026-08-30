@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewPlans from '@/views/ViewPlans.vue';
@@ -89,5 +90,18 @@ describe('ViewPlans', () => {
     expect(workspace.plans.length).toBe(1);
     expect(workspace.plans[0].code).toBe('600519');
     expect(workspace.plans[0].status).toBe('执行中');
+  });
+
+  it('mount 后新增计划列表与计数响应式更新', async () => {
+    const workspace = useWorkspaceStore();
+    const wrapper = mount(ViewPlans);
+    expect(wrapper.findAll('.plan-card').length).toBe(0);
+    expect(wrapper.text()).toContain('还没有交易计划');
+    workspace.plans = [activePlan];
+    await nextTick();
+    expect(wrapper.findAll('.plan-card').length).toBe(1);
+    expect(wrapper.find('.plan-count strong').text()).toBe('1');
+    expect(wrapper.text()).toContain('600519');
+    expect(wrapper.text()).not.toContain('还没有交易计划');
   });
 });

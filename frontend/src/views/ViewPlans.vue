@@ -56,7 +56,8 @@ const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const plans = usePlansStore();
 
-const { activePlans, draftDirty, refreshAll, renderIcons } = workspace;
+const { activePlans, draftDirty } = storeToRefs(workspace);
+const { refreshAll, renderIcons } = workspace;
 const { draft, planOptions, planMetrics } = storeToRefs(plans);
 const { quoteFor } = quotes;
 const { switchView } = quotes;

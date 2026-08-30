@@ -66,4 +66,12 @@ describe('ViewScreener', () => {
     expect(wrapper.text()).toContain('PE');
     expect(wrapper.text()).toContain('PB');
   });
+
+  it('预设按钮列表渲染（storeToRefs 可解包 presets ref）', () => {
+    const wrapper = mount(ViewScreener);
+    const presetButtons = wrapper.findAll('.preset-item');
+    expect(presetButtons.length).toBeGreaterThanOrEqual(3);
+    expect(presetButtons[0].text()).toContain('趋势突破');
+    expect(wrapper.text()).toContain('低估修复');
+  });
 });
