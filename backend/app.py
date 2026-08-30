@@ -38,6 +38,18 @@ from backend.storage import (
 )
 from backend.strategy_engines import STRATEGY_ENGINES
 
+# 结构化错误码（统一 API 错误契约）
+ERR_STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE"    # 503 持久化不可用
+ERR_WORKSPACE_CONFLICT = "WORKSPACE_CONFLICT"      # 409 工作区版本冲突
+ERR_UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"  # 502 行情/排名上游失败
+ERR_VALIDATION_ERROR = "VALIDATION_ERROR"          # 422 参数/设置/策略类型
+ERR_NOT_FOUND = "NOT_FOUND"                        # 404 资源不存在
+
+
+def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
+    """统一错误构造：detail = {"error": message, "code": code, **extras}。"""
+    return HTTPException(status_code=status_code, detail={"error": message, "code": code, **extras})
+
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
 
@@ -72,6 +84,7 @@ def create_app() -> FastAPI:
                     timeout_seconds=applied.get("timeoutSeconds"),
                     retry_count=applied.get("retryCount"),
                     cache_seconds=applied.get("cacheSeconds"),
+                    rate_limit_rps=applied.get("rateLimitRps"),
                 )
             except Exception:
                 pass
@@ -106,7 +119,7 @@ def create_app() -> FastAPI:
         try:
             return get_workspace(workspace_id)
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, f"持久化存储不可用: {exc}") from exc
 
     @app.put("/api/workspace")
     def update_workspace(
@@ -118,15 +131,18 @@ def create_app() -> FastAPI:
         try:
             current = get_workspace_revision(workspace_id)
             if base_revision is not None and base_revision != current and not force:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"error": "其他页面已更新工作区数据", "revision": current, "workspace": get_workspace(workspace_id)},
+                raise api_error(
+                    409,
+                    ERR_WORKSPACE_CONFLICT,
+                    "其他页面已更新工作区数据",
+                    revision=current,
+                    workspace=get_workspace(workspace_id),
                 )
             return save_workspace(payload, workspace_id)
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, f"持久化存储不可用: {exc}") from exc
 
     @app.get("/api/settings")
     def settings(workspace_id: str = Query(default="default", alias="workspace")):
@@ -151,17 +167,18 @@ def create_app() -> FastAPI:
                 timeout_seconds=saved.get("timeoutSeconds"),
                 retry_count=saved.get("retryCount"),
                 cache_seconds=saved.get("cacheSeconds"),
+                rate_limit_rps=saved.get("rateLimitRps"),
             )
             return {"data": saved}
         except Exception as exc:
-            raise HTTPException(status_code=422, detail={"error": f"设置保存失败: {exc}"}) from exc
+            raise api_error(422, ERR_VALIDATION_ERROR, f"设置保存失败: {exc}") from exc
 
     @app.get("/api/market")
     def market(codes: str = Query(default="")):
         try:
             return load_market(codes.split(",") if codes else [])
         except Exception as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
 
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)):
@@ -176,7 +193,7 @@ def create_app() -> FastAPI:
                 "dataAsOf": data_as_of,
             }
         except Exception as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
 
     @app.get("/api/screener")
     def screener(market: str = Query(default="全部"), pageSize: int = Query(default=300, alias="pageSize")):
@@ -186,7 +203,7 @@ def create_app() -> FastAPI:
             payload["fetchedAt"] = int(time.time() * 1000)
             return payload
         except Exception as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent public quote API"})
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
 
     @app.get("/api/screener/v2")
     def screener_v2(page: int = Query(default=1, ge=1), pageSize: int = Query(default=50, alias="pageSize", ge=1, le=200),
@@ -195,7 +212,7 @@ def create_app() -> FastAPI:
             from backend.data_source import load_screener_v2
             return load_screener_v2(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
         except Exception as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent rank API"})
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent rank API")
 
     @app.post("/api/grid/preview")
     def grid_preview(payload: dict = Body(...)):
@@ -206,7 +223,7 @@ def create_app() -> FastAPI:
             history, data_source_flag, data_as_of = _load_history_with_fallback(code, max(20, min(int(payload.get("lookback", 120)), 240)))
             return {"code": code, "profile": profile, "dataAsOf": data_as_of, "dataSource": data_source_flag, "history": history, "suggestion": suggest_grid(history, grid_count, float(payload.get("capital", 100000)), str(payload.get("mode", "classic")))}
         except Exception as exc:
-            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
     @app.post("/api/grid/backtest")
     def grid_backtest(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
@@ -234,7 +251,7 @@ def create_app() -> FastAPI:
                 response["strategy"] = get_grid_strategy(strategy["id"])
             return response
         except Exception as exc:
-            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
     @app.post("/api/grid/optimize")
     def grid_optimize(payload: dict = Body(...)):
@@ -246,21 +263,21 @@ def create_app() -> FastAPI:
             data_as_of = save_market_bars(code, history)
             return {"code": code, "profile": profile, "dataAsOf": data_as_of, "history": history, "candidates": optimize_grid(history, float(payload.get("capital", 100000)), float(payload.get("feeBps", 3)), str(payload.get("mode", "classic")), profile["securityType"], profile["exchange"], max(0, min(int(payload.get("settlementDays", 1)), 5)), max(0, min(float(payload.get("slippageBps", 5)), 100)), price_limit_ratio(code))}
         except Exception as exc:
-            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
     @app.get("/api/grid/strategies")
     def grid_strategies(workspace_id: str = Query(default="default", alias="workspace")):
         try:
             return {"strategies": list_grid_strategies(workspace_id)}
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.patch("/api/grid/strategies/{strategy_id}")
     def update_grid_strategy_status(strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
         try:
             strategy = get_grid_strategy(strategy_id)
             if not strategy or strategy["workspaceId"] != workspace_id:
-                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+                raise api_error(404, ERR_NOT_FOUND, "策略不存在")
             strategy.update({key: value for key, value in payload.items() if key in {"status", "schedule"}})
             saved = save_grid_strategy(strategy, workspace_id)
             schedule_strategy(saved)
@@ -268,19 +285,19 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.delete("/api/grid/strategies/{strategy_id}")
     def delete_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
         try:
             if not delete_grid_strategy(strategy_id, workspace_id):
-                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+                raise api_error(404, ERR_NOT_FOUND, "策略不存在")
             unschedule_strategy(strategy_id)
             return {"deleted": True, "id": strategy_id}
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.post("/api/strategy/preview")
     def strategy_preview(payload: dict = Body(...)):
@@ -288,7 +305,7 @@ def create_app() -> FastAPI:
             strategy_type = str(payload.get("strategyType", ""))
             engine = STRATEGY_ENGINES.get(strategy_type)
             if not engine:
-                raise HTTPException(status_code=422, detail={"error": f"未知策略类型：{strategy_type}"})
+                raise api_error(422, ERR_VALIDATION_ERROR, f"未知策略类型：{strategy_type}")
             config = dict(payload.get("config") or {})
             suggestion = {}
             for field in engine["configSchema"]:
@@ -301,7 +318,7 @@ def create_app() -> FastAPI:
                 "note": "已应用该策略类型的默认参数，可手动调整后回测。",
             }
         except Exception as exc:
-            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
     @app.post("/api/strategy/backtest")
     def strategy_backtest(payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
@@ -309,7 +326,7 @@ def create_app() -> FastAPI:
             strategy_type = str(payload.get("strategyType", ""))
             engine = STRATEGY_ENGINES.get(strategy_type)
             if not engine:
-                raise HTTPException(status_code=422, detail={"error": f"未知策略类型：{strategy_type}"})
+                raise api_error(422, ERR_VALIDATION_ERROR, f"未知策略类型：{strategy_type}")
             code = str(payload["code"])
             profile = classify_code(code)
             lookback = max(20, min(int(payload.get("lookback", 120)), 240))
@@ -333,21 +350,21 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
 
     @app.get("/api/strategy/strategies")
     def strategy_strategies(workspace_id: str = Query(default="default", alias="workspace")):
         try:
             return {"strategies": list_strategies(workspace_id)}
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.patch("/api/strategy/strategies/{strategy_id}")
     def update_strategy_status(strategy_id: str, payload: dict = Body(...), workspace_id: str = Query(default="default", alias="workspace")):
         try:
             strategy = get_strategy(strategy_id)
             if not strategy or strategy["workspaceId"] != workspace_id:
-                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+                raise api_error(404, ERR_NOT_FOUND, "策略不存在")
             strategy.update({key: value for key, value in payload.items() if key in {"status", "schedule"}})
             saved = save_strategy(strategy, workspace_id)
             schedule_strategy(saved)
@@ -355,19 +372,19 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.delete("/api/strategy/strategies/{strategy_id}")
     def remove_strategy(strategy_id: str, workspace_id: str = Query(default="default", alias="workspace")):
         try:
             if not delete_generic_strategy(strategy_id, workspace_id):
-                raise HTTPException(status_code=404, detail={"error": "策略不存在"})
+                raise api_error(404, ERR_NOT_FOUND, "策略不存在")
             unschedule_strategy(strategy_id)
             return {"deleted": True, "id": strategy_id}
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=503, detail={"error": str(exc)}) from exc
+            raise api_error(503, ERR_STORAGE_UNAVAILABLE, str(exc)) from exc
 
     @app.get("/")
     def index():

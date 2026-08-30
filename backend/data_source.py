@@ -18,6 +18,11 @@ STALE_MAX_AGE = 1800  # 30 分钟硬顶：超龄缓存不再降级
 _cache_ttl: int = CACHE_TTL
 _timeout_seconds: int = 10
 _retry_count: int = 1
+# 外部接口限频（全局）
+_rate_limit_rps: float = 5.0
+_min_request_interval: float = 1.0 / _rate_limit_rps
+_last_request_at: float = 0.0
+rate_lock = threading.Lock()
 REAL_UNIVERSE = [
     "600519", "300750", "601318", "600036", "000858", "002594", "300760", "688981",
     "000333", "600900", "000001", "601012", "601899", "600276", "603259", "601888",
@@ -47,15 +52,32 @@ def recent_stale(window: float = 2.0) -> dict[str, float] | None:
     return None
 
 
-def apply_runtime_config(timeout_seconds: int | None = None, retry_count: int | None = None, cache_seconds: int | None = None) -> None:
+def apply_runtime_config(timeout_seconds: int | None = None, retry_count: int | None = None, cache_seconds: int | None = None, rate_limit_rps: float | None = None) -> None:
     """Apply workspace settings to the quote adapter without persisting anything."""
-    global _cache_ttl, _timeout_seconds, _retry_count
+    global _cache_ttl, _timeout_seconds, _retry_count, _rate_limit_rps, _min_request_interval
     if timeout_seconds is not None:
         _timeout_seconds = max(2, int(timeout_seconds))
     if retry_count is not None:
         _retry_count = max(0, int(retry_count))
     if cache_seconds is not None:
-        _cache_ttl = max(0, int(cache_seconds))
+        # 硬下限 2 秒：防止 cacheSeconds=0 时每次轮询直打上游。
+        _cache_ttl = max(2, int(cache_seconds))
+    if rate_limit_rps is not None:
+        _rate_limit_rps = max(1.0, float(rate_limit_rps))
+        _min_request_interval = 1.0 / _rate_limit_rps
+
+
+def _throttle() -> None:
+    """阻塞直到满足全局最小请求间隔（外部接口节流）。"""
+    global _last_request_at
+    while True:
+        with rate_lock:
+            now = time.time()
+            wait = _last_request_at + _min_request_interval - now
+            if wait <= 0:
+                _last_request_at = now
+                return
+        time.sleep(wait)
 
 
 def cached(key: str, loader):
@@ -179,6 +201,7 @@ def price_limit_ratio(code: str) -> float:
 
 
 def _http_get(url: str, params: dict[str, Any]):
+    _throttle()  # 外部接口限频
     last_exc: Exception | None = None
     for attempt in range(_retry_count + 1):
         try:
@@ -378,8 +401,8 @@ def _map_sort_field(sort_by: str) -> str:
     return _SCREENER_SORT_MAP.get(sort_by, "price")
 
 
-def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc") -> dict[str, Any]:
-    """腾讯全市场排名接口，分页返回（约 4596 只沪深 A 股）。"""
+def _fetch_screener_v2(page: int, page_size: int, sort_by: str, sort_dir: str) -> dict[str, Any]:
+    """腾讯全市场排名接口请求与归一化（不缓存）。"""
     params = {
         "board_code": "aStock",
         "sort_type": _map_sort_field(sort_by),
@@ -388,7 +411,7 @@ def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changeP
         "count": str(page_size),
     }
     try:
-        resp = requests.get(SCREENER_V2_URL, params=params, timeout=10)
+        resp = _http_get(SCREENER_V2_URL, params)
         data = resp.json()["data"]
         rows = [_normalize_rank_item(item) for item in data.get("rank_list", [])]
         return {
@@ -400,3 +423,9 @@ def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changeP
         }
     except Exception as exc:
         raise RuntimeError(f"全市场选股器请求失败: {exc}") from exc
+
+
+def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc") -> dict[str, Any]:
+    """腾讯全市场排名接口，分页返回（约 4596 只沪深 A 股），带缓存与降级兜底。"""
+    key = f"screener_v2:{sort_by}:{sort_dir}:{page}:{page_size}"
+    return cached(key, lambda: _fetch_screener_v2(page, page_size, sort_by, sort_dir))

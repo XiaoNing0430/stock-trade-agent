@@ -303,7 +303,7 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["workspaceName"] = str(data["workspaceName"]).strip()[:64] or DEFAULT_WORKSPACE_SETTINGS["workspaceName"]
     data["defaultCapital"] = max(1000, min(float(data["defaultCapital"]), 100000000))
     data["refreshInterval"] = max(5, min(int(data["refreshInterval"]), 300))
-    data["cacheSeconds"] = max(0, min(int(data["cacheSeconds"]), 300))
+    data["cacheSeconds"] = max(2, min(int(data["cacheSeconds"]), 300))
     data["timeoutSeconds"] = max(2, min(int(data["timeoutSeconds"]), 60))
     data["retryCount"] = max(0, min(int(data["retryCount"]), 5))
     data["conflictPolicy"] = data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"

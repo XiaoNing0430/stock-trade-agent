@@ -1,6 +1,14 @@
 import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS, STRATEGY_TYPES, STRATEGY_SCHEMAS } from './modules/constants.js';
 import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
+import { APP_CTX } from './modules/views/context.js';
+import ViewSettings from './modules/views/ViewSettings.js';
+import ViewOverview from './modules/views/ViewOverview.js';
+import ViewMonitor from './modules/views/ViewMonitor.js';
+import ViewScreener from './modules/views/ViewScreener.js';
+import ViewStockDetail from './modules/views/ViewStockDetail.js';
+import ViewGrid from './modules/views/ViewGrid.js';
+import ViewPlans from './modules/views/ViewPlans.js';
 
 const {
   createApp,
@@ -10,7 +18,8 @@ const {
   watch,
   onMounted,
   onBeforeUnmount,
-  nextTick
+  nextTick,
+  provide
 } = Vue;
 
 function loadStorage() {
@@ -21,7 +30,7 @@ function loadStorage() {
   }
 }
 
-createApp({
+const appOptions = {
   setup() {
     const saved = loadStorage();
     const view = ref(saved.view || 'overview');
@@ -373,6 +382,7 @@ createApp({
       if (!response.ok) {
         const error = new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
         error.status = response.status;
+        error.code = payload.detail?.code || payload.code || 'UNKNOWN';
         error.payload = payload;
         throw error;
       }
@@ -1431,6 +1441,142 @@ createApp({
       toastTimers.forEach((timer) => clearTimeout(timer));
     });
 
+    provide(APP_CTX, {
+      // 个人中心（ViewSettings）
+      hubTab,
+      alertFilter,
+      filteredAlerts,
+      settingsDraft,
+      settingsTab,
+      settingsLoading,
+      settingsDirty,
+      dataSources,
+      clearReadAlerts,
+      markAlertRead,
+      saveSettings,
+      renderIcons,
+      // 总览（ViewOverview）
+      fetchedLabel,
+      todayLabel,
+      errorMessage,
+      refreshAll,
+      selectedIndex,
+      indices,
+      marketStatus,
+      loading,
+      indexHistory,
+      breadth,
+      chartSvg,
+      screenRows,
+      filteredRows,
+      presetName,
+      presetHits,
+      strategyStats,
+      riskStats,
+      unreadAlerts,
+      gridStrategies,
+      openGridStrategy,
+      alerts,
+      applyPreset,
+      switchView,
+      selectStock,
+      formatNumber,
+      formatPct,
+      formatNullable,
+      formatPctNullable,
+      trendClass,
+      // 盯盘（ViewMonitor）
+      monitorStatusLabel,
+      hasWatchTargets,
+      monitorEnabled,
+      scanNow,
+      watchlistCodes,
+      monitorNextScan,
+      providerLabel,
+      watchlistQuotes,
+      planFor,
+      signalText,
+      signalClass,
+      toggleWatch,
+      // 选股（ViewScreener）
+      screenerUpdatedLabel,
+      screenerMode,
+      switchScreenerMode,
+      presets,
+      filters,
+      resetFilters,
+      screenTotal,
+      exportResults,
+      presetDescription,
+      screenerAllRows,
+      screenerAllTotal,
+      screenerPage,
+      screenerLoading,
+      screenerSort,
+      screenerSortIcon,
+      screenerPageUp,
+      screenerPageDown,
+      isWatched,
+      // 个股详情（ViewStockDetail）
+      selectedStock,
+      selectedCode,
+      selectedHistory,
+      backFromDetail,
+      createPlan,
+      chartDataSource,
+      formatAmount,
+      // 策略（ViewGrid）
+      strategyType,
+      strategyTypeLabel,
+      STRATEGY_TYPES,
+      switchStrategyType,
+      gridDraft,
+      gridLoading,
+      gridSuggestion,
+      gridResult,
+      gridInstrument,
+      normalizedGridCode,
+      hasGridSuggestion,
+      hasGridResult,
+      gridCandidates,
+      gridProvenance,
+      previewGrid,
+      backtestGrid,
+      optimizeGrid,
+      loadGridStrategy,
+      toggleGridStrategy,
+      deleteGridStrategy,
+      strategyDraft,
+      strategySchema,
+      strategyLoading,
+      strategySuggestion,
+      strategyResult,
+      strategyProvenance,
+      normalizedStrategyCode,
+      strategyInstrument,
+      hasStrategyResult,
+      strategies,
+      loadStrategy,
+      toggleStrategy,
+      deleteStrategy,
+      backtestStrategy,
+      compareChartSvg,
+      formatMoney,
+      // 交易计划（ViewPlans）
+      activePlans,
+      draft,
+      draftDirty,
+      planOptions,
+      planMetrics,
+      savePlan,
+      quoteFor,
+      calculateRr,
+      calculateShares,
+      monitorPlan,
+      archivePlan,
+      refreshAll,
+    });
+
     return {
       navItems,
       presets,
@@ -1592,4 +1738,15 @@ createApp({
       searchSymbol
     };
   }
-}).mount('#app');
+};
+
+// 组件化注册（P3-1 方案 B）
+const app = createApp(appOptions);
+app.component('ViewSettings', ViewSettings);
+app.component('ViewOverview', ViewOverview);
+app.component('ViewMonitor', ViewMonitor);
+app.component('ViewScreener', ViewScreener);
+app.component('ViewStockDetail', ViewStockDetail);
+app.component('ViewGrid', ViewGrid);
+app.component('ViewPlans', ViewPlans);
+app.mount('#app');
