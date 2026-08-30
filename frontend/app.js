@@ -1,6 +1,8 @@
 import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS, STRATEGY_TYPES, STRATEGY_SCHEMAS } from './modules/constants.js';
 import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, formatMoney, formatNullable, formatPctNullable, trendClass, escapeHtml, validityExpiry } from './modules/format.js';
 import { chartSvg, compareChartSvg } from './modules/chart.js';
+import { APP_CTX } from './modules/views/context.js';
+import ViewSettings from './modules/views/ViewSettings.js';
 
 const {
   createApp,
@@ -10,7 +12,8 @@ const {
   watch,
   onMounted,
   onBeforeUnmount,
-  nextTick
+  nextTick,
+  provide
 } = Vue;
 
 function loadStorage() {
@@ -21,7 +24,7 @@ function loadStorage() {
   }
 }
 
-createApp({
+const appOptions = {
   setup() {
     const saved = loadStorage();
     const view = ref(saved.view || 'overview');
@@ -1432,6 +1435,21 @@ createApp({
       toastTimers.forEach((timer) => clearTimeout(timer));
     });
 
+    provide(APP_CTX, {
+      hubTab,
+      alertFilter,
+      filteredAlerts,
+      settingsDraft,
+      settingsTab,
+      settingsLoading,
+      settingsDirty,
+      dataSources,
+      clearReadAlerts,
+      markAlertRead,
+      saveSettings,
+      renderIcons,
+    });
+
     return {
       navItems,
       presets,
@@ -1593,4 +1611,9 @@ createApp({
       searchSymbol
     };
   }
-}).mount('#app');
+};
+
+// 组件化注册（P3-1 方案 B）
+const app = createApp(appOptions);
+app.component('ViewSettings', ViewSettings);
+app.mount('#app');
