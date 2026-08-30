@@ -1,0 +1,4 @@
+node_modules/
+frontend/vendor/
+frontend/dist/
+package-lock.json

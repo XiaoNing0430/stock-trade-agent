@@ -1,4 +1,4 @@
-from backend.grid_strategy import backtest_grid, build_grid, suggest_grid, optimize_grid, buy_and_hold_benchmark
+from backend.grid_strategy import backtest_grid, build_grid, buy_and_hold_benchmark, optimize_grid, suggest_grid
 
 
 def sample_bars():

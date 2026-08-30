@@ -57,11 +57,20 @@ Open <http://127.0.0.1:4173>. API docs at <http://127.0.0.1:4173/docs>.
 ## Testing
 
 ```powershell
+npm run verify                        # full regression: frontend node:test + node --check + backend pytest
+npm run test:frontend                 # frontend unit tests (node:test on tests/frontend/*.test.js)
 python -m pytest tests/ -v            # backend tests (fast + offline via monkeypatch)
-node --check frontend/app.js          # frontend syntax check (no JS test runner exists)
+python -m ruff check backend tests server.py
+python -m ruff format --check backend tests server.py
+python -m mypy backend
+pre-commit run --all-files            # run all pre-commit hooks (ruff / mypy / eslint / prettier / node-check)
 ```
 
-There is **no JS test runner** in this repo. Frontend behavior is verified manually in the browser (`docs/superpowers/specs/...` list the acceptance checks). If you need JS unit tests, that's part of the Phase 4 "frontend engineering" effort — don't invent a test framework without a task.
+Notes:
+
+- On Windows, `node --test` must use the quoted glob form `"tests/frontend/*.test.js"` (already wired up as `npm run test:frontend`); the trailing-slash form (`node --test tests/frontend/`) errors on Windows.
+- Frontend unit tests for the pure helper modules (format / chart / constants) live in `tests/frontend/*.test.js` and run via `node:test` — no external JS test framework is needed. Browser-level behavior beyond these units is still verified manually in the browser (`docs/superpowers/specs/...` list the acceptance checks).
+- Pre-commit hooks (`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `node-check`) run automatically on `git commit`.
 
 ## Key Conventions / Rules
 

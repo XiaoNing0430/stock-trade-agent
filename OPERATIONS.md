@@ -58,7 +58,10 @@ http://127.0.0.1:4173/docs
 ## 本地验证
 
 ```powershell
-node --check frontend/app.js
+npm run verify        # 前端 26 项 node:test + node --check + 后端 75 项 pytest
+python -m ruff check backend tests server.py
+python -m ruff format --check backend tests server.py
+python -m mypy backend
 ```
 
 服务启动后验证接口：

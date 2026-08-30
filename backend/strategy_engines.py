@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from math import floor
-from statistics import mean
 from typing import Any
 
 from backend.grid_strategy import (
     _compute_metrics,
-    _round_trip_returns,
     buy_and_hold_benchmark,
     transaction_fee,
 )
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
 
 def _ema(values: list[float], period: int) -> list[float]:
     """Return EMA of `values` with smoothing factor 2/(period+1)."""
@@ -24,7 +23,7 @@ def _ema(values: list[float], period: int) -> list[float]:
     return result
 
 
-def _ma(values: list[float], period: int) -> list[float]:
+def _ma(values: list[float], period: int) -> list[float | None]:
     """Simple moving average (prefix positions filled with None-equivalent)."""
     if not values or period < 1:
         return []
@@ -37,6 +36,7 @@ def _ma(values: list[float], period: int) -> list[float]:
 
 
 # ── 双均线 ───────────────────────────────────────────────────────────────
+
 
 def backtest_ma_cross(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     """双均线策略：快线上穿慢线买入，下穿卖出。"""
@@ -63,18 +63,13 @@ def backtest_ma_cross(bars: list[dict[str, Any]], config: dict[str, Any]) -> dic
         close = float(bars[i]["close"])
         date = bars[i].get("date", "")
 
-        # skip until both MAs are available
-        if ma_fast[i] is None or ma_slow[i] is None:
-            equity_curve.append(cash + shares * close)
-            continue
-
         prev_fast = ma_fast[i - 1]
         prev_slow = ma_slow[i - 1]
         curr_fast = ma_fast[i]
         curr_slow = ma_slow[i]
 
-        # 慢线刚进入有效区（prev 为 None）时不构成交叉信号
-        if prev_fast is None or prev_slow is None:
+        # 当前或前一根均线缺失（预热区）时不构成交叉信号
+        if curr_fast is None or curr_slow is None or prev_fast is None or prev_slow is None:
             equity_curve.append(cash + shares * close)
             continue
 
@@ -92,7 +87,16 @@ def backtest_ma_cross(bars: list[dict[str, Any]], config: dict[str, Any]) -> dic
                 if lots:
                     cash -= value + fee
                     shares += lots
-                    trades.append({"date": date, "side": "buy", "triggerPrice": None, "price": round(close, 2), "shares": lots, "fee": round(fee, 2)})
+                    trades.append(
+                        {
+                            "date": date,
+                            "side": "buy",
+                            "triggerPrice": None,
+                            "price": round(close, 2),
+                            "shares": lots,
+                            "fee": round(fee, 2),
+                        }
+                    )
                     position = 1
 
         # Death cross: fast crosses below slow
@@ -101,13 +105,21 @@ def backtest_ma_cross(bars: list[dict[str, Any]], config: dict[str, Any]) -> dic
                 value = shares * close
                 fee = transaction_fee("sell", value, fee_bps, security_type, exchange)
                 cash += value - fee
-                trades.append({"date": date, "side": "sell", "triggerPrice": None, "price": round(close, 2), "shares": shares, "fee": round(fee, 2)})
+                trades.append(
+                    {
+                        "date": date,
+                        "side": "sell",
+                        "triggerPrice": None,
+                        "price": round(close, 2),
+                        "shares": shares,
+                        "fee": round(fee, 2),
+                    }
+                )
                 shares = 0
                 position = 0
 
         equity_curve.append(cash + shares * close)
 
-    end_equity = equity_curve[-1]
     normalised = [{"date": b.get("date", ""), "equity": round(eq / capital, 6)} for b, eq in zip(bars, equity_curve)]
     benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
     metrics = _compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange)
@@ -116,14 +128,17 @@ def backtest_ma_cross(bars: list[dict[str, Any]], config: dict[str, Any]) -> dic
         "equityCurve": normalised,
         "benchmarkCurve": benchmark["curve"],
         "metrics": metrics,
-        "assumptions": (f"双均线策略：快线 MA({fast}) 上穿慢线 MA({slow}) 时全仓买入，下穿时全仓卖出。"
-                        "按当日收盘价成交、100 股整数倍、T+1 可卖。"
-                        "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
-                        "结果仅用于研究，不代表未来收益。"),
+        "assumptions": (
+            f"双均线策略：快线 MA({fast}) 上穿慢线 MA({slow}) 时全仓买入，下穿时全仓卖出。"
+            "按当日收盘价成交、100 股整数倍、T+1 可卖。"
+            "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
+            "结果仅用于研究，不代表未来收益。"
+        ),
     }
 
 
 # ── 定投 DCA ─────────────────────────────────────────────────────────────
+
 
 def backtest_dca(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     """定投策略：每 N 个交易日固定金额买入，止盈/止损线全仓卖出。"""
@@ -167,7 +182,16 @@ def backtest_dca(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[str
                     shares += lots
                     position_cost += value + fee
                     pending -= value + fee
-                    trades.append({"date": date, "side": "buy", "triggerPrice": None, "price": round(close, 2), "shares": lots, "fee": round(fee, 2)})
+                    trades.append(
+                        {
+                            "date": date,
+                            "side": "buy",
+                            "triggerPrice": None,
+                            "price": round(close, 2),
+                            "shares": lots,
+                            "fee": round(fee, 2),
+                        }
+                    )
 
         # 基于持仓成本的止盈/止损检查
         if shares > 0 and position_cost > 0:
@@ -177,13 +201,21 @@ def backtest_dca(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[str
                 value = position_value
                 fee = transaction_fee("sell", value, fee_bps, security_type, exchange)
                 cash += value - fee
-                trades.append({"date": date, "side": "sell", "triggerPrice": None, "price": round(close, 2), "shares": shares, "fee": round(fee, 2)})
+                trades.append(
+                    {
+                        "date": date,
+                        "side": "sell",
+                        "triggerPrice": None,
+                        "price": round(close, 2),
+                        "shares": shares,
+                        "fee": round(fee, 2),
+                    }
+                )
                 shares = 0
                 position_cost = 0.0
 
         equity_curve.append(cash + shares * close)
 
-    end_equity = equity_curve[-1]
     normalised = [{"date": b.get("date", ""), "equity": round(eq / capital, 6)} for b, eq in zip(bars, equity_curve)]
     benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
     metrics = _compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange)
@@ -192,15 +224,18 @@ def backtest_dca(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[str
         "equityCurve": normalised,
         "benchmarkCurve": benchmark["curve"],
         "metrics": metrics,
-        "assumptions": (f"定投（DCA）：每 {interval} 个交易日投入 {amount_per:.0f} 元，"
-                        f"止盈 {stop_profit*100:.0f}% / 止损 {stop_loss*100:.0f}%。"
-                        "资金不足一手时滚入下一期。按当日收盘价成交、100 股整数倍。"
-                        "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
-                        "结果仅用于研究，不代表未来收益。"),
+        "assumptions": (
+            f"定投（DCA）：每 {interval} 个交易日投入 {amount_per:.0f} 元，"
+            f"止盈 {stop_profit * 100:.0f}% / 止损 {stop_loss * 100:.0f}%。"
+            "资金不足一手时滚入下一期。按当日收盘价成交、100 股整数倍。"
+            "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
+            "结果仅用于研究，不代表未来收益。"
+        ),
     }
 
 
 # ── MACD ─────────────────────────────────────────────────────────────────
+
 
 def backtest_macd(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     """MACD 策略：DIF 上穿 DEA 买入，下穿卖出。"""
@@ -254,7 +289,16 @@ def backtest_macd(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[st
                 if lots:
                     cash -= value + fee
                     shares += lots
-                    trades.append({"date": date, "side": "buy", "triggerPrice": None, "price": round(close, 2), "shares": lots, "fee": round(fee, 2)})
+                    trades.append(
+                        {
+                            "date": date,
+                            "side": "buy",
+                            "triggerPrice": None,
+                            "price": round(close, 2),
+                            "shares": lots,
+                            "fee": round(fee, 2),
+                        }
+                    )
                     position = 1
 
         # 死叉卖出
@@ -263,13 +307,21 @@ def backtest_macd(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[st
                 value = shares * close
                 fee = transaction_fee("sell", value, fee_bps, security_type, exchange)
                 cash += value - fee
-                trades.append({"date": date, "side": "sell", "triggerPrice": None, "price": round(close, 2), "shares": shares, "fee": round(fee, 2)})
+                trades.append(
+                    {
+                        "date": date,
+                        "side": "sell",
+                        "triggerPrice": None,
+                        "price": round(close, 2),
+                        "shares": shares,
+                        "fee": round(fee, 2),
+                    }
+                )
                 shares = 0
                 position = 0
 
         equity_curve.append(cash + shares * close)
 
-    end_equity = equity_curve[-1]
     normalised = [{"date": b.get("date", ""), "equity": round(eq / capital, 6)} for b, eq in zip(bars, equity_curve)]
     benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
     metrics = _compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange)
@@ -278,11 +330,13 @@ def backtest_macd(bars: list[dict[str, Any]], config: dict[str, Any]) -> dict[st
         "equityCurve": normalised,
         "benchmarkCurve": benchmark["curve"],
         "metrics": metrics,
-        "assumptions": (f"MACD 策略：DIF (EMA{fast}−EMA{slow}) 上穿 DEA({signal}) 时全仓买入，下穿时全仓卖出。"
-                        f"预热期 {warmup} 根 K 线内无交易信号。"
-                        "按当日收盘价成交、100 股整数倍、T+1 可卖。"
-                        "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
-                        "结果仅用于研究，不代表未来收益。"),
+        "assumptions": (
+            f"MACD 策略：DIF (EMA{fast}−EMA{slow}) 上穿 DEA({signal}) 时全仓买入，下穿时全仓卖出。"
+            f"预热期 {warmup} 根 K 线内无交易信号。"
+            "按当日收盘价成交、100 股整数倍、T+1 可卖。"
+            "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
+            "结果仅用于研究，不代表未来收益。"
+        ),
     }
 
 

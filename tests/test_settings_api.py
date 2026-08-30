@@ -1,6 +1,5 @@
-from fastapi.testclient import TestClient
-
 from backend import app as app_module
+from fastapi.testclient import TestClient
 
 
 def test_settings_api_returns_default_data_sources_without_secrets():

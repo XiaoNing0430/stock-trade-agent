@@ -2,5 +2,22 @@
   "name": "atlas-stock-desk",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev:frontend": "vite --port 5173",
+    "dev:backend": "python server.py",
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "test:frontend": "node --test \"tests/frontend/*.test.js\"",
+    "check:frontend": "node --check frontend/app.js",
+    "test:backend": "python -m pytest tests/",
+    "lint": "eslint . && ruff check .",
+    "format": "prettier --write \"frontend/**/*.{js,html,css}\" \"tests/frontend/*.js\" && ruff format backend tests server.py",
+    "verify": "npm run test:frontend && npm run check:frontend && npm run test:backend"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6"
+  }
 }
