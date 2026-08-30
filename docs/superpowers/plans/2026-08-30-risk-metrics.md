@@ -12,7 +12,7 @@
 
 ### Task 1: 分支准备
 
-- [ ] `git flow feature start risk-metrics`
+- [x] `git flow feature start risk-metrics`
 
 ---
 
@@ -20,7 +20,7 @@
 
 **Files:** `backend/grid_strategy.py`, `tests/test_grid_strategy.py`
 
-- [ ] **Step 1: 先写失败测试**
+- [x] **Step 1: 先写失败测试**
 
 `tests/test_grid_strategy.py` 追加：
 
@@ -50,11 +50,11 @@ def test_risk_metrics_round_trip_accuracy():
     assert m["avgGridReturnPct"] > 0
 ```
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 `python -m pytest tests/test_grid_strategy.py -q` → 2 failed。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `backend/grid_strategy.py` 末尾追加两个辅助函数和 `backtest_grid` 内指标计算：
 
@@ -114,7 +114,7 @@ def _max_drawdown_duration(equity_curve: list[float]) -> int:
     metrics["profitFactor"] = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (None if not total_count else float("inf"))
 ```
 
-- [ ] **Step 4: 跑测试确认绿 + 提交**
+- [x] **Step 4: 跑测试确认绿 + 提交**
 
 `python -m pytest tests/test_grid_strategy.py -q` → 全绿；`python -m pytest tests/ -q` → 全量回归。
 
@@ -129,7 +129,7 @@ git commit -m "feat: 网格回测追加胜率、最长回撤、单格收益与�
 
 **Files:** `frontend/index.html`
 
-- [ ] **Step 1: index.html 追加三项指标**
+- [x] **Step 1: index.html 追加三项指标**
 
 `grid-metrics-secondary` 行（`gridResult.metrics.turnoverMultiple` 之后）追加：
 
@@ -139,7 +139,7 @@ git commit -m "feat: 网格回测追加胜率、最长回撤、单格收益与�
 <div><span>单格收益</span><strong>{{ gridResult.metrics.avgGridReturnPct != null ? gridResult.metrics.avgGridReturnPct.toFixed(2) + '%' : '--' }}</strong></div>
 ```
 
-- [ ] **Step 2: 验证 + 提交**
+- [x] **Step 2: 验证 + 提交**
 
 `node --check frontend/app.js` → 通过（index.html 不含 JS 需要检查，但此项只改模板，无语法检查必要）。
 
@@ -152,16 +152,16 @@ git commit -m "feat: 指标展示追加胜率、最长回撤与单格收益"
 
 ### Task 4: 回归、验证与收尾
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 `python -m pytest tests/ -q` + `node --check frontend/app.js` → 全绿。
 
-- [ ] **Step 2: 浏览器手动验证**
+- [x] **Step 2: 浏览器手动验证**
 
 - 跑一次网格回测 → 指标卡出现「胜率」「最长回撤」「单格收益」数值合理
 - 空数据场景不报错（如无完整 round trip 时显示 `--`）
 
-- [ ] **Step 3: 完成分支**
+- [x] **Step 3: 完成分支**
 
 ```bash
 git flow feature finish risk-metrics

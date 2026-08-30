@@ -12,7 +12,7 @@
 
 ### Task 1: 分支准备
 
-- [ ] `git flow feature start marketbar-local-read`
+- [x] `git flow feature start marketbar-local-read`
 
 ---
 
@@ -20,7 +20,7 @@
 
 **Files:** `backend/storage.py`, `backend/app.py`, `tests/test_backend_api.py`
 
-- [ ] **Step 1: 先写失败测试**
+- [x] **Step 1: 先写失败测试**
 
 `tests/test_backend_api.py` 追加：
 
@@ -76,11 +76,11 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     assert response.status_code == 502
 ```
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 `python -m pytest tests/test_backend_api.py -q`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `backend/storage.py` 追加：
 
@@ -149,7 +149,7 @@ def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -
 
 `/api/grid/backtest` 同理。
 
-- [ ] **Step 4: 跑测试确认绿 + 提交**
+- [x] **Step 4: 跑测试确认绿 + 提交**
 
 `python -m pytest tests/ -q` → 全绿。
 
@@ -164,7 +164,7 @@ git commit -m "feat: 上游失败时走势图与回测降级读本地缓存库"
 
 **Files:** `frontend/app.js`, `frontend/index.html`
 
-- [ ] **Step 1: app.js 状态与 fetchHistory**
+- [x] **Step 1: app.js 状态与 fetchHistory**
 
 `dataState` 附近加 `const chartDataSource = ref('live');`；return 导出。
 
@@ -186,7 +186,7 @@ git commit -m "feat: 上游失败时走势图与回测降级读本地缓存库"
     }
 ```
 
-- [ ] **Step 2: gridProvenance 来源动态**
+- [x] **Step 2: gridProvenance 来源动态**
 
 `gridProvenance` computed 中 `来源 ${providerLabel.value}` 改为：
 
@@ -195,7 +195,7 @@ git commit -m "feat: 上游失败时走势图与回测降级读本地缓存库"
         `来源 ${src}`,
 ```
 
-- [ ] **Step 3: index.html 走势图来源标签**
+- [x] **Step 3: index.html 走势图来源标签**
 
 走势图 `view-panel` 内（`selectedCode` 附近）加来源标签（`v-if="selectedCode"` 区域内）：
 
@@ -211,7 +211,7 @@ git commit -m "feat: 上游失败时走势图与回测降级读本地缓存库"
 .source-badge-local { background: var(--gold-soft); color: var(--gold); }
 ```
 
-- [ ] **Step 4: 版本号 + 验证 + 提交**
+- [x] **Step 4: 版本号 + 验证 + 提交**
 
 `index.html` app.js `?v=20260829-6` → `?v=20260830-2`。`node --check`。
 
@@ -224,17 +224,17 @@ git commit -m "feat: 前端消费本地缓存数据源标记并显示来源标�
 
 ### Task 4: 回归、手动验证与收尾
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 `python -m pytest tests/ -q` + `node --check frontend/app.js` → 全绿。
 
-- [ ] **Step 2: 浏览器验证**
+- [x] **Step 2: 浏览器验证**
 
 - 断网 → 刷新走势图某只之前回测过的股票 → 走势图显示"本地缓存"角标；回测 provenance 行显示"来源 本地缓存"
 - 联网 → 走势图显示"实时·腾讯"
 - 新股票（无本地数据）断网 → 正常报错
 
-- [ ] **Step 3: 完成分支**
+- [x] **Step 3: 完成分支**
 
 ```bash
 git flow feature finish marketbar-local-read

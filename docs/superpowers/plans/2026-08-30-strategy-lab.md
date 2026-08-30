@@ -33,13 +33,13 @@
 - Produces: `STRATEGY_ENGINES` 注册表
 - Consumes: `transaction_fee`, `buy_and_hold_benchmark`, `_round_trip_returns`, `_max_drawdown_duration`（均已在 grid_strategy.py）
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
 ```bash
 git flow feature start strategy-engine-core
 ```
 
-- [ ] **Step 2: 抽取 compute_metrics**
+- [x] **Step 2: 抽取 compute_metrics**
 
 `backend/grid_strategy.py` 中 `backtest_grid` 第 190-239 行指标计算逻辑（`metrics = {...}`, `round_trip_returns`, `max_drawdown_duration` 调用）抽取为：
 
@@ -52,11 +52,11 @@ def compute_metrics(bars: list[dict], trades: list[dict], equity_curve: list[flo
     return metrics
 ```
 
-- [ ] **Step 3: 更新 backtest_grid 调用 compute_metrics**
+- [x] **Step 3: 更新 backtest_grid 调用 compute_metrics**
 
 `backtest_grid` 中 `metrics = {...}` 块改为 `metrics = compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange)`。
 
-- [ ] **Step 4: 写失败测试**
+- [x] **Step 4: 写失败测试**
 
 `tests/test_strategy_engines.py`（新建）：
 
@@ -100,7 +100,7 @@ def test_macd_returns_expected_shape():
     assert "metrics" in result
 ```
 
-- [ ] **Step 5: 实现三引擎**
+- [x] **Step 5: 实现三引擎**
 
 `backend/strategy_engines.py`：
 
@@ -127,7 +127,7 @@ STRATEGY_ENGINES = {
 }
 ```
 
-- [ ] **Step 6: 全量回归 + 提交**
+- [x] **Step 6: 全量回归 + 提交**
 
 ```bash
 python -m pytest tests/ -q
@@ -155,25 +155,25 @@ git flow feature finish strategy-engine-core
 - Produces: `/api/strategy/*` 端点
 - Produces: 泛化调度器（`run_scheduled_strategy`）
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
 ```bash
 git flow feature start strategy-storage-api
 ```
 
-- [ ] **Step 2: 实现存储**
+- [x] **Step 2: 实现存储**
 
 `backend/storage.py` 追加 `Strategy` 表与辅助函数。
 
-- [ ] **Step 3: 实现通用 API 端点**
+- [x] **Step 3: 实现通用 API 端点**
 
 `backend/app.py` 追加 `/api/strategy/*` 端点。
 
-- [ ] **Step 4: 通用调度**
+- [x] **Step 4: 通用调度**
 
 `backend/grid_scheduler.py` 泛化 `run_scheduled_backtest` → `run_scheduled_strategy`。
 
-- [ ] **Step 5: 测试 + 提交**
+- [x] **Step 5: 测试 + 提交**
 
 ```bash
 python -m pytest tests/ -q
@@ -198,7 +198,7 @@ git flow feature finish strategy-storage-api
 - Consumes: `/api/grid/*`（网格类型）、`/api/strategy/*`（新类型）
 - Produces: `strategyType` ref、`backtestStrategy()`、`previewStrategy()`、`saveStrategy()`、`loadStrategies()`、`strategyTypeSchema()` 等
 
-- [ ] **Step 1: 建分支 + 逐步实现 + 提交 + 合并**
+- [x] **Step 1: 建分支 + 逐步实现 + 提交 + 合并**
 
 ```bash
 git flow feature start strategy-lab-ui
@@ -211,11 +211,11 @@ git flow feature finish strategy-lab-ui
 
 ## 验收
 
-- [ ] nav「策略」tab 存在，点击进入策略实验室
-- [ ] 4 个策略类型 tabs 可切换，网格类型全部功能正常
-- [ ] 双均线回测结果展示权益曲线 + 指标卡
-- [ ] DCA / MACD 回测结果正常
-- [ ] 保存/载入/暂停/删除新策略
-- [ ] 每日调度对新策略生效
-- [ ] 断网降级到本地缓存（来源角标显示<本地缓存>）
-- [ ] 全量回归 49+ 项全绿
+- [x] nav「策略」tab 存在，点击进入策略实验室
+- [x] 4 个策略类型 tabs 可切换，网格类型全部功能正常
+- [x] 双均线回测结果展示权益曲线 + 指标卡
+- [x] DCA / MACD 回测结果正常
+- [x] 保存/载入/暂停/删除新策略
+- [x] 每日调度对新策略生效
+- [x] 断网降级到本地缓存（来源角标显示<本地缓存>）
+- [x] 全量回归 49+ 项全绿

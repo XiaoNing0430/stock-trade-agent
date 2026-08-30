@@ -28,13 +28,13 @@
 - 新增：`openGridStrategy(code?: string): Promise<void>`，转入网格页并按需生成建议。
 - 新增：`gridAction` 计算属性，返回 `{ label, icon, action }` 以供页面选择主操作。
 
-- [ ] **步骤 1：记录当前语法检查基线**
+- [x] **步骤 1：记录当前语法检查基线**
 
 运行：`node --check frontend/app.js`
 
 预期：当前脚本语法有效。
 
-- [ ] **步骤 2：编写最小状态辅助函数**
+- [x] **步骤 2：编写最小状态辅助函数**
 
 在 `setup()` 内新增：
 
@@ -46,15 +46,15 @@ const hasGridResult = computed(() => Boolean(gridResult.value));
 
 并让 `openGridStrategy` 将传入的合法六位代码同步到 `selectedCode` 和 `gridDraft.code`，清空旧结果后调用 `previewGrid()`。
 
-- [ ] **步骤 3：在进入网格页时自动预览一次**
+- [x] **步骤 3：在进入网格页时自动预览一次**
 
 在 `switchView` 中处理 `nextView === 'grid'`：当代码为六位数字、当前未计算且未在加载时调用 `previewGrid()`；其他视图维持当前行为。
 
-- [ ] **步骤 4：暴露页面需要的状态和动作**
+- [x] **步骤 4：暴露页面需要的状态和动作**
 
 在 `return` 对象中暴露 `normalizedGridCode`、`hasGridSuggestion`、`hasGridResult` 和 `openGridStrategy`。
 
-- [ ] **步骤 5：验证脚本语法**
+- [x] **步骤 5：验证脚本语法**
 
 运行：`node --check frontend/app.js`
 
@@ -71,7 +71,7 @@ const hasGridResult = computed(() => Boolean(gridResult.value));
 - 使用：任务 1 产出的 `openGridStrategy`、`hasGridSuggestion`、`hasGridResult`。
 - 产出：总览和股票详情的网格策略入口；网格页的识别信息、三步进度和上下文主按钮。
 
-- [ ] **步骤 1：补充总览和选中股票的入口**
+- [x] **步骤 1：补充总览和选中股票的入口**
 
 新增两个按钮，分别调用：
 
@@ -80,19 +80,19 @@ const hasGridResult = computed(() => Boolean(gridResult.value));
 <button type="button" class="button button-secondary" @click="openGridStrategy(selectedCode)">网格策略</button>
 ```
 
-- [ ] **步骤 2：将网格页首要操作改为状态驱动**
+- [x] **步骤 2：将网格页首要操作改为状态驱动**
 
 未生成建议时显示“生成策略建议”；已有建议无结果时显示“开始回测”；已有结果时显示“保存策略”。保存按钮仅在有回测结果时启用。
 
-- [ ] **步骤 3：补充标的识别和下一步提示**
+- [x] **步骤 3：补充标的识别和下一步提示**
 
 在代码输入框下显示当前代码、名称、交易所和参考价格；在无结果面板中显示“生成策略建议”按钮，而不是只显示说明文字。
 
-- [ ] **步骤 4：补齐紧凑样式**
+- [x] **步骤 4：补齐紧凑样式**
 
 添加不嵌套卡片的步骤提示与标的识别信息样式；在 `max-width: 680px` 下将操作按钮和识别信息改为纵向流式布局。
 
-- [ ] **步骤 5：浏览器验证桌面流程**
+- [x] **步骤 5：浏览器验证桌面流程**
 
 在 `http://127.0.0.1:4173/` 输入 `588000` 并进入网格策略，确认显示“科创50ETF华夏”及建议；执行回测后确认主操作变为保存。
 
@@ -108,15 +108,15 @@ const hasGridResult = computed(() => Boolean(gridResult.value));
 - 使用：现有 `dataState`、`marketStatus`、`dataStatusText`。
 - 产出：真实报价到达前不误报实时连接的状态展示。
 
-- [ ] **步骤 1：收紧实时状态判断**
+- [x] **步骤 1：收紧实时状态判断**
 
 只有 `dataState === 'live'` 且 `market.quotes.length > 0` 时显示“已连接”和“实时数据已同步”；否则显示对应的连接中、缓存或断开文案。
 
-- [ ] **步骤 2：改善指数空状态**
+- [x] **步骤 2：改善指数空状态**
 
 加载时保持“正在读取指数”；加载结束但无数据时显示“暂未获得指数报价”与“刷新行情”按钮。
 
-- [ ] **步骤 3：执行自动化检查**
+- [x] **步骤 3：执行自动化检查**
 
 运行：
 
@@ -127,11 +127,11 @@ pytest tests/test_grid_strategy.py -q
 
 预期：两条命令均以退出码 0 完成。
 
-- [ ] **步骤 4：执行浏览器回归检查**
+- [x] **步骤 4：执行浏览器回归检查**
 
 使用 1280px 和 390px 视口检查：图标为 SVG、无页面横向溢出、网格策略页面可滚动且操作按钮可见。
 
-- [ ] **步骤 5：提交实现**
+- [x] **步骤 5：提交实现**
 
 ```bash
 git add frontend/app.js frontend/index.html frontend/styles.css docs/superpowers/plans/2026-08-09-user-journey-ux.md

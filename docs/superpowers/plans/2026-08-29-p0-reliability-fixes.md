@@ -30,7 +30,7 @@
 - Consumes: 无
 - Produces: 干净的 `feature/p0-reliability-fixes` 分支（off `develop`）；已删除的 `.worktrees/unified-trading-desk` 与 `feature/unified-trading-desk`
 
-- [ ] **Step 1: 删除废弃 worktree 与分支（用户已在头脑风暴中明确批准放弃该分支）**
+- [x] **Step 1: 删除废弃 worktree 与分支（用户已在头脑风暴中明确批准放弃该分支）**
 
 ```bash
 git worktree remove --force .worktrees/unified-trading-desk
@@ -39,7 +39,7 @@ git branch -D feature/unified-trading-desk
 
 Expected: worktree 目录消失；`git branch -a` 中不再出现 `feature/unified-trading-desk`。若 git 命令报 `Access is denied`，重试一次；仍失败则报告用户手动执行。
 
-- [ ] **Step 2: 开启 Git Flow feature 分支**
+- [x] **Step 2: 开启 Git Flow feature 分支**
 
 ```bash
 git flow feature start p0-reliability-fixes
@@ -59,7 +59,7 @@ Expected: 输出显示基于 `develop` 创建并切换到 `feature/p0-reliabilit
 - Consumes: `data_source.load_screener(market: str, page_size: int) -> dict`、`data_source.load_quotes(codes: list[str]) -> list[dict]`（测试中 monkeypatch 后者）
 - Produces: 排序语义——有涨跌幅者在前按 `change` 降序（0.0 正确参与比较），无涨跌幅者殿后
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/test_backend_api.py` 末尾追加：
 
@@ -78,12 +78,12 @@ def test_screener_sorts_zero_change_above_negative(monkeypatch):
     assert [row["change"] for row in payload["rows"]] == [2.0, 0.0, -1.0, None]
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/test_backend_api.py::test_screener_sorts_zero_change_above_negative -v`
 Expected: FAIL——实际顺序为 `[2.0, -1.0, 0.0, None]`（`0.0` 因 `or -999` 被当负值）。
 
-- [ ] **Step 3: 修复排序键**
+- [x] **Step 3: 修复排序键**
 
 在 `backend/data_source.py` 中找到（`load_screener` 内，约 300 行）：
 
@@ -97,12 +97,12 @@ Expected: FAIL——实际顺序为 `[2.0, -1.0, 0.0, None]`（`0.0` 因 `or -99
     rows.sort(key=lambda row: (row["change"] is not None, row["change"] if row["change"] is not None else -999), reverse=True)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `python -m pytest tests/test_backend_api.py::test_screener_sorts_zero_change_above_negative -v`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add backend/data_source.py tests/test_backend_api.py
@@ -121,7 +121,7 @@ git commit -m "fix: 修复选股器涨跌幅为零时排序错误"
 - Consumes: `backtest_grid(bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct) -> dict`（既有签名不变）
 - Produces: `metrics` 新增 `onePriceLimitUpDays: int`、`onePriceLimitDownDays: int`；`assumptions` 字符串追加一字板披露句；停牌判定收窄为 `volume <= 0`（Task 4/8 无依赖，可并行）
 
-- [ ] **Step 1: 写三个失败测试**
+- [x] **Step 1: 写三个失败测试**
 
 在 `tests/test_grid_strategy.py` 末尾追加（若文件已有同名辅助函数则复用，勿重复定义）：
 
@@ -185,12 +185,12 @@ def test_zero_volume_day_is_still_suspension():
 
 语义注记（测试构造依据）：一字涨停日 `low(11) >= prev(10)×1.1 - 0.005` 满足既有 `limit_up` 判定，买入被既有规则清空，修复点仅是这一天不再整日跳过，于是初始持仓在网格位 11 上成交卖出（执行价 `max(low=11, 11×(1-滑点)) = 11.0`）；一字跌停日对称。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/test_grid_strategy.py -k one_price or -k zero_volume -v`
 Expected: FAIL——`KeyError: 'onePriceLimitUpDays'`（新计数器尚不存在）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 3a. 在 `backtest_grid` 中找到计数器初始化（约 111-113 行）：
 
@@ -282,17 +282,17 @@ Expected: FAIL——`KeyError: 'onePriceLimitUpDays'`（新计数器尚不存在
                         "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"),
 ```
 
-- [ ] **Step 4: 运行新测试确认通过**
+- [x] **Step 4: 运行新测试确认通过**
 
 Run: `python -m pytest tests/test_grid_strategy.py -k one_price or -k zero_volume -v`
 Expected: 3 个测试全部 PASS
 
-- [ ] **Step 5: 全量回归**
+- [x] **Step 5: 全量回归**
 
 Run: `python -m pytest tests/ -q`
 Expected: 全部 PASS（既有 T+1/费用/滑点/涨跌停用例不受影响）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add backend/grid_strategy.py tests/test_grid_strategy.py
@@ -316,7 +316,7 @@ git commit -m "fix: 网格回测区分一字板与停牌并新增计数指标"
   - `PUT /api/workspace?baseRevision=<int>&force=<bool>`：`baseRevision` 与当前不符且未 `force` → 409，响应体 `{"detail": {"error": str, "revision": int, "workspace": dict}}`；成功响应含自增后的 `revision`
   - Task 6（前端）依赖以上契约
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/test_backend_api.py` 末尾追加。注意：路由代码尚未引用新函数，前两条用 `raising=False` 允许 monkeypatch 尚不存在的属性。
 
@@ -409,12 +409,12 @@ def test_workspace_put_with_force_overrides_stale_revision(monkeypatch):
     assert response.json()["revision"] == 8
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m pytest tests/test_backend_api.py -k workspace_put or -k workspace_get -v`
 Expected: 至少 `test_workspace_get_includes_revision` FAIL（响应无 `revision` 键）；PUT 系列因路由未处理 `baseRevision` 而失败或 503。
 
-- [ ] **Step 3: 实现 storage.py**
+- [x] **Step 3: 实现 storage.py**
 
 3a. 在 `WorkspaceSettings` 模型类之后追加新模型：
 
@@ -476,7 +476,7 @@ def _bump_workspace_revision(session, workspace_id: str) -> None:
 
 （函数末尾 `return get_workspace(workspace_id)` 不变，其返回值现在自然携带自增后的 `revision`。）
 
-- [ ] **Step 4: 修改 app.py 路由**
+- [x] **Step 4: 修改 app.py 路由**
 
 4a. 顶部 `from backend.storage import (...)` 中追加导入 `get_workspace_revision`（字母序放在 `get_workspace_settings` 与 `get_grid_strategy` 之间即可）。
 
@@ -515,17 +515,17 @@ def _bump_workspace_revision(session, workspace_id: str) -> None:
             raise HTTPException(status_code=503, detail={"error": f"持久化存储不可用: {exc}"}) from exc
 ```
 
-- [ ] **Step 5: 运行新测试确认通过**
+- [x] **Step 5: 运行新测试确认通过**
 
 Run: `python -m pytest tests/test_backend_api.py -k workspace_put or -k workspace_get -v`
 Expected: 4 个测试全部 PASS
 
-- [ ] **Step 6: 全量回归**
+- [x] **Step 6: 全量回归**
 
 Run: `python -m pytest tests/ -q`
 Expected: 全部 PASS
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add backend/storage.py backend/app.py tests/test_backend_api.py
@@ -543,7 +543,7 @@ git commit -m "feat: workspace 同步增加版本乐观锁与 409 冲突契约"
 - Consumes: 无
 - Produces: `refreshAll(options)` 在已有一次运行进行中时跳过 `silent` 调用（定时轮询路径）；用户主动调用（`options.silent` 非真）不受阻塞。本仓库无 JS 测试运行器，验证方式为 `node --check` + 手动验证
 
-- [ ] **Step 1: 修改 `refreshAll`**
+- [x] **Step 1: 修改 `refreshAll`**
 
 在 `setup()` 内（`async function refreshAll` 之前）加一行模块级状态（与 `let workspaceSyncInFlight = false;` 等既有写法一致）：
 
@@ -599,16 +599,16 @@ git commit -m "feat: workspace 同步增加版本乐观锁与 409 冲突契约"
 
 （注：按规格约定，守卫只跳过 `silent` 调用；用户主动刷新始终执行，两次用户刷新极端情况下可能短暂并发，属可接受行为。）
 
-- [ ] **Step 2: 语法检查**
+- [x] **Step 2: 语法检查**
 
 Run: `node --check frontend/app.js`
 Expected: 无输出（语法通过）
 
-- [ ] **Step 3: 手动验证**
+- [x] **Step 3: 手动验证**
 
 浏览器打开 <http://127.0.0.1:4173>，设置刷新间隔为 5 秒并保存；DevTools Network 面板确认 `/api/market`、`/api/screener` 请求不重叠（上一个完成后才发起下一个）。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add frontend/app.js
@@ -628,7 +628,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
 - Consumes: Task 4 的 API 契约——GET/PUT 响应含 `revision`；409 响应体 `payload.detail = {error, revision, workspace}`；`force=true` 查询参数
 - Produces: `workspaceRevision`（当前已知版本号，持久化到 localStorage）、`conflictVisible`、`adoptServerWorkspace()`、`forceSaveWorkspace()`（index.html 横幅绑定这三个名字）
 
-- [ ] **Step 1: `requestJson` 保留状态码与响应体**
+- [x] **Step 1: `requestJson` 保留状态码与响应体**
 
 将（约 248-259 行）：
 
@@ -667,7 +667,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
     }
 ```
 
-- [ ] **Step 2: 新增状态**
+- [x] **Step 2: 新增状态**
 
 在 `const workspaceSynced = ref(false);`（约 50 行）之后追加：
 
@@ -677,7 +677,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
     const conflictSnapshot = ref(null);
 ```
 
-- [ ] **Step 3: `persist` 记录版本号**
+- [x] **Step 3: `persist` 记录版本号**
 
 在 `persist()` 的 `localStorage.setItem(STORAGE_KEY, JSON.stringify({ ... }))` 对象中、`monitorEnabled: monitorEnabled.value,` 之后加一行：
 
@@ -685,7 +685,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
           workspaceRevision: workspaceRevision.value,
 ```
 
-- [ ] **Step 4: `loadWorkspace` 记录服务器版本**
+- [x] **Step 4: `loadWorkspace` 记录服务器版本**
 
 将 `loadWorkspace` 中（约 300-313 行）：
 
@@ -702,7 +702,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
         const hasRemoteData = (remote.watchlist || []).length || (remote.plans || []).length || (remote.alerts || []).length;
 ```
 
-- [ ] **Step 5: `scheduleWorkspaceSync` 携带版本并处理 409**
+- [x] **Step 5: `scheduleWorkspaceSync` 携带版本并处理 409**
 
 将其中 `await requestJson('/api/workspace', {...})` 一段（约 283-296 行）：
 
@@ -733,7 +733,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
         } finally {
 ```
 
-- [ ] **Step 6: 新增冲突处理函数**
+- [x] **Step 6: 新增冲突处理函数**
 
 在 `scheduleWorkspaceSync` 函数之后追加：
 
@@ -772,7 +772,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
     }
 ```
 
-- [ ] **Step 7: 导出新绑定**
+- [x] **Step 7: 导出新绑定**
 
 在 `setup()` 的 `return { ... }` 导出对象中、`monitorEnabled,`（约 997 行）之后追加三行（index.html 横幅通过 `v-if` 与 `@click` 绑定这三个名字，缺一即运行时报错）：
 
@@ -782,7 +782,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
       forceSaveWorkspace,
 ```
 
-- [ ] **Step 8: index.html 插入横幅**
+- [x] **Step 8: index.html 插入横幅**
 
 在第 14 行 `<div id="app" v-cloak class="app-shell">` 之后（`<aside class="sidebar">` 之前）插入：
 
@@ -796,7 +796,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
     </div>
 ```
 
-- [ ] **Step 9: styles.css 追加横幅样式**
+- [x] **Step 9: styles.css 追加横幅样式**
 
 文件末尾追加（使用显式色值，不引入新的设计令牌）：
 
@@ -822,7 +822,7 @@ git commit -m "fix: 恢复 refreshAll 轮询并发守卫"
 .conflict-banner svg { color: #ef6d53; }
 ```
 
-- [ ] **Step 10: 语法检查与手动验证**
+- [x] **Step 10: 语法检查与手动验证**
 
 Run: `node --check frontend/app.js`
 Expected: 无输出（语法通过）
@@ -836,7 +836,7 @@ Expected: 无输出（语法通过）
 6. 重复 2-4 后改点"用本地覆盖"→ B 的自选生效于服务器，A 刷新后与 B 一致；
 7. 点击"忽略"→ 横幅关闭且不发起任何写入。
 
-- [ ] **Step 11: 提交**
+- [x] **Step 11: 提交**
 
 ```bash
 git add frontend/app.js frontend/index.html frontend/styles.css
@@ -854,7 +854,7 @@ git commit -m "feat: 工作区同步接入乐观锁与冲突提示横幅"
 - Consumes: 无
 - Produces: 与实际行为一致的文案（计划已双写本地与 PostgreSQL）
 
-- [ ] **Step 1: 修改文案**
+- [x] **Step 1: 修改文案**
 
 将：
 
@@ -868,12 +868,12 @@ git commit -m "feat: 工作区同步接入乐观锁与冲突提示横幅"
 <span class="form-footnote"><i data-lucide="cloud-check" aria-hidden="true"></i>计划保存在本地浏览器与服务器，换设备打开自动同步</span>
 ```
 
-- [ ] **Step 2: 验证**
+- [x] **Step 2: 验证**
 
 Run: 搜索确认旧文案不存在、新文案存在：`Select-String -Path frontend\index.html -Pattern "计划保存在本地浏览器与服务器"`
 Expected: 命中 1 处；手动浏览器检查 plans 页脚显示正常、图标渲染（`cloud-check` 是 lucide 有效图标名；若渲染为空白则改用 `cloud`）。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add frontend/index.html
@@ -892,7 +892,7 @@ git commit -m "fix: 修正交易计划保存位置文案"
 - Consumes: Task 3-6 的最终行为
 - Produces: 文档与实现一致；feature 分支合入 develop
 
-- [ ] **Step 1: AGENTS.md 追加约定**
+- [x] **Step 1: AGENTS.md 追加约定**
 
 在 Key Conventions / Rules 列表中、`- **Frontend polling** ...` 一条之后追加：
 
@@ -901,19 +901,19 @@ git commit -m "fix: 修正交易计划保存位置文案"
 - **Grid backtest day classification:** suspension = `volume <= 0` only. A one-price day (`high == low`, volume > 0) at limit-up is tradeable for sells only; at limit-down, buys only. Counters: `onePriceLimitUpDays` / `onePriceLimitDownDays` (new metrics fields, additive).
 ```
 
-- [ ] **Step 2: 全量回归**
+- [x] **Step 2: 全量回归**
 
 Run: `python -m pytest tests/ -v` 与 `node --check frontend/app.js`
 Expected: 全部 PASS / 语法通过
 
-- [ ] **Step 3: 提交文档**
+- [x] **Step 3: 提交文档**
 
 ```bash
 git add AGENTS.md
 git commit -m "docs: 补记 workspace 乐观锁与一字板语义约定"
 ```
 
-- [ ] **Step 4: 完成 feature 分支**
+- [x] **Step 4: 完成 feature 分支**
 
 ```bash
 git flow feature finish p0-reliability-fixes
