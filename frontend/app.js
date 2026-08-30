@@ -1520,9 +1520,11 @@ const appOptions = {
       // 个股详情（ViewStockDetail）
       selectedStock,
       selectedCode,
+      selectedHistory,
       backFromDetail,
       createPlan,
       chartDataSource,
+      formatAmount,
       // 策略（ViewGrid）
       strategyType,
       strategyTypeLabel,
