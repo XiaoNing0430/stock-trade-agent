@@ -3,6 +3,8 @@ import { formatNumber, formatPct, formatTime, formatDateLabel, formatAmount, for
 import { chartSvg, compareChartSvg } from './modules/chart.js';
 import { APP_CTX } from './modules/views/context.js';
 import ViewSettings from './modules/views/ViewSettings.js';
+import ViewOverview from './modules/views/ViewOverview.js';
+import ViewMonitor from './modules/views/ViewMonitor.js';
 
 const {
   createApp,
@@ -1436,6 +1438,7 @@ const appOptions = {
     });
 
     provide(APP_CTX, {
+      // 个人中心（ViewSettings）
       hubTab,
       alertFilter,
       filteredAlerts,
@@ -1448,6 +1451,49 @@ const appOptions = {
       markAlertRead,
       saveSettings,
       renderIcons,
+      // 总览（ViewOverview）
+      fetchedLabel,
+      todayLabel,
+      errorMessage,
+      refreshAll,
+      selectedIndex,
+      indices,
+      marketStatus,
+      loading,
+      indexHistory,
+      breadth,
+      chartSvg,
+      screenRows,
+      filteredRows,
+      presetName,
+      presetHits,
+      strategyStats,
+      riskStats,
+      unreadAlerts,
+      gridStrategies,
+      openGridStrategy,
+      alerts,
+      applyPreset,
+      switchView,
+      selectStock,
+      formatNumber,
+      formatPct,
+      formatNullable,
+      formatPctNullable,
+      trendClass,
+      // 盯盘（ViewMonitor）
+      monitorStatusLabel,
+      hasWatchTargets,
+      monitorEnabled,
+      scanNow,
+      watchlistCodes,
+      monitorNextScan,
+      providerLabel,
+      watchlistQuotes,
+      planFor,
+      signalText,
+      signalClass,
+      toggleWatch,
     });
 
     return {
@@ -1616,4 +1662,6 @@ const appOptions = {
 // 组件化注册（P3-1 方案 B）
 const app = createApp(appOptions);
 app.component('ViewSettings', ViewSettings);
+app.component('ViewOverview', ViewOverview);
+app.component('ViewMonitor', ViewMonitor);
 app.mount('#app');
