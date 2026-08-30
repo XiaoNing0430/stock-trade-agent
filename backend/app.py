@@ -63,6 +63,7 @@ def api_error(status_code: int, code: str, message: str, **extras) -> HTTPExcept
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
+DIST_DIR = FRONTEND_DIR / "dist"
 
 
 def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None]:
@@ -103,7 +104,10 @@ def create_app() -> FastAPI:
         stop_scheduler()
 
     app = FastAPI(title="Atlas Stock Trade Agent", lifespan=lifespan)
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
+    # 双轨托管：优先服务构建产物 frontend/dist（Vite），无 dist 时回退源码目录。
+    # Vite 产物把静态资源放在 dist/assets/ 下，挂载目录按实际布局选择。
+    assets_dir = DIST_DIR / "assets" if DIST_DIR.exists() else FRONTEND_DIR
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     @app.middleware("http")
     async def stale_header_middleware(request: Request, call_next):
@@ -540,7 +544,8 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     def index():
-        return FileResponse(FRONTEND_DIR / "index.html")
+        index_file = DIST_DIR / "index.html" if DIST_DIR.exists() else FRONTEND_DIR / "index.html"
+        return FileResponse(index_file)
 
     return app
 

@@ -1,13 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import {
-  PRESETS,
-  NAV_ITEMS,
-  VIEW_META,
-  SETTINGS_TABS,
-  STRATEGY_TYPES,
-  STRATEGY_SCHEMAS,
-} from '../../frontend/modules/constants.js';
+import { PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS, STRATEGY_TYPES, STRATEGY_SCHEMAS } from '@/modules/constants';
 
 test('PRESETS 结构完整且 id 唯一', () => {
   assert.equal(PRESETS.length, 3);

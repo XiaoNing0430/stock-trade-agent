@@ -1,5 +1,5 @@
 // Pure formatting, escaping and time helpers. No dependencies, no Vue.
-export function formatNumber(value, digits = 2) {
+export function formatNumber(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
   return Number(value).toLocaleString('zh-CN', {
     minimumFractionDigits: digits,
@@ -7,12 +7,12 @@ export function formatNumber(value, digits = 2) {
   });
 }
 
-export function formatPct(value) {
+export function formatPct(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
   return `${value >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`;
 }
 
-export function formatTime(timestamp) {
+export function formatTime(timestamp: number | null | undefined) {
   if (!timestamp) return '--:--:--';
   return new Date(timestamp).toLocaleTimeString('zh-CN', {
     hour: '2-digit',
@@ -21,12 +21,12 @@ export function formatTime(timestamp) {
   });
 }
 
-export function formatDateLabel(timestamp) {
+export function formatDateLabel(timestamp: number | null | undefined) {
   if (!timestamp) return '尚未更新';
   return `更新于 ${formatTime(timestamp)}`;
 }
 
-export function formatAmount(value) {
+export function formatAmount(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
   const amount = Number(value);
   if (amount >= 100000000) return `${(amount / 100000000).toFixed(2)} 亿`;
@@ -34,39 +34,41 @@ export function formatAmount(value) {
   return `${Math.round(amount).toLocaleString()} 元`;
 }
 
-export function formatMoney(value) {
+export function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '¥0';
   return `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`;
 }
 
-export function formatNullable(value, digits = 2) {
+export function formatNullable(value: number | null | undefined, digits = 2) {
   return formatNumber(value, digits);
 }
 
-export function formatPctNullable(value) {
+export function formatPctNullable(value: number | null | undefined) {
   return formatPct(value);
 }
 
-export function trendClass(value) {
+export function trendClass(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return 'trend-flat';
   return Number(value) >= 0 ? 'trend-up' : 'trend-down';
 }
 
-export function escapeHtml(value) {
+export function escapeHtml(value: unknown) {
   return String(value ?? '').replace(
     /[&<>"']/g,
     (char) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      })[char]
+      (
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        }) as Record<string, string>
+      )[char]
   );
 }
 
-export function validityExpiry(createdAtMs, validity) {
+export function validityExpiry(createdAtMs: number | null | undefined, validity: string) {
   if (!createdAtMs) return null;
   const base = new Date(createdAtMs);
   const year = base.getFullYear();

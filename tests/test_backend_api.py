@@ -223,7 +223,9 @@ def test_root_serves_vue_frontend():
         response = client.get("/")
 
     assert response.status_code == 200
-    assert "/assets/app.js" in response.text
+    # 双轨托管：dist 存在时服务 Vite 产物（引用 /assets/...），否则源码入口（引用 /src/main.ts）；
+    # 两种模式都包含 Vue 挂载点 <div id="app">。
+    assert '<div id="app">' in response.text
 
 
 def test_apply_runtime_config_feeds_timeout_into_fetch(monkeypatch):

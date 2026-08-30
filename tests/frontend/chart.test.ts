@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { chartSvg, compareChartSvg } from '../../frontend/modules/chart.js';
+import { chartSvg, compareChartSvg } from '@/modules/chart';
 
 test('chartSvg 空数组返回空状态', () => {
   assert.equal(chartSvg([], '#3b6fb6', '测试'), '<div class="chart-empty">暂无足够的日线数据</div>');
@@ -31,7 +31,7 @@ test('chartSvg 多个点生成折线 path', () => {
   const svg = chartSvg([1, 2, 3, 4, 5], '#3b6fb6', '上升序列');
   assert.match(svg, /<path class="chart-line"/);
   // 5 个点应生成 4 段 L 指令（M + 4 L = 5 个 token）
-  const line = svg.match(/class="chart-line"[^>]*d="([^"]+)"/)[1];
+  const line = svg.match(/class="chart-line"[^>]*d="([^"]+)"/)![1];
   assert.equal(line.split(' L ').length, 5);
 });
 

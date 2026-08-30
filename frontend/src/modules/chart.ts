@@ -1,6 +1,6 @@
-import { escapeHtml } from './format.js';
+import { escapeHtml } from '@/modules/format';
 
-export function chartSvg(points, accent, label) {
+export function chartSvg(points: number[], accent: string, label: string) {
   if (!Array.isArray(points) || points.length < 2) {
     return '<div class="chart-empty">暂无足够的日线数据</div>';
   }
@@ -49,7 +49,15 @@ export function chartSvg(points, accent, label) {
   `;
 }
 
-export function compareChartSvg(result) {
+export function compareChartSvg(
+  result:
+    | {
+        equityCurve?: Array<{ equity: number }>;
+        benchmarkCurve?: Array<{ equity: number }>;
+      }
+    | null
+    | undefined
+) {
   const strategy = (result?.equityCurve || []).map((point) => Number(point.equity));
   const benchmark = (result?.benchmarkCurve || []).map((point) => Number(point.equity));
   if (strategy.length < 2 || benchmark.length < 2) {
@@ -64,7 +72,7 @@ export function compareChartSvg(result) {
   const min = Math.min(...all);
   const max = Math.max(...all);
   const range = max - min || 1;
-  const pathFor = (values) =>
+  const pathFor = (values: number[]) =>
     values
       .map((value, index) => {
         const x = pad.left + (index / (values.length - 1)) * innerWidth;

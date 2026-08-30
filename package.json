@@ -7,17 +7,33 @@
     "dev:frontend": "vite --port 5173",
     "dev:backend": "python server.py",
     "dev": "concurrently -k -n backend,frontend -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
-    "test:frontend": "node --test \"tests/frontend/*.test.js\"",
-    "check:frontend": "node --check frontend/app.js",
+    "build": "vue-tsc --noEmit && vite build",
+    "test:frontend": "vitest run",
+    "check:frontend": "vue-tsc --noEmit",
     "test:backend": "python -m pytest tests/",
     "lint": "eslint . && ruff check .",
-    "format": "prettier --write \"frontend/**/*.{js,html,css}\" \"tests/frontend/*.js\" && ruff format backend tests server.py",
+    "format": "prettier --write \"frontend/**/*.{js,html,css,ts}\" \"tests/frontend/*.{js,ts}\" && ruff format backend tests server.py",
     "verify": "npm run test:frontend && npm run check:frontend && npm run test:backend"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@types/node": "^26.4.0",
+    "@typescript-eslint/parser": "^8.68.0",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "@vue/test-utils": "^2.5.0",
+    "concurrently": "^10.0.5",
     "eslint": "^9.39.5",
     "globals": "^17.11.0",
-    "prettier": "^3.9.6"
+    "jsdom": "^29.1.1",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "vue-tsc": "^3.3.11"
+  },
+  "dependencies": {
+    "lucide": "^1.37.0",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.42"
   }
 }

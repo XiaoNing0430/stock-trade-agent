@@ -52,7 +52,7 @@ export const NAV_ITEMS = [
   { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
   { id: 'monitor', label: '盯盘中心', icon: 'radar' },
   { id: 'settings', label: '个人中心', icon: 'user-round' },
-];
+] as const;
 
 export const VIEW_META = {
   overview: ['交易总览', '把真实行情、计划与提醒放在同一张桌面上'],
@@ -71,7 +71,19 @@ export const STRATEGY_TYPES = [
   { id: 'macd', label: 'MACD', description: 'DIF 上穿 DEA 买入，下穿卖出' },
 ];
 
-export const STRATEGY_SCHEMAS = {
+export const STRATEGY_SCHEMAS: Record<
+  string,
+  Array<{
+    key: string;
+    label: string;
+    type: string;
+    default?: number;
+    min?: number;
+    max?: number;
+    step?: number;
+    suffix: string;
+  }>
+> = {
   ma_cross: [
     { key: 'fastPeriod', label: '快线周期', type: 'int', default: 5, min: 2, max: 60, suffix: '日' },
     { key: 'slowPeriod', label: '慢线周期', type: 'int', default: 20, min: 3, max: 120, suffix: '日' },
