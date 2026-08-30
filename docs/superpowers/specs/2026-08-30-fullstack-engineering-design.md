@@ -15,6 +15,7 @@ Atlas Trading Desk 当前是"功能扎实、工具链空白"的状态：前端�
 | 分支粒度 | 6 个中型分支，逐个可独立 review/回滚 |
 | 运行模式 | dev/prod 双轨（Vite HMR / FastAPI 托管 dist） |
 | 一键启动 | `npm run dev`（concurrently 聚合前后端） |
+| 前端状态管理 | **引入 Pinia**（分支 ③ 用 stores 替换 `provide/inject APP_CTX`，视图改为 store 调用） |
 | 锁文件 | **提交 `package-lock.json`**（反转早前"不加锁"决定；Vite 生态依赖多、CI 必须可复现） |
 | 后端迁移框架 | **引入 Alembic**（改写 AGENTS.md 原生 ALTER TABLE 约定；现有 schema 用 baseline 迁移） |
 | 后端 API 契约 | **全部 Pydantic 模型化**（请求 + 响应，字段名不变） |
@@ -48,8 +49,9 @@ frontend/
     styles.css              全局样式（自现 styles.css 迁入）
     modules/                constants.ts / format.ts / chart.ts
                             planUtils.ts / marketUtils.ts / signalUtils.ts / alertUtils.ts
-    composables/            useWorkspace / useQuotes / useScreener / usePlans /
-                            useAlerts / useSettings / useGrid / useStrategy
+    stores/                 useWorkspaceStore / useQuotesStore / useScreenerStore /
+                            usePlansStore / useAlertsStore / useSettingsStore /
+                            useGridStore / useStrategyStore（Pinia，分支 ③）
     views/                  ViewOverview / ViewMonitor / ViewScreener / ViewStockDetail /
                             ViewGrid / ViewPlans / ViewSettings（.vue）
     types/                  models.ts（Quote/Plan/Alert/Strategy…，与后端 Pydantic 契约一致）
@@ -84,7 +86,7 @@ requirements-dev.txt        ruff / mypy / pytest / pytest-cov / pre-commit / ale
 ```
 develop ─► feature/eng-toolchain ─► develop   ① 前后端规范工具链
         └► feature/eng-vite ──────► develop   ② 前端 Vite+TS+SFC 迁移 + FastAPI dist 适配
-        └► feature/eng-refactor ─► develop   ③ 前端拆分（composables+纯逻辑）
+        └► feature/eng-refactor ─► develop   ③ 前端拆分（Pinia stores + 纯逻辑）
         └► feature/eng-backend ──► develop   ④ 后端 Pydantic + Alembic
         └► feature/eng-test ─────► develop   ⑤ 前端 vitest + 后端覆盖率
         └► feature/eng-ci ───────► develop   ⑥ CI 全栈门禁 + 文档收口
@@ -175,22 +177,25 @@ DIST_DIR = FRONTEND_DIR / "dist"
 
 每个模块配同名 `tests/frontend/*.test.ts`（vitest），覆盖正常/边缘/null 保护。
 
-**拆 `setup()` 为 composables（`src/composables/`）**
+**引入 Pinia（`src/stores/`，依赖 `pinia`）**
 
-| composable | 负责 |
-|------------|------|
-| useWorkspace | draft / plans / alerts / watchlistCodes / 409 冲突策略 / 同步持久化 |
-| useQuotes | market / selectedCode / selectedHistory / indexHistory / fetch |
-| useScreener | screenRows / total / mode / 排序分页 preset 过滤 |
-| usePlans | 计划 CRUD / checkPlanTriggers / expirePlans / 测算 |
-| useAlerts | 提醒增删改 / 过滤 / 通知面板 |
-| useSettings | settingsDraft / dataSources / 加载保存 |
-| useGrid | gridDraft / gridResult / 网格策略 CRUD / preview/backtest/optimize |
-| useStrategy | strategyDraft / strategyResult / 多类型 CRUD / preview/backtest |
+- `main.ts` 注册 `createPinia()`；`App.vue` 不再 `provide(APP_CTX)`。
+- 按领域拆为 8 个 store，取代 `APP_CTX` 的全部共享状态：
 
-- 拆分后 `App.vue` 的 `setup()` 只保留胶水（创建 composables + `provide(APP_CTX)` + 全局调度）。
-- `APP_CTX` 暴露字段集合不变（视图零改动，除已 SFC 化的引用路径）。
-- 预期 app.js/setup 主体从 1752 行降至 ~300 行胶水。
+| store | 负责 |
+|-------|------|
+| useWorkspaceStore | draft / plans / alerts / watchlistCodes / 409 冲突策略 / 同步持久化 |
+| useQuotesStore | market / selectedCode / selectedHistory / indexHistory / fetch |
+| useScreenerStore | screenRows / total / mode / 排序分页 preset 过滤 |
+| usePlansStore | 计划 CRUD / checkPlanTriggers / expirePlans / 测算 |
+| useAlertsStore | 提醒增删改 / 过滤 / 通知面板 |
+| useSettingsStore | settingsDraft / dataSources / 加载保存 |
+| useGridStore | gridDraft / gridResult / 网格策略 CRUD / preview/backtest/optimize |
+| useStrategyStore | strategyDraft / strategyResult / 多类型 CRUD / preview/backtest |
+
+- 视图组件从 `inject(APP_CTX)` 改为 `useXxxStore()`；**`APP_CTX` 与 `views/context.js` 退役删除**。
+- `App.vue` 的 `setup()` 只保留全局胶水（初始化调度、`switchView` 等），预计从 1752 行降至 ~300 行。
+- store 纯逻辑部分继续下沉到 `modules/*Utils.ts`（与 ③ 的抽取合并推进）。
 
 **验证**：`vue-tsc --noEmit`、vitest 全绿（新旧）、`npm run build` 后 :4173 全视图回归无异常。
 
@@ -216,7 +221,7 @@ DIST_DIR = FRONTEND_DIR / "dist"
 - vitest 全量配置（jsdom 环境 + @vue/test-utils）。
 - 26 项 node:test 已迁 vitest（② 完成）；本分支新增：
   - 纯逻辑模块测试补全（③ 的新模块）。
-  - **组件测试**：mount 各 View + 注入 mock APP_CTX，断言关键渲染与交互。
+  - **组件测试**：mount 各 View + 注入真实 Pinia store（`createTestingPinia` 或 mock store），断言关键渲染与交互。
 
 **后端**
 - pytest-cov 接入；先跑覆盖率基线再定阈值（目标 ≥80%）。
@@ -258,7 +263,6 @@ jobs:
 
 - 不引入 monorepo / pnpm / turbo。
 - 后端不引入 pyright（用 mypy 一种即可）。
-- 不引入前端状态管理库（Pinia 等）——`provide/inject APP_CTX` 已足够，避免多余依赖。
 - 不做 UI 重构 / 不新增功能 / 不改 API 字段名 / 不接券商与全市场自动执行。
 - 组件测试只覆盖关键交互，不追求 100% 组件覆盖率。
 
@@ -267,6 +271,7 @@ jobs:
 | 风险 | 缓解 |
 |------|------|
 | Vite+SFC+TS 迁移量大，行为回归 | 分支 ② 逻辑原样搬移 + 全视图手工回归 + 既有测试迁移兜底 |
+| APP_CTX → Pinia 迁移行为回归 | 分支 ③ store 按字段原样搬移 + 视图逐个改 inject→store + 全视图回归 + 组件测试兜底 |
 | Prettier/ruff 全量格式化大 diff | 格式化独立 commit，CI+测试兜底 |
 | Pydantic 模型化改变序列化行为 | 字段名逐字节不变 + 75 项测试回归 + 新增 schema 测试 |
 | Alembic 破坏既有库 | baseline 迁移 + initialize_storage 幂等降级 + 空库/既有库双验证 |
@@ -284,6 +289,7 @@ jobs:
 
 - 工具链配置（eslint/prettier/ruff/mypy/pyproject/pre-commit/requirements-dev）
 - Vite+TS+SFC 迁移产物（vite.config.ts / tsconfig.json / src/** / App.vue / views/*.vue / types / api）
+- Pinia stores（src/stores/*.ts，替代 APP_CTX）+ 依赖 pinia
 - package.json scripts + package-lock.json
 - backend/schemas.py + backend/migrations/ + alembic.ini
 - 测试（vitest 组件+单元 / pytest-cov）
