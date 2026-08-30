@@ -2,6 +2,13 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.4.0] - 2026-08-30
+
+### 工程化
+- 工具链：ESLint 9 + Prettier 3（前端）、ruff + mypy（后端）、pre-commit 钩子、pyproject.toml 统一配置。
+- 命令收口：`npm run verify` 一键完整回归；修复 node --test 尾斜杠在 Windows 的报错。
+- 后端 75 项 / 前端 26 项测试全量通过。
+
 ## [v0.3.4] - 2026-08-30
 
 ### 重构
