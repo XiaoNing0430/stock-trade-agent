@@ -2,6 +2,21 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.3.4] - 2026-08-30
+
+### 重构
+- **P3-1 组件化拆分（方案 B）**：7 个视图全部从单文件大模板迁移为独立 Vue 3 组件（`ViewSettings` / `ViewOverview` / `ViewMonitor` / `ViewScreener` / `ViewStockDetail` / `ViewGrid` / `ViewPlans`），共享状态通过 `provide / inject` 上下文（`APP_CTX`）传递，`index.html` 从 704 行瘦身至 174 行骨架壳。
+  - 网站设置布局优化（方案 A）：双标题去重、胶囊 / 下划线双层 tab、两栏对齐行、页面微抛光。
+  - 消除矮窗口下突兀滚动条（间距收紧 + 精致细滚动条兜底）。
+
+### 新增
+- 行情缓存 TTL 硬下限（2s）与外部接口限频（默认 5 rps），选股器 v2 接入缓存。
+- 统一 API 错误契约：结构化错误码 `code` + `api_error` 助手 + 前端 `error.code` 处理。
+
+### 测试
+- 前端纯函数模块（format / chart / constants）新增 `node:test` 单元测试。
+- 后端测试增至 **75 项**，全量通过。
+
 ## [v0.3.3] - 2026-08-30
 
 ### 新增
