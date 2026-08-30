@@ -84,6 +84,7 @@ def create_app() -> FastAPI:
                     timeout_seconds=applied.get("timeoutSeconds"),
                     retry_count=applied.get("retryCount"),
                     cache_seconds=applied.get("cacheSeconds"),
+                    rate_limit_rps=applied.get("rateLimitRps"),
                 )
             except Exception:
                 pass
@@ -166,6 +167,7 @@ def create_app() -> FastAPI:
                 timeout_seconds=saved.get("timeoutSeconds"),
                 retry_count=saved.get("retryCount"),
                 cache_seconds=saved.get("cacheSeconds"),
+                rate_limit_rps=saved.get("rateLimitRps"),
             )
             return {"data": saved}
         except Exception as exc:

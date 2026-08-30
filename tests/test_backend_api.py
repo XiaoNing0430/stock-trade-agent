@@ -275,6 +275,47 @@ def test_fetch_retries_and_backs_off(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_cache_ttl_floor_enforced():
+    """cacheSeconds=0 时 _cache_ttl 不低于 2 秒。"""
+    data_source.apply_runtime_config(cache_seconds=0)
+    assert data_source._cache_ttl >= 2
+    data_source.apply_runtime_config(cache_seconds=8)
+
+
+def test_rate_limit_config_applied():
+    """rate_limit_rps 配置更新 _min_request_interval。"""
+    old = data_source._min_request_interval
+    data_source.apply_runtime_config(rate_limit_rps=10)
+    assert data_source._min_request_interval == 0.1
+    data_source.apply_runtime_config(rate_limit_rps=1)
+    assert data_source._min_request_interval == 1.0
+    # 恢复
+    data_source.apply_runtime_config(rate_limit_rps=5)
+    assert data_source._min_request_interval == 0.2
+
+
+def test_screener_v2_cached_uses_cache(monkeypatch):
+    """同参数第二次调用 load_screener_v2 命中缓存，不触发 _http_get。"""
+    calls = {"n": 0}
+
+    class FakeResponse:
+        def json(self):
+            return {"data": {"total": 1, "rank_list": []}}
+
+    def fake_http_get(url, params):
+        calls["n"] += 1
+        return FakeResponse()
+
+    data_source.cache.clear()
+    monkeypatch.setattr(data_source, "_http_get", fake_http_get)
+    # 第一次调用：缓存未命中，调用 _http_get
+    data_source.load_screener_v2(page=1, page_size=5, sort_by="changePct", sort_dir="desc")
+    n1 = calls["n"]
+    # 第二次调用同参数：应命中缓存
+    data_source.load_screener_v2(page=1, page_size=5, sort_by="changePct", sort_dir="desc")
+    assert calls["n"] == n1, "同参数第二次调用应命中缓存，不触发 _http_get"
+
+
 def test_screener_sorts_zero_change_above_negative(monkeypatch):
     rows = [
         {"code": "600001", "name": "甲", "market": "沪深主板", "change": 0.0},
@@ -497,7 +538,8 @@ def test_screener_v2_returns_paginated_results(monkeypatch):
         "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
     class FakeResponse:
         def json(self): return fake_data
-    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: FakeResponse())
+    data_source.cache.clear()
+    monkeypatch.setattr(data_source, "_http_get", lambda url, params: FakeResponse())
     from backend.data_source import load_screener_v2
     result = load_screener_v2(page=1, page_size=10, sort_by="changePct", sort_dir="desc")
     assert result["total"] == 4596
@@ -519,7 +561,8 @@ def test_screener_v2_returns_paginated_results(monkeypatch):
 
 
 def test_screener_v2_when_upstream_fails(monkeypatch):
-    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: (_ for _ in ()).throw(ConnectionError("timeout")))
+    data_source.cache.clear()
+    monkeypatch.setattr(data_source, "_http_get", lambda url, params: (_ for _ in ()).throw(ConnectionError("timeout")))
     from backend.data_source import load_screener_v2
     import pytest
     with pytest.raises(RuntimeError, match="全市场选股器请求失败"):
@@ -534,7 +577,8 @@ def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
         "state": "", "stock_type": "GP-A"}], "offset": 0, "total": 4596}}
     class FakeResponse:
         def json(self): return fake_data
-    monkeypatch.setattr("backend.data_source.requests.get", lambda url, params=None, timeout=10: FakeResponse())
+    data_source.cache.clear()
+    monkeypatch.setattr(data_source, "_http_get", lambda url, params: FakeResponse())
     from fastapi.testclient import TestClient
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/screener/v2?page=1&pageSize=10&sortBy=changePct&sortDir=desc")
