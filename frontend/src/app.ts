@@ -23,9 +23,12 @@ import {
   formatNullable,
   formatPctNullable,
   trendClass,
-  validityExpiry,
 } from '@/modules/format';
 import { chartSvg, compareChartSvg } from '@/modules/chart';
+import { calculateShares, calculateRr, expiredPlans } from '@/modules/planUtils';
+import { mergeMarketQuotes } from '@/modules/marketUtils';
+import { signalText as signalTextFor, signalClass as signalClassFor } from '@/modules/signalUtils';
+import { dedupeSystemAlert } from '@/modules/alertUtils';
 import { APP_CTX } from '@/modules/views/context';
 import { createIcons } from 'lucide';
 
@@ -603,9 +606,7 @@ export const appOptions = {
     }
 
     function mergeMarket(payload) {
-      const existing = new Map(market.quotes.map((quote) => [quote.code, quote]));
-      (payload.quotes || []).forEach((quote) => existing.set(quote.code, quote));
-      market.quotes = [...existing.values()];
+      market.quotes = mergeMarketQuotes(market.quotes, payload.quotes || []);
       market.indices = payload.indices || market.indices;
       market.provider = payload.provider || market.provider;
       market.fetchedAt = payload.fetchedAt || Date.now();
@@ -840,37 +841,14 @@ export const appOptions = {
       return activePlans.value.find((plan) => plan.code === code) || null;
     }
 
-    function calculateShares(plan) {
-      const budget = Number(plan.capital || 0) * (Number(plan.position || 0) / 100);
-      return plan.entry > 0 ? Math.max(0, Math.floor(budget / plan.entry / 100) * 100) : 0;
-    }
-
-    function calculateRr(plan) {
-      const risk = Math.max(0.01, Number(plan.entry) - Number(plan.stop));
-      const reward = Math.max(0, Number(plan.target) - Number(plan.entry));
-      return reward / risk;
-    }
-
+    // 视图仍以 signalText(stock)/signalClass(stock) 单参调用，这里保持原 ctx API，
+    // 内部补充 planFor 查找后委托给纯模块。
     function signalText(stock) {
-      const plan = planFor(stock?.code);
-      if (plan && stock?.price !== null && stock?.price !== undefined) {
-        if (stock.price <= plan.stop) return '触及止损';
-        if (stock.price >= plan.target) return '触及目标';
-        if (stock.price <= plan.entry) return '触及计划价';
-      }
-      if (stock?.change === null || stock?.change === undefined) return '等待报价';
-      if (stock.change >= 3 && Number(stock.volumeRatio || 0) >= 1.5) return '放量突破';
-      if (stock.change <= -3) return '弱势观察';
-      if (Number(stock.volumeRatio || 0) >= 1.5) return '量能放大';
-      return '跟踪中';
+      return signalTextFor(stock, planFor(stock?.code));
     }
 
     function signalClass(stock) {
-      const text = signalText(stock);
-      if (text === '触及止损') return 'signal-chip-risk';
-      if (text === '触及目标' || text === '触及计划价' || text === '放量突破') return 'signal-chip-buy';
-      if (text === '等待报价') return 'signal-chip-neutral';
-      return 'signal-chip-watch';
+      return signalClassFor(signalTextFor(stock, planFor(stock?.code)));
     }
 
     function checkPlanTriggers() {
@@ -894,52 +872,28 @@ export const appOptions = {
     }
 
     function expirePlans() {
-      const now = Date.now();
-      let expired = 0;
-      plans.value.forEach((plan) => {
-        if (plan.status !== '执行中') return;
-        const expiresAt = validityExpiry(plan.createdAtMs, plan.validity);
-        if (!expiresAt) return;
-        if (now > expiresAt) {
-          plan.status = '已过期';
-          expired += 1;
-        }
-      });
-      if (expired) {
-        addAlert('info', '有交易计划已到期', `${expired} 份计划超过有效期，已自动归档为已过期。`);
+      const expired = expiredPlans(plans.value, Date.now());
+      if (expired.length) {
+        plans.value = plans.value.map((p) => (expired.find((e) => e.id === p.id) ? { ...p, status: '已过期' } : p));
+        addAlert('info', '有交易计划已到期', `${expired.length} 份计划超过有效期，已自动归档为已过期。`);
         persist();
       }
     }
 
     function addAlert(kind, title, message, options = {}) {
       const now = Date.now();
-      if (kind === 'system') {
-        const existing = alerts.value.find((item) => item.kind === 'system' && item.title === title);
-        if (existing && now - (existing.createdAtMs || 0) < 10 * 60 * 1000) {
-          const count = (existing.count || 1) + 1;
-          existing.count = count;
-          existing.message = count > 1 ? `${message}（10 分钟内第 ${count} 次）` : message;
-          existing.createdAtMs = now;
-          existing.time = '刚刚';
-          if (!options.deferPersist) persist();
-          return;
-        }
+      const result = dedupeSystemAlert(alerts.value, kind, title, message, now);
+      alerts.value = result.alerts;
+      if (result.count === 1 && alerts.value.length) {
+        alerts.value[0].time = '刚刚';
       }
-      const item = {
-        id: `alert-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        kind,
-        title,
-        message,
-        time: '刚刚',
-        read: false,
-        createdAtMs: now,
-      };
-      alerts.value.unshift(item);
-      alerts.value = alerts.value.slice(0, 24);
       if (!options.deferPersist) persist();
-      const desktopAllowed = kind === 'system' ? settingsDraft.notifyDesktopSystem : settingsDraft.notifyDesktopAlert;
-      if (desktopAllowed && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification(title, { body: message });
+      // 仅新追加时触发桌面通知（10 分钟去重路径不重复弹通知）
+      if (result.count === 1) {
+        const desktopAllowed = kind === 'system' ? settingsDraft.notifyDesktopSystem : settingsDraft.notifyDesktopAlert;
+        if (desktopAllowed && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification(title, { body: message });
+        }
       }
     }
 
