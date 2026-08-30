@@ -345,6 +345,7 @@ def test_workspace_put_rejects_stale_revision_with_409(monkeypatch):
     body = response.json()
     assert body["detail"]["revision"] == 7
     assert body["detail"]["workspace"]["revision"] == 7
+    assert body["detail"]["code"] == "WORKSPACE_CONFLICT"
     assert "payload" not in saved
 
 
@@ -576,6 +577,43 @@ def test_strategy_preview_rejects_unknown_type():
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/strategy/preview", json={"strategyType": "nope", "config": {}})
     assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "VALIDATION_ERROR"
+
+
+def test_strategy_not_found_returns_code(monkeypatch):
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/strategy/strategies/absent", json={"status": "暂停"})
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "NOT_FOUND"
+
+
+def test_grid_strategy_not_found_returns_code():
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/grid/strategies/absent")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "NOT_FOUND"
+
+
+def test_upstream_failure_returns_code(monkeypatch):
+    monkeypatch.setattr(app_module, "load_market", lambda codes: (_ for _ in ()).throw(ConnectionError("upstream down")))
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/market?codes=600519")
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
+    assert body["detail"]["provider"] == "Tencent public quote API"
+
+
+def test_storage_unavailable_returns_code(monkeypatch):
+    monkeypatch.setattr(app_module, "get_workspace", lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")), raising=False)
+    from fastapi.testclient import TestClient
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/workspace")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
 
 
 def test_strategy_backtest_returns_unified_shape(monkeypatch):

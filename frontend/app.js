@@ -373,6 +373,7 @@ createApp({
       if (!response.ok) {
         const error = new Error(payload.detail?.error || payload.error || `接口返回 ${response.status}`);
         error.status = response.status;
+        error.code = payload.detail?.code || payload.code || 'UNKNOWN';
         error.payload = payload;
         throw error;
       }
