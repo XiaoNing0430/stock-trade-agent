@@ -182,6 +182,8 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
 def initialize_storage() -> None:
+    # 注意：正式迁移走 Alembic（backend/migrations/），此处仅兼容历史部署。
+    # 新部署通过 python -m alembic upgrade head 建表，此兜底逻辑对已迁移库无副作用。
     Base.metadata.create_all(engine)
     # Lightweight forward migration for instances created before grid scheduling existed.
     with engine.begin() as connection:
