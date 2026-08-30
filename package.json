@@ -11,7 +11,7 @@
     "check:frontend": "vue-tsc --noEmit",
     "test:backend": "python -m pytest tests/",
     "lint": "eslint . && ruff check .",
-    "format": "prettier --write \"frontend/**/*.{js,html,css}\" \"tests/frontend/*.js\" && ruff format backend tests server.py",
+    "format": "prettier --write \"frontend/**/*.{js,html,css,ts}\" \"tests/frontend/*.{js,ts}\" && ruff format backend tests server.py",
     "verify": "npm run test:frontend && npm run check:frontend && npm run test:backend"
   },
   "devDependencies": {
