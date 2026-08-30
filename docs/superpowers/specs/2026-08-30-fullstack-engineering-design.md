@@ -11,7 +11,7 @@ Atlas Trading Desk 当前是"功能扎实、工具链空白"的状态：前端�
 | 决策 | 选择 |
 |------|------|
 | 执行策略 | 规划一次、分批落地（Git Flow 多分支） |
-| TypeScript | **纳入，一次到位**（随 Vite+SFC 迁移） |
+| TypeScript | **纳入，一次到位**（随 Vite+SFC（单文件组件）迁移） |
 | 分支粒度 | 6 个中型分支，逐个可独立 review/回滚 |
 | 运行模式 | dev/prod 双轨（Vite HMR / FastAPI 托管 dist） |
 | 一键启动 | `npm run dev`（concurrently 聚合前后端） |
@@ -53,7 +53,7 @@ frontend/
                             usePlansStore / useAlertsStore / useSettingsStore /
                             useGridStore / useStrategyStore（Pinia，分支 ③）
     views/                  ViewOverview / ViewMonitor / ViewScreener / ViewStockDetail /
-                            ViewGrid / ViewPlans / ViewSettings（.vue）
+                            ViewGrid / ViewPlans / ViewSettings（.vue，SFC 单文件组件）
     types/                  models.ts（Quote/Plan/Alert/Strategy…，与后端 Pydantic 契约一致）
     api/                    client.ts（fetch 封装，替换 requestJson）
   dist/                     Vite 构建产物（gitignored）
@@ -85,7 +85,7 @@ requirements-dev.txt        ruff / mypy / pytest / pytest-cov / pre-commit / ale
 
 ```
 develop ─► feature/eng-toolchain ─► develop   ① 前后端规范工具链
-        └► feature/eng-vite ──────► develop   ② 前端 Vite+TS+SFC 迁移 + FastAPI dist 适配
+        └► feature/eng-vite ──────► develop   ② 前端 Vite+TS+SFC（单文件组件）迁移 + FastAPI dist 适配
         └► feature/eng-refactor ─► develop   ③ 前端拆分（Pinia stores + 纯逻辑）
         └► feature/eng-backend ──► develop   ④ 后端 Pydantic + Alembic
         └► feature/eng-test ─────► develop   ⑤ 前端 vitest + 后端覆盖率
@@ -125,7 +125,7 @@ develop ─► feature/eng-toolchain ─► develop   ① 前后端规范工具�
 
 **交付物**：eslint.config.js、.prettierrc.json、.prettierignore、pyproject.toml、.pre-commit-config.yaml、更新后 package.json、全量格式化结果、`requirements-dev.txt`、文档与 CHANGELOG 更新。
 
-### ② eng-vite — 前端 Vite+TS+SFC 迁移 + FastAPI dist 适配（最大分支）
+### ② eng-vite — 前端 Vite+TS+SFC（单文件组件）迁移 + FastAPI dist 适配（最大分支）
 
 **Vite**
 - `vite.config.ts`：`@vitejs/plugin-vue`、`base:'/'`、`build.outDir:'frontend/dist'`、别名 `@→frontend/src`、`server.port:5173`、`server.proxy:{'/api':'http://127.0.0.1:4173'}`。
@@ -137,11 +137,11 @@ develop ─► feature/eng-toolchain ─► develop   ① 前后端规范工具�
 - `modules/` 三文件迁 `.ts`；现有 26 项 node:test **同步迁移到 vitest**（本分支只迁测试框架，新增组件测试在 ⑤）。
 - `types/models.ts`：Quote / StockRow / Plan / Alert / GridStrategy / Strategy / HistoryBar 等，字段名与后端 API 返回一致。
 
-**SFC 迁移**
+**SFC（单文件组件）迁移**
 - `index.html` → 最小入口（`<div id="app">` + module 脚本）。
 - 现 index.html 壳 → `App.vue`；7 个 `View*.js` → `views/View*.vue`（`<script setup lang="ts">` + `<template>`，逻辑原样搬移）。
 - `vendor/` 两个文件删除，改用 npm `vue` / `lucide`（核心包，`createIcons` 初始化逻辑保持）。
-- **`APP_CTX` provide/inject 模式保留**（SFC 中继续 `inject(APP_CTX)`，最小行为变更路径）。
+- **`APP_CTX` provide/inject 模式保留**（SFC（单文件组件）中继续 `inject(APP_CTX)`，最小行为变更路径）。
 
 **一键启动（新增）**
 ```json
@@ -270,7 +270,7 @@ jobs:
 
 | 风险 | 缓解 |
 |------|------|
-| Vite+SFC+TS 迁移量大，行为回归 | 分支 ② 逻辑原样搬移 + 全视图手工回归 + 既有测试迁移兜底 |
+| Vite+SFC（单文件组件）+TS 迁移量大，行为回归 | 分支 ② 逻辑原样搬移 + 全视图手工回归 + 既有测试迁移兜底 |
 | APP_CTX → Pinia 迁移行为回归 | 分支 ③ store 按字段原样搬移 + 视图逐个改 inject→store + 全视图回归 + 组件测试兜底 |
 | Prettier/ruff 全量格式化大 diff | 格式化独立 commit，CI+测试兜底 |
 | Pydantic 模型化改变序列化行为 | 字段名逐字节不变 + 75 项测试回归 + 新增 schema 测试 |
@@ -288,7 +288,7 @@ jobs:
 ## 交付物汇总
 
 - 工具链配置（eslint/prettier/ruff/mypy/pyproject/pre-commit/requirements-dev）
-- Vite+TS+SFC 迁移产物（vite.config.ts / tsconfig.json / src/** / App.vue / views/*.vue / types / api）
+- Vite+TS+SFC（单文件组件）迁移产物（vite.config.ts / tsconfig.json / src/** / App.vue / views/*.vue / types / api）
 - Pinia stores（src/stores/*.ts，替代 APP_CTX）+ 依赖 pinia
 - package.json scripts + package-lock.json
 - backend/schemas.py + backend/migrations/ + alembic.ini
