@@ -626,6 +626,25 @@ textarea:focus-visible {
   overflow: auto;
 }
 
+/* 精致滚动条（仅 view-panel 内） */
+.view-panel.is-active::-webkit-scrollbar {
+  width: 4px;
+}
+
+.view-panel.is-active::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.10);
+  border-radius: 4px;
+}
+
+.view-panel.is-active::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.view-panel.is-active {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.10) transparent;
+}
+
 .screener-view {
   display: block !important;
   overflow: auto !important;
@@ -2792,7 +2811,7 @@ textarea:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
-  padding: 14px 20px;
+  padding: 12px 20px;
   transition: background 160ms ease;
 }
 
@@ -3747,7 +3766,7 @@ textarea:focus-visible {
 .settings-tabs-primary {
   display: inline-flex;
   gap: 4px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   padding: 4px;
   border-radius: 12px;
   background: var(--surface-soft);
@@ -3782,7 +3801,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 15px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .settings-tabs-sub {
