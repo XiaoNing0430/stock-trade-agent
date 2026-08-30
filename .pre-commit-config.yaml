@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: python -m mypy backend
+        language: system
+        pass_filenames: false
+      - id: eslint
+        name: eslint
+        entry: npx eslint .
+        language: system
+        pass_filenames: false
+      - id: prettier
+        name: prettier
+        entry: npx prettier --write "frontend/**/*.{js,html,css}" "tests/frontend/*.js"
+        language: system
+        pass_filenames: false
+      - id: node-check
+        name: node-check
+        entry: node --check frontend/app.js
+        language: system
+        pass_filenames: false
