@@ -1,7 +1,8 @@
-"""Pydantic 请求模型（Task 4.1）。
+"""Pydantic 请求/响应模型（Task 4.1 / 4.2）。
 
-字段名与 backend/app.py 中路由读取的 key 逐字节一致，
-用于 Task 4.2 替换 `payload: dict = Body(...)`。extra="ignore" 容忍前端多发字段。
+字段名与 backend/app.py 各路由读取/返回的 key 逐字节一致：
+- 请求模型替换 `payload: dict = Body(...)`，extra="ignore" 容忍前端多发字段；
+- 响应模型作为路由返回注解，字段名与各路由现返回 dict 顶层 key 一致。
 """
 
 from __future__ import annotations
@@ -116,3 +117,147 @@ class StrategyStatusPut(BaseModel):
 
     status: str
     schedule: str | None = None
+
+
+# ===== 响应模型（字段名与各路由现返回 dict 顶层 key 逐字节一致） =====
+
+
+class HealthOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool
+    provider: str
+    serverTime: int
+    mode: str
+    universeSize: int
+    storage: dict[str, bool]
+
+
+class WorkspaceOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    watchlist: list[str] = Field(default_factory=list)
+    plans: list[dict[str, Any]] = Field(default_factory=list)
+    alerts: list[dict[str, Any]] = Field(default_factory=list)
+    revision: int = 0
+
+
+# save_workspace 返回与 get_workspace 相同结构
+WorkspacePutOut = WorkspaceOut
+
+
+class SettingsOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    data: dict[str, Any] = Field(default_factory=dict)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SettingsPutOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    quotes: list[dict[str, Any]] = Field(default_factory=list)
+    indices: list[dict[str, Any]] = Field(default_factory=list)
+    fetchedAt: int = 0
+    provider: str = ""
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class HistoryOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    provider: str
+    fetchedAt: int
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    dataSource: str
+    dataAsOf: str | None = None
+
+
+class ScreenerOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    total: int = 0
+    universeSize: int = 0
+    provider: str = ""
+    fetchedAt: int = 0
+
+
+class GridPreviewOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    profile: dict[str, Any] = Field(default_factory=dict)
+    dataAsOf: str | None = None
+    dataSource: str
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    suggestion: dict[str, Any] = Field(default_factory=dict)
+
+
+class GridBacktestOut(BaseModel):
+    # extra="allow" 保留 **result 展开的 metrics/equityCurve/assumptions/trades 等字段
+    model_config = ConfigDict(extra="allow")
+
+    code: str
+    profile: dict[str, Any] = Field(default_factory=dict)
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+    # strategy（可选）经 extra="allow" 透传，仅 save=True 时出现
+
+
+class GridOptimizeOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    profile: dict[str, Any] = Field(default_factory=dict)
+    dataAsOf: str | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GridStrategiesOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    strategies: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DeleteOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    deleted: bool
+    id: str
+
+
+class StrategyPreviewOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    strategyType: str
+    suggestion: dict[str, Any] = Field(default_factory=dict)
+    note: str = ""
+
+
+class StrategyBacktestOut(BaseModel):
+    # extra="allow" 保留 **result 展开的 metrics/equityCurve/assumptions/trades 等字段
+    model_config = ConfigDict(extra="allow")
+
+    code: str
+    profile: dict[str, Any] = Field(default_factory=dict)
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    strategyType: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    dataSource: str
+    dataAsOf: str | None = None
+    # strategy（可选）经 extra="allow" 透传，仅 save=True 时出现
+
+
+class StrategiesOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    strategies: list[dict[str, Any]] = Field(default_factory=list)
