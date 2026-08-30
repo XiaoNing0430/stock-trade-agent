@@ -5,6 +5,10 @@ import { APP_CTX } from './modules/views/context.js';
 import ViewSettings from './modules/views/ViewSettings.js';
 import ViewOverview from './modules/views/ViewOverview.js';
 import ViewMonitor from './modules/views/ViewMonitor.js';
+import ViewScreener from './modules/views/ViewScreener.js';
+import ViewStockDetail from './modules/views/ViewStockDetail.js';
+import ViewGrid from './modules/views/ViewGrid.js';
+import ViewPlans from './modules/views/ViewPlans.js';
 
 const {
   createApp,
@@ -1494,6 +1498,81 @@ const appOptions = {
       signalText,
       signalClass,
       toggleWatch,
+      // 选股（ViewScreener）
+      screenerUpdatedLabel,
+      screenerMode,
+      switchScreenerMode,
+      presets,
+      filters,
+      resetFilters,
+      screenTotal,
+      exportResults,
+      presetDescription,
+      screenerAllRows,
+      screenerAllTotal,
+      screenerPage,
+      screenerLoading,
+      screenerSort,
+      screenerSortIcon,
+      screenerPageUp,
+      screenerPageDown,
+      isWatched,
+      // 个股详情（ViewStockDetail）
+      selectedStock,
+      selectedCode,
+      backFromDetail,
+      createPlan,
+      chartDataSource,
+      // 策略（ViewGrid）
+      strategyType,
+      strategyTypeLabel,
+      STRATEGY_TYPES,
+      switchStrategyType,
+      gridDraft,
+      gridLoading,
+      gridSuggestion,
+      gridResult,
+      gridInstrument,
+      normalizedGridCode,
+      hasGridSuggestion,
+      hasGridResult,
+      gridCandidates,
+      gridProvenance,
+      previewGrid,
+      backtestGrid,
+      optimizeGrid,
+      loadGridStrategy,
+      toggleGridStrategy,
+      deleteGridStrategy,
+      strategyDraft,
+      strategySchema,
+      strategyLoading,
+      strategySuggestion,
+      strategyResult,
+      strategyProvenance,
+      normalizedStrategyCode,
+      strategyInstrument,
+      hasStrategyResult,
+      strategies,
+      loadStrategy,
+      toggleStrategy,
+      deleteStrategy,
+      backtestStrategy,
+      compareChartSvg,
+      formatMoney,
+      // 交易计划（ViewPlans）
+      activePlans,
+      draft,
+      draftDirty,
+      planOptions,
+      planMetrics,
+      savePlan,
+      quoteFor,
+      calculateRr,
+      calculateShares,
+      monitorPlan,
+      archivePlan,
+      refreshAll,
     });
 
     return {
@@ -1664,4 +1743,8 @@ const app = createApp(appOptions);
 app.component('ViewSettings', ViewSettings);
 app.component('ViewOverview', ViewOverview);
 app.component('ViewMonitor', ViewMonitor);
+app.component('ViewScreener', ViewScreener);
+app.component('ViewStockDetail', ViewStockDetail);
+app.component('ViewGrid', ViewGrid);
+app.component('ViewPlans', ViewPlans);
 app.mount('#app');
