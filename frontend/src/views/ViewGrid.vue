@@ -87,54 +87,30 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { compareChartSvg } from '@/modules/chart';
+import { formatNullable, formatNumber, formatPct, formatMoney, trendClass } from '@/modules/format';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useGridStore } from '@/stores/useGridStore';
+import { useStrategyStore } from '@/stores/useStrategyStore';
 
-const ctx = inject(APP_CTX)!;
+const workspace = useWorkspaceStore();
+const grid = useGridStore();
+const strategy = useStrategyStore();
+
 const {
-  strategyType,
-  strategyTypeLabel,
-  STRATEGY_TYPES,
-  switchStrategyType,
-  gridDraft,
-  gridLoading,
-  gridSuggestion,
-  gridResult,
-  gridInstrument,
-  normalizedGridCode,
-  hasGridSuggestion,
-  hasGridResult,
-  gridCandidates,
-  gridStrategies,
-  gridProvenance,
-  previewGrid,
-  backtestGrid,
-  optimizeGrid,
-  loadGridStrategy,
-  toggleGridStrategy,
-  deleteGridStrategy,
-  strategyDraft,
-  strategySchema,
-  strategyLoading,
-  strategySuggestion,
-  strategyResult,
-  strategyProvenance,
-  normalizedStrategyCode,
-  strategyInstrument,
-  hasStrategyResult,
-  strategies,
-  loadStrategy,
-  toggleStrategy,
-  deleteStrategy,
-  backtestStrategy,
-  formatNullable,
-  formatNumber,
-  formatPct,
-  formatMoney,
-  trendClass,
-  compareChartSvg,
-  renderIcons,
-} = ctx;
+  strategyType, strategyTypeLabel, STRATEGY_TYPES, strategySchema, strategyLoading,
+  strategySuggestion, strategyResult, strategyProvenance, normalizedStrategyCode,
+  strategyInstrument, hasStrategyResult, strategies, strategyDraft,
+} = storeToRefs(strategy);
+const {
+  gridDraft, gridLoading, gridSuggestion, gridResult, gridInstrument, normalizedGridCode,
+  hasGridSuggestion, hasGridResult, gridCandidates, gridStrategies, gridProvenance,
+} = storeToRefs(grid);
+const { switchStrategyType, previewStrategy, backtestStrategy, loadStrategy, toggleStrategy, deleteStrategy } = strategy;
+const { previewGrid, backtestGrid, optimizeGrid, loadGridStrategy, toggleGridStrategy, deleteGridStrategy } = grid;
+const { renderIcons } = workspace;
 
 onMounted(() => renderIcons());
 </script>

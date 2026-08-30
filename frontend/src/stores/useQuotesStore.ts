@@ -207,6 +207,16 @@ export const useQuotesStore = defineStore('quotes', () => {
     return { title: meta[0], subtitle: meta[1] };
   });
 
+  const mobileExecTab = ref('plans');
+  const execShowsPlans = computed(() => view.value === 'exec' && mobileExecTab.value === 'plans');
+  const execShowsAlerts = computed(() => view.value === 'exec' && mobileExecTab.value === 'alerts');
+
+  function switchView(name: string) {
+    view.value = name;
+    workspace.persist();
+    nextTick(workspace.renderIcons);
+  }
+
   return {
     view,
     loading,
@@ -247,5 +257,9 @@ export const useQuotesStore = defineStore('quotes', () => {
     toggleWatch,
     searchSymbol,
     currentViewMeta,
+    mobileExecTab,
+    execShowsPlans,
+    execShowsAlerts,
+    switchView,
   };
 });

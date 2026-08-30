@@ -38,27 +38,25 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
+import { chartSvg } from '@/modules/chart';
+import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useGridStore } from '@/stores/useGridStore';
+import { usePlansStore } from '@/stores/usePlansStore';
 
-const ctx = inject(APP_CTX)!;
-const {
-  selectedStock,
-  selectedCode,
-  backFromDetail,
-  toggleWatch,
-  isWatched,
-  openGridStrategy,
-  createPlan,
-  formatNullable,
-  formatPctNullable,
-  formatAmount,
-  trendClass,
-  chartSvg,
-  selectedHistory,
-  chartDataSource,
-  renderIcons,
-} = ctx;
+const workspace = useWorkspaceStore();
+const quotes = useQuotesStore();
+const grid = useGridStore();
+const plans = usePlansStore();
+
+const { selectedStock, selectedCode, selectedHistory, chartDataSource } = storeToRefs(quotes);
+const { backFromDetail, toggleWatch, isWatched } = quotes;
+const { openGridStrategy } = grid;
+const { createPlan } = plans;
+const { renderIcons } = workspace;
 
 onMounted(() => renderIcons());
 </script>

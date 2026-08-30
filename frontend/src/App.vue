@@ -250,22 +250,32 @@
 </template>
 
 <script setup lang="ts">
-import { computed, provide, onMounted } from 'vue';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
-import { APP_CTX } from '@/modules/views/context';
+import { NAV_ITEMS } from '@/modules/constants';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useAlertsStore } from '@/stores/useAlertsStore';
 
-const ctx = appOptions.setup() as Record<string, any>;
-provide(APP_CTX, ctx);
+// 安装跨 store 协调逻辑（watch / 生命周期），返回值为空
+appOptions.setup();
 
-// 解构到模板作用域
+const workspace = useWorkspaceStore();
+const quotes = useQuotesStore();
+const alerts = useAlertsStore();
+
+const { conflictVisible, adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
 const {
-  view, navItems, switchView, marketStatus, conflictVisible, adoptServerWorkspace,
-  forceSaveWorkspace, dataState, providerLabel, dataStatusText, currentViewMeta,
-  globalSearch, searchSymbol, toggleNotifCenter, notifOpen, unreadTotalCount,
-  alertFilter, recentNotifs, markAlertRead, clearReadAlerts, goAlertCenter,
-  notificationPermission, requestNotifications, lastUpdatedLabel, loading,
-  refreshAll, mobileExecTab, execShowsPlans, execShowsAlerts, renderIcons,
-} = ctx;
+  view, marketStatus, dataState, providerLabel, dataStatusText,
+  currentViewMeta, globalSearch, lastUpdatedLabel, loading,
+  mobileExecTab, execShowsPlans, execShowsAlerts,
+} = storeToRefs(quotes);
+const { switchView, searchSymbol } = quotes;
+const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);
+const { toggleNotifCenter, clearReadAlerts, markAlertRead, goAlertCenter, requestNotifications } = alerts;
+
+const navItems = NAV_ITEMS;
 
 onMounted(() => renderIcons());
 </script>

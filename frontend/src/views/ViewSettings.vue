@@ -47,25 +47,22 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted } from 'vue';
-import { APP_CTX } from '@/modules/views/context';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { SETTINGS_TABS } from '@/modules/constants';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useAlertsStore } from '@/stores/useAlertsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 
-const ctx = inject(APP_CTX)!;
-const {
-  hubTab,
-  clearReadAlerts,
-  alertFilter,
-  filteredAlerts,
-  markAlertRead,
-  settingsDirty,
-  settingsLoading,
-  saveSettings,
-  settingsTab,
-  settingsDraft,
-  dataSources,
-  renderIcons,
-} = ctx;
+const workspace = useWorkspaceStore();
+const alerts = useAlertsStore();
+const settings = useSettingsStore();
+
+const { hubTab, alertFilter, filteredAlerts } = storeToRefs(alerts);
+const { settingsDirty, settingsLoading, settingsTab, settingsDraft, dataSources } = storeToRefs(settings);
+const { clearReadAlerts, markAlertRead } = alerts;
+const { saveSettings } = settings;
+const { renderIcons } = workspace;
 
 const settingsTabs = SETTINGS_TABS;
 

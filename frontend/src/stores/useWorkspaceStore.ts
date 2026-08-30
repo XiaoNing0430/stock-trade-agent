@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { createIcons } from 'lucide';
 import type { Alert, Plan } from '@/types/models';
 import { DEFAULT_ALERTS, DEFAULT_WATCHLIST, STORAGE_KEY } from '@/modules/constants';
@@ -7,6 +7,7 @@ import { useQuotesStore } from './useQuotesStore';
 import { useScreenerStore } from './useScreenerStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useAlertsStore } from './useAlertsStore';
+import { usePlansStore } from './usePlansStore';
 
 /**
  * 工作区 store：自选列表 / 计划 / 提醒 / 服务端同步 / 409 冲突策略 / 本地持久化，
@@ -247,6 +248,86 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return useAlertsStore().addAlert(kind, title, message, options);
   }
 
+  const refreshTimer = ref<any>(null);
+  let refreshInFlight = false;
+  let lastRecordedDataState = '';
+
+  async function refreshAll(options: { silent?: boolean } = {}) {
+    const silent = Boolean(options.silent);
+    const quotes = useQuotesStore();
+    const screener = useScreenerStore();
+    const plans = usePlansStore();
+    if (refreshInFlight) {
+      // 已有刷新进行中：定时轮询直接跳过，避免慢网络下请求堆积。
+      if (silent) return;
+    }
+    if (!silent) quotes.loading = true;
+    refreshInFlight = true;
+    try {
+      quotes.errorMessage = '';
+      const tasks = [quotes.fetchMarket(), screener.fetchScreener()];
+      const now = Date.now();
+      if (!quotes.indexHistory.length || now - quotes.indexHistoryFetchedAt > 60000) {
+        tasks.push(quotes.fetchHistory('000001', 'index'));
+      }
+      if (
+        !quotes.selectedHistory.length ||
+        quotes.selectedHistoryCode !== quotes.selectedCode ||
+        now - quotes.selectedHistoryFetchedAt > 60000
+      ) {
+        tasks.push(quotes.fetchHistory(quotes.selectedCode, 'selected'));
+      }
+      const results = await Promise.allSettled(tasks);
+      serverStaleAge.value = null; // 每轮刷新重置服务端陈旧标记
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length && !quotes.market.quotes.length && !screener.screenRows.length && !serverStaleAge.value) {
+        quotes.dataState = 'error';
+        quotes.errorMessage = (failures[0] as any).reason?.message || '真实行情暂时不可用';
+      } else if (failures.length && !serverStaleAge.value) {
+        quotes.dataState = 'stale';
+        quotes.errorMessage = '行情接口部分失败，当前页面保留最近一次成功数据。';
+      } else if (serverStaleAge.value !== null) {
+        quotes.dataState = 'stale';
+        const ageSeconds = serverStaleAge.value;
+        quotes.errorMessage = `行情源暂时不可用，展示服务器缓存的真实行情（约 ${
+          ageSeconds >= 60 ? Math.round(ageSeconds / 60) + ' 分钟前' : '刚获取'
+        }）。`;
+      } else {
+        quotes.dataState = 'live';
+      }
+      if (quotes.dataState !== lastRecordedDataState) {
+        if (quotes.dataState === 'stale') {
+          addAlert('system', '行情数据降级', '部分接口失败，当前页面保留最近一次成功数据，来源可能已切换。');
+        } else if (quotes.dataState === 'error') {
+          addAlert('system', '行情获取失败', quotes.errorMessage || '真实行情暂时不可用。');
+        } else if (quotes.dataState === 'live' && lastRecordedDataState && lastRecordedDataState !== 'live') {
+          addAlert('system', '行情已恢复', '实时行情接口恢复正常。');
+        }
+        lastRecordedDataState = quotes.dataState;
+      }
+      if (quotes.market.errors.length && !quotes.errorMessage) {
+        quotes.errorMessage = '部分股票报价暂时不可用，已保留其他实时结果。';
+      }
+      plans.expirePlans();
+      if (failures.length === 0) persist();
+    } finally {
+      refreshInFlight = false;
+      quotes.loading = false;
+      await nextTick();
+      renderIcons();
+    }
+  }
+
+  function armRefreshTimer() {
+    clearInterval(refreshTimer.value);
+    const settings = useSettingsStore();
+    const intervalSeconds = Math.max(5, Number(settings.settingsDraft.refreshInterval) || 15);
+    refreshTimer.value = setInterval(() => {
+      const quotes = useQuotesStore();
+      if (monitorEnabled.value && quotes.hasWatchTargets) refreshAll({ silent: true });
+    }, intervalSeconds * 1000);
+  }
+
   const activePlans = computed(() =>
     plans.value.filter((plan) => plan.status === '执行中' || plan.status === '已触发')
   );
@@ -266,6 +347,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     monitorEnabled,
     workspaceSyncTimer,
     serverStaleAge,
+    refreshTimer,
     loadStorage,
     requestJson,
     renderIcons,
@@ -280,6 +362,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pushLocalWorkspace,
     forceSaveWorkspace,
     loadWorkspace,
+    refreshAll,
+    armRefreshTimer,
     activePlans,
     unreadAlerts,
   };
