@@ -19,7 +19,7 @@ repos:
         pass_filenames: false
       - id: prettier
         name: prettier
-        entry: npx prettier --write "frontend/**/*.{js,html,css}" "tests/frontend/*.js"
+        entry: npx prettier --write "frontend/**/*.{js,html,css,ts}" "tests/frontend/*.{js,ts}"
         language: system
         pass_filenames: false
       - id: node-check

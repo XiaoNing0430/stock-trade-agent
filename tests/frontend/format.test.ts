@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   formatNumber,
@@ -12,7 +12,7 @@ import {
   trendClass,
   escapeHtml,
   validityExpiry,
-} from '../../frontend/modules/format.js';
+} from '@/modules/format';
 
 test('formatNumber 正常值保留指定位数', () => {
   assert.equal(formatNumber(1234.567), '1,234.57');
@@ -88,21 +88,21 @@ test('escapeHtml 转义全部特殊字符', () => {
 
 test('validityExpiry 今日/本周/本月/未知', () => {
   const ts = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 周四
-  const end = validityExpiry(ts, '今日');
+  const end = validityExpiry(ts, '今日')!;
   assert.equal(new Date(end).getHours(), 23);
   assert.equal(new Date(end).getMinutes(), 59);
   assert.equal(new Date(end).getSeconds(), 59);
   assert.equal(new Date(end).getDate(), 15);
 
-  const week = validityExpiry(ts, '本周内');
+  const week = validityExpiry(ts, '本周内')!;
   assert.equal(new Date(week).getDay(), 0); // 周日末
   assert.equal(new Date(week).getDate(), 18); // 2026-01-15 周四 → 周日 18 日
 
-  const month = validityExpiry(ts, '本月内');
+  const month = validityExpiry(ts, '本月内')!;
   assert.equal(new Date(month).getMonth(), 0); // 1 月
   assert.equal(new Date(month).getDate(), 31); // 月末
 
-  const unknown = validityExpiry(ts, '自定义');
+  const unknown = validityExpiry(ts, '自定义')!;
   assert.equal(new Date(unknown).getDate(), 15); // 回落当日末
 
   assert.equal(validityExpiry(0, '今日'), null);
