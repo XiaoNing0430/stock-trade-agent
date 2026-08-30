@@ -104,6 +104,23 @@ def test_save_workspace_roundtrip_dedup_and_cleanup():
     assert updated["revision"] == 2
 
 
+def test_save_workspace_removes_orphaned_alerts():
+    """删除分支：第二次保存时移除 alert → 触发 session.delete(existing_alert)"""
+    payload = {
+        "watchlist": [],
+        "plans": [],
+        "alerts": [{"id": "alert-1", "kind": "info", "title": "t", "message": "m", "read": False}],
+    }
+    storage_module.save_workspace(payload, WS)
+    # 第二次保存：移除 alert-1
+    cleaned = storage_module.save_workspace({"watchlist": [], "plans": [], "alerts": []}, WS)
+    assert len(cleaned["alerts"]) == 0
+    # 重新读取确认持久化
+    reloaded = storage_module.get_workspace(WS)
+    assert len(reloaded["alerts"]) == 0
+    assert reloaded["revision"] == 2
+
+
 def test_save_workspace_settings_roundtrip_and_clamping():
     saved = storage_module.save_workspace_settings(
         {

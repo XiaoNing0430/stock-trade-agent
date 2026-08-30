@@ -1333,3 +1333,93 @@ def test_screener_v2_upstream_failure_returns_502(monkeypatch):
         resp = client.get("/api/screener/v2")
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_lifespan_survives_storage_init_failure(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "initialize_storage",
+        lambda: (_ for _ in ()).throw(RuntimeError("db init down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/health")
+    assert resp.status_code == 200
+
+
+def test_lifespan_survives_scheduler_failure(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "start_scheduler",
+        lambda: (_ for _ in ()).throw(RuntimeError("scheduler down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/health")
+    assert resp.status_code == 200
+
+
+def test_grid_strategy_status_update_storage_failure_returns_503(monkeypatch):
+    strategy = {"id": "g1", "workspaceId": "default", "status": "启用", "schedule": "manual"}
+    monkeypatch.setattr(app_module, "get_grid_strategy", lambda sid: dict(strategy), raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "save_grid_strategy",
+        lambda payload, workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/grid/strategies/g1", json={"status": "暂停"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_grid_strategy_delete_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_grid_strategy", lambda sid, workspace_id="default": True, raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "unschedule_strategy",
+        lambda sid: (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/grid/strategies/g1")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_strategy_status_update_storage_failure_returns_503(monkeypatch):
+    strategy = {"id": "s1", "workspaceId": "default", "status": "启用", "schedule": "manual"}
+    monkeypatch.setattr(app_module, "get_strategy", lambda sid: dict(strategy), raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "save_strategy",
+        lambda payload, workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/strategy/strategies/s1", json={"status": "暂停"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_strategy_delete_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_generic_strategy", lambda sid, workspace_id="default": True, raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "unschedule_strategy",
+        lambda sid: (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/strategy/strategies/s1")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_strategy_delete_not_found_returns_404(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_generic_strategy", lambda sid, workspace_id="default": False, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/strategy/strategies/absent")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "NOT_FOUND"
