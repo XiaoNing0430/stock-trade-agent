@@ -26,3 +26,20 @@
 - 自定义主题/配色
 - 历史回测结果对比与导出
 - 提醒方式扩展（邮件、Webhook 等）
+
+## 依赖升级跟踪（方向 4）
+
+### 已完成（v0.4.0 后安全升级）
+- **lucide** `1.37.0` → `1.38.0`（minor）
+- **APScheduler** `3.10.4` → `3.11.3`（minor，后端测试全绿）
+- **akshare** `1.18.83` → `1.18.94`（minor，数据源补丁）
+
+### 待评估（major，有破坏性风险，需独立 feature 分支验证）
+- **eslint** `9.39.5` → `10.x`：flat config 大版本，需验证 eslint.config.js 兼容性
+- **@eslint/js** `9.39.5` → `10.x`：随 eslint 一起升级
+- **typescript** `5.9.3` → `7.0`：TS 7 为全新大版本，vue-tsc / @typescript-eslint 兼容性未知，风险最高
+- **alembic** `1.14.1` → `1.19.x`：迁移框架大版本，需验证 baseline 迁移与 autogenerate 行为
+
+### 升级纪律
+- 每个 major 升级走独立 `feature/*` 分支 + 全量验证（vue-tsc / eslint / vitest / pytest / build）
+- minor 补丁升级可直接进 develop（已验证 3 例全绿）
