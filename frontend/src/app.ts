@@ -1,5 +1,5 @@
-// @ts-nocheck — 迁移期策略：此文件自 frontend/app.js 机械迁移（函数体零改动），
-// strict TS 对其产生大量隐式 any 报错。Phase 3（eng-refactor）将把 monolith setup()
+// 迁移期策略：此文件自 frontend/app.js 机械迁移（函数体零改动），
+// Phase 3（eng-refactor）将把 monolith setup()
 // 拆解为 8 个 Pinia store 时正式补全类型并移除本注释。
 import { watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
@@ -92,7 +92,7 @@ export const appOptions = {
           document.activeElement?.tagName !== 'TEXTAREA'
         ) {
           event.preventDefault();
-          document.querySelector('.global-search input')?.focus();
+          (document.querySelector('.global-search input') as HTMLInputElement | null)?.focus();
         }
         const shortcut = { 1: 'overview', 2: 'screener', 3: 'grid', 4: 'plans', 5: 'monitor' }[event.key];
         if (shortcut && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA')

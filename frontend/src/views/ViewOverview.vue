@@ -203,7 +203,7 @@ const grid = useGridStore();
 
 const {
   fetchedLabel, todayLabel, errorMessage, selectedIndex, indices, marketStatus, loading,
-  indexHistory, selectedStock,
+  indexHistory,
 } = storeToRefs(quotes);
 const { breadth, screenRows, filteredRows, presetName, presetHits } = storeToRefs(screener);
 const { strategyStats, riskStats } = storeToRefs(strategy);

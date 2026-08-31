@@ -1,12 +1,27 @@
-// eslint.config.js — ESLint 9 flat config（项目无打包器、无 TS，JS + 全局 Vue）
-// Phase 6 会补齐 typescript-eslint 类型感知规则；此处仅做最小 TS 解析支持。
+// eslint.config.js — ESLint 9 flat config（TS + Vue SFC 全覆盖）
+// Phase 6：引入 typescript-eslint 推荐规则集与 eslint-plugin-vue，覆盖 frontend/src 下 .ts / .vue。
 import js from '@eslint/js';
 import globals from 'globals';
-import tsParser from '@typescript-eslint/parser';
+import tseslint from 'typescript-eslint';
+import vue from 'eslint-plugin-vue';
 
 export default [
   { ignores: ['node_modules/**', 'frontend/vendor/**', 'frontend/dist/**', 'tests/frontend/**'] },
   js.configs.recommended,
+  ...tseslint.configs.recommended,
+  ...vue.configs['flat/recommended'],
+  {
+    files: ['frontend/src/**/*.{ts,vue}'],
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser, extraFileExtensions: ['.vue'] },
+      globals: { ...globals.browser },
+    },
+    rules: {
+      // 后端返回的行情字段常含动态结构，显式 any 是既有约定
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
   {
     files: ['frontend/**/*.js'],
     languageOptions: {
@@ -17,20 +32,6 @@ export default [
     rules: {
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-console': 'off',
-    },
-  },
-  {
-    files: ['frontend/src/**/*.ts'],
-    languageOptions: {
-      parser: tsParser,
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: { ...globals.browser },
-    },
-    rules: {
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-      // TS 全局类型（RequestInit 等）由 vue-tsc 校验，eslint 不重复检查
-      'no-undef': 'off',
     },
   },
   {
