@@ -102,6 +102,13 @@ FastAPI 文档地址：<http://127.0.0.1:4173/docs>
 
 从 `.env.example` 创建本地 `.env`，填写 PostgreSQL 和 Redis 连接信息。`.env` 已被 Git 忽略，不能提交真实密码。
 
+**数据库直连**：应用启动时通过 `.env` 中的环境变量直接连接 PostgreSQL 与 Redis，无需额外配置或代理：
+
+- `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — PostgreSQL 连接信息（默认 `127.0.0.1:5432`，库名 `stock_trade_agent`）。
+- `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB` — Redis 连接信息（默认 `127.0.0.1:6379`，db 15）。
+
+若 PostgreSQL / Redis 未就绪，服务仍可启动：后端在 `/api/health` 中如实报告 `storage` 状态（`database` / `redis` 为 `false`），不会伪造可用性；前端保留浏览器缓存并在服务恢复后再次同步。
+
 ## 免责声明
 
 本工具用于研究和流程管理，不构成投资建议。网格回测使用日线数据，默认按 T+1 可卖、100 股整数倍、最低佣金、股票卖出印花税、沪市过户费和单边滑点计算，ETF 不计印花税。参数优化采用 70% 训练期选参、30% 验证期排名。实际成交会受盘口、滑点、停牌和涨跌停限制影响；不要将回测结果视为实盘收益预测。

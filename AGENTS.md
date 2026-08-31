@@ -1,162 +1,169 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository.
+AI 编码代理在此仓库中工作的指引。
 
-## What This Is
+## 项目简介
 
-**Atlas Trading Desk** — a local, single-user A-share (Chinese stock market) research & trading-desk web application. Real quote data drives a screener, trade plans, a price-trigger monitoring center, and grid-strategy backtesting. It is a **research tool, not an execution system**: it never connects to a broker and never sends orders.
+**Atlas 交易工作台** — 一个本地单用户的 A 股研究交易工作台 Web 应用。实时行情驱动选股器、交易计划、价格触发盯盘中心和网格策略回测。这是一个**研究工具，非执行系统**：从不连接券商，不发送交易指令。
 
-UI copy is Chinese. Keep new user-facing strings in Chinese unless a task says otherwise.
+UI 使用中文。除非任务另有说明，新用户可见字符串保持中文。
 
-## Tech Stack
+## 技术栈
 
-- **Frontend:** Vue 3 + TypeScript 5.9 (strict) + Vite 8 + Pinia 4 + vitest 4 + @vue/test-utils + lucide. Source in `frontend/src/` (stores/, modules/, views/, types/, api/, app.ts, main.ts, App.vue). Built by Vite, served as static files or via Vite dev server.
-- **Backend:** Python / FastAPI + SQLAlchemy 2.0 + Pydantic v2 + Alembic 1.14 (migrations in `backend/migrations/`) + APScheduler (grid backtest scheduling) + ruff + mypy + pytest-cov.
-- **Data source:** Tencent public quote API (`qt.gtimg.cn`, `web.ifzq.gtimg.cn`). Only data source currently integrated.
-- **Config:** `.env` (git-ignored) sourced from `.env.example`.
+- **前端：** Vue 3 + TypeScript 5.9 (strict) + Vite 8 + Pinia 4 + vitest 4 + @vue/test-utils + lucide。源码位于 `frontend/src/`（stores/, modules/, views/, types/, api/, app.ts, main.ts, App.vue）。由 Vite 构建，通过 Vite 开发服务器或静态文件提供服务。
+- **后端：** Python / FastAPI + SQLAlchemy 2.0 + Pydantic v2 + Alembic 1.14（迁移脚本在 `backend/migrations/`）+ APScheduler（网格回测调度）+ ruff + mypy + pytest-cov。
+- **数据源：** Tencent 公开行情接口（`qt.gtimg.cn`, `web.ifzq.gtimg.cn`）。当前唯一集成的数据源。
+- **配置：** `.env`（Git 忽略）基于 `.env.example` 创建。
 
-## Project Layout
+## 数据库直连
+
+应用启动时通过 `.env` 环境变量直接连接 PostgreSQL 与 Redis：
+
+- `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — PostgreSQL 连接信息（默认 `127.0.0.1:5432`，库名 `stock_trade_agent`）。
+- `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB` — Redis 连接信息（默认 `127.0.0.1:6379`，db 15）。
+
+若 PostgreSQL 或 Redis 不可达，服务仍可启动：后端在 `/api/health` 中如实报告存储状态（`database` / `redis` 为 `false`），不会伪造可用性。前端在服务不可达时保留浏览器缓存，恢复后自动同步。
+
+## 项目布局
 
 ```
-server.py                 Dev entrypoint — starts uvicorn on 127.0.0.1:4173
+server.py                 开发入口 — 在 127.0.0.1:4173 启动 uvicorn
 backend/
-  app.py                  FastAPI app, all /api routes, serves frontend
-  main.py                 python -m backend.main entrypoint
-  data_source.py          Tencent quote API adapter + classification + fetch/retry + runtime config
-  grid_strategy.py        Grid math: build_grid, suggest_grid, backtest_grid, optimize_grid (+ benchmark/risk metrics)
-  grid_scheduler.py       APScheduler wrappers for daily grid backtests (Asia/Shanghai)
-  schemas.py              24 Pydantic request/response models (+ 1 alias)
-  storage.py              SQLAlchemy models + persistence helpers (10 tables)
-  strategy_engines.py     Strategy backtest engines (grid, SMA, DCA, MACD)
-  settings.py             pydantic-settings; env (POSTGRES_*, REDIS_*, TUSHARE_TOKEN)
-  migrations/             Alembic migration scripts (baseline + forward)
+  app.py                  FastAPI 应用，所有 /api 路由，提供前端静态资源
+  main.py                 python -m backend.main 入口
+  data_source.py          Tencent 行情适配器 + 分类 + 请求/重试 + 运行时配置
+  grid_strategy.py        网格策略计算：build_grid, suggest_grid, backtest_grid, optimize_grid（含基准/风险指标）
+  grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）
+  schemas.py              24 个 Pydantic 请求/响应模型（+ 1 个别名）
+  storage.py              SQLAlchemy 模型 + 持久化助手（10 张表）
+  strategy_engines.py     通用策略引擎（网格, SMA, DCA, MACD）
+  settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN）
+  migrations/             Alembic 迁移脚本（基线 + 前向迁移）
 frontend/
-  index.html              Vite entry HTML — references /src/main.ts
+  index.html              Vite 入口 HTML — 引用 /src/main.ts
   src/
-    main.ts               Vue app bootstrap (createApp, Pinia, mount)
-    app.ts                Vue app setup, router, polling, error handling
-    App.vue               Root SFC — layout shell
-    styles.css            All styling (CSS variables, single file)
+    main.ts               Vue 应用启动（createApp, Pinia, 挂载）
+    app.ts                Vue 应用设置、路由、轮询、错误处理
+    App.vue               根布局 SFC
+    styles.css            全部样式（CSS 变量，单文件）
     api/
-      client.ts           Axios-like fetch wrapper
-    stores/               8 Pinia stores
+      client.ts           类似 Axios 的 fetch 封装
+    stores/               8 个 Pinia 状态仓库
       useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
       useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
       useAlertsStore.ts / useSettingsStore.ts
-    modules/              Pure logic helpers
+    modules/              纯逻辑模块
       constants.ts / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
-    views/                7 SFC views
+    views/                7 个 SFC 视图
       ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
       ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
     types/
-      models.ts           TypeScript type definitions
+      models.ts           TypeScript 类型定义
 tests/
-  test_backend_api.py     FastAPI routes + data_source parsing (+ HTTP retry/backoff, runtime config)
-  test_grid_strategy.py   Grid math (+ benchmark/risk metrics, candidate robustness)
+  test_backend_api.py     FastAPI 路由 + data_source 解析（含 HTTP 重试/退避、运行时配置）
+  test_grid_strategy.py   网格策略计算（含基准/风险指标、候选稳健性）
   test_grid_scheduler_coverage.py
-  test_settings_api.py    Settings API + default settings assertions
-  test_schemas.py         Pydantic model validation tests
+  test_settings_api.py    设置 API + 默认设置断言
+  test_schemas.py         Pydantic 模型验证测试
   test_storage_coverage.py
   test_strategy_engines.py
-  frontend/               10 vitest test files (66 tests total)
-docs/superpowers/          specs/ + plans/ (design & implementation docs)
-.worktrees/                git worktrees (git-ignored)
+  frontend/               10 个 vitest 测试文件（共 66 项测试）
+docs/superpowers/         文档/计划（设计及实现文档）
+.worktrees/                git worktrees（Git 忽略）
 ```
 
-## Running the App
+## 运行应用
 
-The app supports **dual-track** operation:
+应用支持**双轨**运行：
 
-### Development (hot-reload mode)
+### 开发模式（热重载）
 
 ```powershell
-# From the repo root. Requires PostgreSQL + Redis reachable (see .env).
+# 从仓库根目录执行。需要 PostgreSQL + Redis 可达（见 .env）。
 npm run dev
 ```
 
-This starts both the Vite dev server on `:5173` (frontend HMR) and the FastAPI backend on `:4173` (API). Frontend proxies `/api` requests to the backend.
+同时启动 Vite 开发服务器（`:5173`，前端 HMR）和 FastAPI 后端（`:4173`，API）。前端将 `/api` 请求代理到后端。
 
-Open <http://127.0.0.1:5173>. API docs at <http://127.0.0.1:4173/docs>.
+打开 <http://127.0.0.1:5173>。API 文档位于 <http://127.0.0.1:4173/docs>。
 
-### Production (static build)
+### 生产模式（静态构建）
 
 ```powershell
-npm run build
-python server.py
-# or
-python -m backend.main
+npm run build       # 先执行 vue-tsc --noEmit 类型检查 + vite build → 输出到 frontend/dist/
+python server.py    # 或 python -m backend.main
 ```
 
-`npm run build` runs `vue-tsc --noEmit` (type checking) + `vite build` → outputs to `frontend/dist/`. The FastAPI backend serves the static build on `:4173`.
+`npm run build` 执行 `vue-tsc --noEmit`（类型检查）+ `vite build` → 输出到 `frontend/dist/`。FastAPI 后端在 `:4173` 提供静态构建。
 
-Open <http://127.0.0.1:4173>.
+打开 <http://127.0.0.1:4173>。
 
-**Compatibility:** If `frontend/dist/` does not exist, `python server.py` falls back to serving the raw `frontend/` source files — but this requires the Vite dev server to be running separately for the frontend to function. Without either `dist/` or `npm run dev`, the frontend is unavailable (the backend API still works).
+**兼容性：** 若 `frontend/dist/` 不存在，`python server.py` 回退到提供原始 `frontend/` 源文件——但这需要 Vite 开发服务器单独运行前端才能正常。没有 `dist/` 或 `npm run dev` 时，前端不可用（后端 API 仍可工作）。
 
-`.env` is git-ignored. Copy `.env.example` to `.env` and fill in `POSTGRES_*` / `REDIS_*` before first run. Never commit real credentials.
+`.env` 被 Git 忽略。首次运行前复制 `.env.example` 为 `.env`，填写 `POSTGRES_*` / `REDIS_*`。切勿提交真实凭据。
 
-## Testing
+## 测试
 
 ```powershell
-npm run verify                        # full regression: vitest + vue-tsc + pytest
-npx vitest run                        # frontend unit tests (66 tests, 10 files, jsdom + @vue/test-utils)
-python -m pytest tests/ -v            # backend tests (139 tests, fast + offline via monkeypatch)
+npm run verify                        # 完整回归：vitest + vue-tsc + pytest
+npx vitest run                        # 前端单元测试（66 项，10 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（139 项，快速离线 monkeypatch 模式）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
-pre-commit run --all-files            # run all pre-commit hooks (ruff / mypy / eslint / prettier / vue-tsc)
+pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/mypy/eslint/prettier/vue-tsc）
 ```
 
-Notes:
+注意：
 
-- Backend pytest runs with coverage (≥80% gate, currently 97.8%).
-- Pre-commit hooks (`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`) run automatically on `git commit`.
-- `npm run build` also runs `vue-tsc --noEmit` as a type-check gate before Vite bundling.
+- 后端 pytest 运行覆盖率（≥80% 门禁，当前 97.8%）。
+- Pre-commit 钩子（`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`）在 `git commit` 时自动执行。
+- `npm run build` 也会在 Vite 打包前执行 `vue-tsc --noEmit` 作为类型检查门禁。
 
-## Key Conventions / Rules
+## 关键约定 / 规则
 
-- **Never fill missing data with mock values.** The frontend shows `--` / empty states instead. Quote failures must surface as cache/stale/error states, never fabricated prices.
-- **Preserve existing API field names.** Adding fields is fine; renaming/removing breaks the Vue frontend.
-- **Timestamps:** the canonical machine timestamp is `createdAtMs` — epoch **milliseconds** (`Date.now()` on the frontend, `int(created_at.timestamp() * 1000)` on the backend). `createdAt` is a display convenience string (`HH:MM`). Format for display with `formatTime(ms)`.
-- **Plan `status` values:** `执行中`, `已触发`, `已过期`, `已归档`. `activePlans` on the frontend shows only `执行中`/`已触发`.
-- **Price-trigger semantics are direction-aware:** for a `buy` plan, `price <= stop` (stop-loss) and `price >= target` (take-profit); for a `sell` plan (already holding), `price >= target` (take-profit sell) and `price <= stop` (stop-loss sell).
-- **Grid backtest assumptions are deliberately conservative and disclosed** (T+1, 100-share lots, min commission, stamp duty, transfer fee, slippage, price limits, suspensions; 70/30 train/validation split). Do not present backtest returns as future performance.
-- **Classify instruments** via `classify_code()` (exchange / board / securityType). Price-limit ratios differ by board (北交所 30%, 创业板/科创板 20%, else 10%).
-- **Explicit `any` is an accepted convention** in `frontend/src/` for dynamically structured quote payloads from external APIs (`eslint.config.js` sets `@typescript-eslint/no-explicit-any: 'off'`). Keep the type surface as narrow as practical; prefer precise types for new code.
-- **Security:** XSS-sensitive spots are `showToast` (must use `textContent`) and `chartSvg` (must `escapeHtml` interpolated labels). Keep that discipline.
-- **Frontend polling** is driven by `armRefreshTimer()` and honors `settingsDraft.refreshInterval`; `refreshAll()` guards against concurrent runs via `refreshInFlight`.
-- **Workspace sync is revision-locked:** `GET /api/workspace` returns `revision`; `PUT /api/workspace` accepts `baseRevision` (conflict → 409 with the server snapshot in `detail.workspace`) and `force=true` to override. The frontend keeps the latest known `revision` in `workspaceRevision` and resolves 409 by `settingsDraft.conflictPolicy`: `server` (default) auto-adopts the server snapshot, `local` auto-force-saves the local one, `ask` shows the conflict banner with "采用服务器版本" / "用本地覆盖" actions — never auto-retry a 409.
-- **Grid backtest day classification:** suspension = `volume <= 0` only. A one-price day (`high == low`, volume > 0) at limit-up is tradeable for sells only; at limit-down, buys only. Counters: `onePriceLimitUpDays` / `onePriceLimitDownDays` (new metrics fields, additive).
+- **绝不使用模拟值填充缺失数据。** 前端显示 `--` / 空状态代替。行情失败必须展现为缓存/过期/错误状态，绝不出造价格。
+- **保留现有 API 字段名。** 新增字段可接受；重命名/删除会破坏 Vue 前端。
+- **时间戳：** 标准机器时间戳为 `createdAtMs` — 自 epoch 开始的**毫秒数**（前端 `Date.now()`，后端 `int(created_at.timestamp() * 1000)`）。`createdAt` 是显示便利字符串（`HH:MM`）。使用 `formatTime(ms)` 格式化显示。
+- **计划 `status` 值：** `执行中`、`已触发`、`已过期`、`已归档`。前端 `activePlans` 仅显示 `执行中`/`已触发`。
+- **价格触发语义方向感知：** 对于 `buy` 计划，`price <= stop`（止损）且 `price >= target`（止盈）；对于 `sell` 计划（已持仓），`price >= target`（止盈卖出）且 `price <= stop`（止损卖出）。
+- **网格回测假设保守且已披露**（T+1、100 股整数倍、最低佣金、股票卖出印花税、过户费、滑点、涨跌停限制、停牌；70/30 训练/验证拆分）。请勿将回测结果视为未来收益。
+- **通过 `classify_code()` 分类交易品种**（交易所 / 板块 / 证券类型）。涨跌幅限制因板块而异（北交所 30%，创业板/科创板 20%，其他 10%）。
+- **显式 `any` 是接受的约定**，用于前端 `frontend/src/` 中来自外部 API 的动态行情结构（`eslint.config.js` 设置了 `@typescript-eslint/no-explicit-any: 'off'`）。保持类型面尽可能窄；新代码优先使用精确类型。
+- **安全性：** XSS 敏感点为 `showToast`（必须使用 `textContent`）和 `chartSvg`（必须使用 `escapeHtml` 转义插值标签）。保持此纪律。
+- **前端轮询** 由 `armRefreshTimer()` 驱动，遵循 `settingsDraft.refreshInterval`；`refreshAll()` 通过 `refreshInFlight` 防止并发运行。
+- **工作区同步修订锁定：** `GET /api/workspace` 返回 `revision`；`PUT /api/workspace` 接受 `baseRevision`（冲突 → 409，`detail.workspace` 包含服务器快照）和 `force=true` 覆盖。前端在 `workspaceRevision` 中维护最新已知修订，通过 `settingsDraft.conflictPolicy` 解决 409：`server`（默认）自动采用服务器快照，`local` 自动强制保存本地版本，`ask` 显示冲突横幅"采用服务器版本" / "用本地覆盖"——绝不自动重试 409。
+- **网格回测日线分类：** 停牌 = `volume <= 0`。一字板（`high == low`, volume > 0）在涨停时仅可卖出，跌停时仅可买入。计数器：`onePriceLimitUpDays` / `onePriceLimitDownDays`（新增指标字段，累加性）。
 
-## Git Workflow — Git Flow (mandatory)
+## Git 工作流 — Git Flow（强制）
 
-**The repository REQUIRES Git Flow. All feature / release / hotfix work must go through Git Flow branches.**
+**仓库要求使用 Git Flow。所有功能 / 发布 / 修复工作必须通过 Git Flow 分支进行。**
 
-- Branches: `main` (releases, tagged), `develop` (integration), `feature/*` (off `develop`), `release/*`, `hotfix/*`.
-- Never commit feature work directly to `main` or `develop` — branch from `develop` with `feature/*`, then `git flow feature finish`.
-- Commands (`git-flow-avh`):
-  - `git flow feature start <name>` (off `develop`)
-  - ... do work + commit ...
-  - `git flow feature finish <name>` (merge `--no-ff` into `develop`)
-  - `git flow release start v0.x.y` / `git flow release finish v0.x.y` (into `main` + tag + sync `develop`)
-- `git flow init` requires a **clean working tree** — stash uncommitted changes first.
-- The harness command runner cannot execute git in this repo — run git commands yourself and paste output when reporting.
+- 分支：`main`（发布，带标签）、`develop`（集成）、`feature/*`（从 `develop` 拉出）、`release/*`、`hotfix/*`。
+- 绝不直接向 `main` 或 `develop` 提交功能工作——从 `develop` 创建 `feature/*`，然后 `git flow feature finish`。
+- 命令（`git-flow-avh`）：
+  - `git flow feature start <name>`（基于 `develop`）
+  - ... 完成工作 + 提交 ...
+  - `git flow feature finish <name>`（`--no-ff` 合并到 `develop`）
+  - `git flow release start v0.x.y` / `git flow release finish v0.x.y`（合并到 `main` + 打标签 + 同步 `develop`）
+- `git flow init` 需要**干净的工作树**——先暂存未提交的更改。
+- 本工具链无法直接执行 git 命令——请自行运行 git 命令并在报告时粘贴输出。
 
-### Commit Message Convention
+### 提交信息约定
 
-- **Subject (first line) MUST be written in Chinese.**
-- Use Conventional Commits type prefixes (`feat` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore`), optionally followed by a Chinese subject.
-  - e.g. `feat: 新增全市场选股与分页`, `fix: 修复计划有效期过期逻辑`, `docs: 完善 AGENTS.md`.
-- Body (optional) in Chinese preferred — explain what changed and why.
-- One commit per logical change; keep commits small and reviewable.
+- **主题行（第一行）必须使用中文。**
+- 使用 Conventional Commits 类型前缀（`feat` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore`），可选后接中文主题。
+  - 例如：`feat: 新增全市场选股与分页`, `fix: 修复计划有效期过期逻辑`, `docs: 完善 AGENTS.md`.
+- 正文（可选）建议使用中文——说明变更内容及原因。
+- 每次提交对应一个逻辑变更；保持提交小巧可审查。
 
-## Storage & Data Notes
+## 存储与数据说明
 
-- PostgreSQL stores watchlist, trade plans, alerts, grid strategies/backtests, market bars, and workspace settings. Redis is only pinged for `storage_status()`; the actual quote cache is an in-memory `dict` in `data_source.py`. The HTTP timeout/retry/cache-TTL are driven by workspace settings via `data_source.apply_runtime_config(...)` (defaults: TTL 8s, timeout 10s, retry 1).
-- The screener currently uses a curated ~50-stock universe (`REAL_UNIVERSE` in `data_source.py`). Expanding to the full A-share market is Phase 2 — do not silently expand it.
-- Schema migrations use **Alembic** (`backend/migrations/`). Baseline migration at `c1a08e78583e_baseline_schema.py`. Add new migrations via `alembic revision --autogenerate -m "description"` and review the generated script before committing.
+- PostgreSQL 存储自选股、交易计划、提醒、网格策略/回测、行情 K 线和工作区设置。Redis 仅用于 `storage_status()` 的 ping 检测；实际行情缓存是 `data_source.py` 中的内存 `dict`。HTTP 超时/重试/缓存 TTL 由工作区设置通过 `data_source.apply_runtime_config(...)` 驱动（默认：TTL 8s，超时 10s，重试 1 次）。
+- 选股器当前使用约 50 只精选股票池（`data_source.py` 中的 `REAL_UNIVERSE`）。扩展至全 A 股市场是 Phase 2 — 请勿静默扩展。
+- 数据库迁移使用 **Alembic**（`backend/migrations/`）。基线迁移在 `c1a08e78583e_baseline_schema.py`。新增迁移通过 `alembic revision --autogenerate -m "描述"` 生成，提交前检查生成的脚本。
 
-## When to Ask
+## 何时询问
 
-Stop and ask rather than guessing when: a raw test/verification fails, an instruction is ambiguous, you're about to exceed the current phase's non-goals (no broker integration, no full-market screener, no new strategy types, no UI rebrand), or the git state is unexpected.
+在以下情况应停止并询问，而非猜测：原始测试/验证失败、指令不明确、即将超出当前阶段的非目标（无券商集成、无全市场选股器、无新策略类型、无 UI 重构）、或 git 状态异常。
