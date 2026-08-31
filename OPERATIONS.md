@@ -122,10 +122,52 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:4173/api/grid/preview -Cont
 
 ## 工程化工具链
 
-- **代码规范**：ESLint 9 flat config（typescript-eslint + eslint-plugin-vue，覆盖 `.ts` / `.vue`，0 error）、Prettier 3（前端）、ruff check + format（后端，line-length 120）、mypy（后端类型检查）。
-- **pre-commit 钩子**：`.pre-commit-config.yaml` 配置 ruff --fix / ruff-format / mypy / eslint / prettier / vue-tsc，`git commit` 时自动运行。
-- **GitHub Actions CI**：`.github/workflows/ci.yml` 三个 job —— `backend`（ruff + mypy + pytest，含 postgres:16 service）、`frontend`（vue-tsc + eslint + vitest）、`build`（`npm run build` 后启动 `python server.py` 并探测 `/api/health` 与首页）。
-- **覆盖率门禁**：pytest 通过 `--cov=backend --cov-fail-under=80` 强制后端覆盖率 ≥80%（实测 97.8%）。
+### 代码规范
+
+| 工具 | 范围 | 配置 | 说明 |
+|---|---|---|---|
+| ESLint 9 flat config | `frontend/src/**/*.{ts,vue}` | `eslint.config.js` | typescript-eslint + eslint-plugin-vue；`no-explicit-any: off`（动态行情负载约定）；`tests/frontend/**` 忽略 |
+| Prettier 3 | 前端 | `.prettierrc` | 与 ESLint 无冲突 |
+| ruff check + format | `backend/ tests/ server.py` | `pyproject.toml` | line-length 120，select E/F/W/I/UP |
+| mypy | `backend/` | `pyproject.toml` | strict-lite 配置 |
+
+### npm scripts 收口
+
+| 脚本 | 等价命令 | 用途 |
+|---|---|---|
+| `npm run dev` | concurrently 双端 | Vite HMR (:5173) + FastAPI (:4173) |
+| `npm run build` | `vue-tsc --noEmit && vite build` | 类型门禁 + 打包到 `frontend/dist/` |
+| `npm run verify` | vitest → vue-tsc → pytest | 一键全量回归 |
+| `npm run test:e2e` | `playwright test --config=e2e/playwright.config.ts` | Playwright e2e（需先启动前端服务） |
+| `npm run lint` / `npm run format` | eslint + ruff / prettier + ruff-format | 静态检查 / 格式化 |
+
+### pre-commit 钩子
+
+`.pre-commit-config.yaml` 按序执行：`ruff --fix` → `ruff-format` → `mypy` → `eslint` → `prettier` → `vue-tsc --noEmit`。`git commit` 时自动运行，任一失败则提交中止；ruff-format 修改文件后需重新 `git add` 再提交。
+
+### GitHub Actions CI
+
+`.github/workflows/ci.yml` 三个并行 job：
+
+- **backend**：`ruff check` → `ruff format --check` → `mypy` → `pytest`（覆盖率门禁），使用 **postgres:16 service container**（CI 环境无法连本地开发库）。
+- **frontend**：`vue-tsc --noEmit` → `eslint` → `vitest run`。
+- **build**：`npm ci` → `npm run build` → `python server.py` 启动 → `curl` 探测 `/api/health` 与首页。
+
+### 覆盖率门禁
+
+pytest 通过 `--cov=backend --cov-fail-under=80` 强制后端覆盖率 ≥80%（实测 97.8%）。前端 vitest 66 项（jsdom + @vue/test-utils）+ Playwright e2e 冒烟（`e2e/`）。
+
+### Docker 部署（v0.4.1+）
+
+- `Dockerfile`：multi-stage —— node:22-alpine 构建前端 → python:3.13-slim 运行后端，`HEALTHCHECK` 探测 `/api/health`。
+- `docker-compose.yml`：postgres:16 + redis:7 + app 三服务，`depends_on` 健康检查；宿主端口 5433/6380（避开本机已有 PostgreSQL/Redis）。
+- 构建产物在镜像内（`COPY --from=frontend-build`），**不挂载** `./frontend/dist` 以避免遮蔽镜像内构建。
+- 启动：`docker compose up -d --build`；停止：`docker compose down`。
+
+### 依赖升级纪律
+
+- **minor / patch**：验证全绿后可直接进 develop（v0.4.1 已升级 lucide 1.38 / APScheduler 3.11 / akshare 1.18.94）。
+- **major**：有破坏性风险（eslint 10、TS 7、alembic 1.19），须走独立 `feature/*` 分支 + 全量验证。跟踪清单见 `ROADMAP.md`。
 
 ## Git 操作
 
