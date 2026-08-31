@@ -8,7 +8,7 @@ import { usePlansStore } from '@/stores/usePlansStore';
 import type { Plan } from '@/types/models';
 
 // renderIcons() 在 onMounted 时调用 createIcons 扫描 DOM，测试中替换为 no-op。
-vi.mock('lucide', () => ({ createIcons: vi.fn() }));
+vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 
 const activePlan: Plan = {
   id: 'p1',

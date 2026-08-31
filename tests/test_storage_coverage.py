@@ -45,6 +45,13 @@ def test_storage_status_database_failure(monkeypatch):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(storage_module, "SessionLocal", boom)
+
+    # 同时 mock Redis ping，确保与 Redis 可用性无关（CI 无 Redis 时也确定通过）
+    class _FakeRedis:
+        def ping(self) -> bool:
+            return True
+
+    monkeypatch.setattr(storage_module, "redis_client", lambda: _FakeRedis())
     status = storage_module.storage_status()
     assert status["database"] is False
     assert status["redis"] is True

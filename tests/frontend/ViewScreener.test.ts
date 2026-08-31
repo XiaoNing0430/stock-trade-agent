@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
 
-vi.mock('lucide', () => ({ createIcons: vi.fn() }));
+vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 
 const makeRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
   code: '600519',

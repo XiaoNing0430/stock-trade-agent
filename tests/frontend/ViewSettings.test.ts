@@ -6,7 +6,7 @@ import { useAlertsStore } from '@/stores/useAlertsStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 
-vi.mock('lucide', () => ({ createIcons: vi.fn() }));
+vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 
 describe('ViewSettings', () => {
   beforeEach(() => {
