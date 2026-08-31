@@ -101,14 +101,14 @@ const strategy = useStrategyStore();
 
 const {
   strategyType, strategyTypeLabel, STRATEGY_TYPES, strategySchema, strategyLoading,
-  strategySuggestion, strategyResult, strategyProvenance, normalizedStrategyCode,
+  strategyResult, strategyProvenance, normalizedStrategyCode,
   strategyInstrument, hasStrategyResult, strategies, strategyDraft,
 } = storeToRefs(strategy);
 const {
   gridDraft, gridLoading, gridSuggestion, gridResult, gridInstrument, normalizedGridCode,
   hasGridSuggestion, hasGridResult, gridCandidates, gridStrategies, gridProvenance,
 } = storeToRefs(grid);
-const { switchStrategyType, previewStrategy, backtestStrategy, loadStrategy, toggleStrategy, deleteStrategy } = strategy;
+const { switchStrategyType, backtestStrategy, loadStrategy, toggleStrategy, deleteStrategy } = strategy;
 const { previewGrid, backtestGrid, optimizeGrid, loadGridStrategy, toggleGridStrategy, deleteGridStrategy } = grid;
 const { renderIcons } = workspace;
 
