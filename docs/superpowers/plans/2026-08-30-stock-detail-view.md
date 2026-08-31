@@ -21,7 +21,7 @@
 
 **Files:** 无
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
 ```bash
 git flow feature start stock-detail-view
@@ -40,7 +40,7 @@ git flow feature start stock-detail-view
 - Produces: `detailReturnView`（ref<string>）、`backFromDetail()`（函数，切回来源视图）、`selectStock(code, fromView?)`（函数，fromView 可选）
 - Consumes: 现有 `view` ref、`persist()`、`ensureQuote()`、`fetchHistory()`、`nextTick`、`renderIcons()`
 
-- [ ] **Step 1: constants.js 追加 VIEW_META**
+- [x] **Step 1: constants.js 追加 VIEW_META**
 
 `frontend/modules/constants.js` 中 `VIEW_META` 对象（在 settings 条目附近）追加：
 
@@ -48,7 +48,7 @@ git flow feature start stock-detail-view
   'stock-detail': ['个股详情', '报价、走势与操作入口'],
 ```
 
-- [ ] **Step 2: app.js 新增 detailReturnView ref**
+- [x] **Step 2: app.js 新增 detailReturnView ref**
 
 在 `const selectedCode = ref(...)` 附近追加：
 
@@ -56,7 +56,7 @@ git flow feature start stock-detail-view
     const detailReturnView = ref('screener');
 ```
 
-- [ ] **Step 3: 扩展 selectStock 并新增 backFromDetail**
+- [x] **Step 3: 扩展 selectStock 并新增 backFromDetail**
 
 将现有 `async function selectStock(code)`（当前为 `selectedCode.value = code; persist(); switchView('screener'); ...`）替换为：
 
@@ -84,7 +84,7 @@ git flow feature start stock-detail-view
     }
 ```
 
-- [ ] **Step 4: return 导出**
+- [x] **Step 4: return 导出**
 
 在 setup `return { ... }` 中加入：
 
@@ -93,7 +93,7 @@ git flow feature start stock-detail-view
       backFromDetail,
 ```
 
-- [ ] **Step 5: 验证 + 提交**
+- [x] **Step 5: 验证 + 提交**
 
 ```bash
 node --check frontend/app.js
@@ -117,7 +117,7 @@ git commit -m "feat: 新增个股详情视图状态与来源返回导航"
 - Consumes: `view === 'stock-detail'`、`backFromDetail`、`detailReturnView`、`selectedStock`、`selectedHistory`、`chartDataSource`、`formatNullable`、`formatPctNullable`、`trendClass`、`formatAmount`、`formatMoney`、`toggleWatch`、`isWatched`、`openGridStrategy`、`createPlan`、`chartSvg`
 - Produces: 详情视图 section；移除选股器底部 `selected-stock-panel`
 
-- [ ] **Step 1: 搬移详情面板为独立视图**
+- [x] **Step 1: 搬移详情面板为独立视图**
 
 将选股器视图（`view === 'screener'` section）底部 477-500 行的 `<section class="selected-stock-panel surface">...</section>` **整体移除**，并在 `view === 'grid'` 的 `<section v-else-if="view === 'grid'" ...>` **之前**插入新视图：
 
@@ -160,13 +160,13 @@ git commit -m "feat: 新增个股详情视图状态与来源返回导航"
         </section>
 ```
 
-- [ ] **Step 2: 版本号**
+- [x] **Step 2: 版本号**
 
 `index.html` 中：
 - `app.js?v=20260830-3` → `app.js?v=20260830-4`
 - `styles.css?v=20260830-2` → `styles.css?v=20260830-3`
 
-- [ ] **Step 3: 闭包检查 + 提交**
+- [x] **Step 3: 闭包检查 + 提交**
 
 ```bash
 node --check frontend/app.js
@@ -186,7 +186,7 @@ git commit -m "feat: 抽取独立个股详情视图并移除选股器底部详�
 **Files:**
 - Modify: `frontend/styles.css`
 
-- [ ] **Step 1: 详情视图头部/返回按钮样式**
+- [x] **Step 1: 详情视图头部/返回按钮样式**
 
 文件末尾追加：
 
@@ -200,7 +200,7 @@ git commit -m "feat: 抽取独立个股详情视图并移除选股器底部详�
 
 说明：详情视图复用现有 `.view-heading` / `.selected-stock-panel` / `.selected-stock-summary` 等类样式，无需新增大量 CSS；返回按钮用现有 `.button.button-secondary` 基础样式 + `.detail-return-btn` 微调间距（可选，若不需要可省略此 CSS 块）。
 
-- [ ] **Step 2: 验证 + 提交**
+- [x] **Step 2: 验证 + 提交**
 
 ```bash
 node --check frontend/app.js
@@ -214,7 +214,7 @@ git commit -m "style: 个股详情视图返回按钮样式"
 
 **Files:** 无新增
 
-- [ ] **Step 1: 前端回归**
+- [x] **Step 1: 前端回归**
 
 ```bash
 node --check frontend/app.js
@@ -222,16 +222,16 @@ node --check frontend/app.js
 
 闭包检查脚本通过（134+ 根标识符全解析）。
 
-- [ ] **Step 2: 浏览器手动验证**
+- [x] **Step 2: 浏览器手动验证**
 
-- [ ] 从「总览」点迷你股票 → 进入详情页，返回按钮回总览
-- [ ] 从「选股·精选」点行 → 详情页；「选股·全市场」点行 → 详情页；返回均回选股器且模式/分页保留
-- [ ] 从「盯盘」点行 → 详情页，返回回盯盘
-- [ ] 选股器视图不再有底部详情面板（页面明显变短）
-- [ ] 详情页「加入自选」「网格策略」「制定计划」按钮可用
-- [ ] 走势图正常渲染，来源角标显示「实时·腾讯」/「本地缓存」
+- [x] 从「总览」点迷你股票 → 进入详情页，返回按钮回总览
+- [x] 从「选股·精选」点行 → 详情页；「选股·全市场」点行 → 详情页；返回均回选股器且模式/分页保留
+- [x] 从「盯盘」点行 → 详情页，返回回盯盘
+- [x] 选股器视图不再有底部详情面板（页面明显变短）
+- [x] 详情页「加入自选」「网格策略」「制定计划」按钮可用
+- [x] 走势图正常渲染，来源角标显示「实时·腾讯」/「本地缓存」
 
-- [ ] **Step 3: 完成分支**
+- [x] **Step 3: 完成分支**
 
 ```bash
 git flow feature finish stock-detail-view

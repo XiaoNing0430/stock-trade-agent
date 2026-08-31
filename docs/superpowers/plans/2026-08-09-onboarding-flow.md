@@ -27,13 +27,13 @@
 - 使用：`normalizedGridCode`、`hasGridSuggestion`、`hasGridResult`、`previewGrid()`。
 - 新增：`restoreGridSuggestion(): Promise<void>`，仅在恢复网格页时执行已有建议请求。
 
-- [ ] **步骤 1：记录当前脚本语法基线**
+- [x] **步骤 1：记录当前脚本语法基线**
 
 运行：`node --check frontend/app.js`
 
 预期：退出码为 0。
 
-- [ ] **步骤 2：添加恢复辅助函数**
+- [x] **步骤 2：添加恢复辅助函数**
 
 ```js
 async function restoreGridSuggestion() {
@@ -43,11 +43,11 @@ async function restoreGridSuggestion() {
 }
 ```
 
-- [ ] **步骤 3：在初始化刷新行情后调用恢复辅助函数**
+- [x] **步骤 3：在初始化刷新行情后调用恢复辅助函数**
 
 在 `onMounted` 的 `await refreshAll()` 后调用 `await restoreGridSuggestion()`，使标的报价已加载后再请求建议。
 
-- [ ] **步骤 4：验证脚本语法**
+- [x] **步骤 4：验证脚本语法**
 
 运行：`node --check frontend/app.js`
 
@@ -64,7 +64,7 @@ async function restoreGridSuggestion() {
 - 使用：`watchlistCodes`、`monitorEnabled`、`switchView()`。
 - 新增：`hasWatchTargets`、`monitorStatusLabel`、`monitorNextScan` 计算属性。
 
-- [ ] **步骤 1：添加盯盘就绪状态**
+- [x] **步骤 1：添加盯盘就绪状态**
 
 ```js
 const hasWatchTargets = computed(() => watchlistCodes.value.length > 0);
@@ -72,11 +72,11 @@ const monitorStatusLabel = computed(() => !hasWatchTargets.value ? '等待添加
 const monitorNextScan = computed(() => !hasWatchTargets.value ? '尚未开始' : monitorEnabled.value ? '15 秒' : '已暂停');
 ```
 
-- [ ] **步骤 2：将盯盘页绑定到状态**
+- [x] **步骤 2：将盯盘页绑定到状态**
 
 状态标签改用 `monitorStatusLabel`；“立即扫描”仅在存在标的时启用；下一次扫描统计卡使用 `monitorNextScan` 和“自动 / 待配置”补充说明。
 
-- [ ] **步骤 3：添加空状态主操作**
+- [x] **步骤 3：添加空状态主操作**
 
 在无自选标的时加入：
 
@@ -86,7 +86,7 @@ const monitorNextScan = computed(() => !hasWatchTargets.value ? '尚未开始' :
 </button>
 ```
 
-- [ ] **步骤 4：执行浏览器验证**
+- [x] **步骤 4：执行浏览器验证**
 
 刷新后停在网格策略页，确认 `588000` 自动出现建议；盯盘列表为空时确认显示“等待添加标的”“尚未开始”和主操作按钮。
 
@@ -97,7 +97,7 @@ const monitorNextScan = computed(() => !hasWatchTargets.value ? '尚未开始' :
 - 修改：任务 1、任务 2 的前端文件
 - 测试：`tests/`
 
-- [ ] **步骤 1：运行自动化检查**
+- [x] **步骤 1：运行自动化检查**
 
 ```powershell
 node --check frontend/app.js
@@ -107,11 +107,11 @@ git diff --check
 
 预期：所有测试通过，且无差异格式错误。
 
-- [ ] **步骤 2：验证 390px 窄屏**
+- [x] **步骤 2：验证 390px 窄屏**
 
 确认盯盘空状态页面未产生全局横向溢出，且主操作按钮可见。
 
-- [ ] **步骤 3：提交并推送**
+- [x] **步骤 3：提交并推送**
 
 ```bash
 git add frontend/app.js frontend/index.html docs/superpowers/plans/2026-08-09-onboarding-flow.md

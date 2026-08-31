@@ -19,7 +19,7 @@
 
 ### Task 1: 分支准备
 
-- [ ] `git flow feature start stale-cache-fallback`
+- [x] `git flow feature start stale-cache-fallback`
 - Expected: 基于 develop（当前 `65ddd52`）。
 
 ---
@@ -31,7 +31,7 @@
 - Modify: `backend/data_source.py`
 - Modify: `backend/app.py`
 
-- [ ] **Step 1: 先写失败测试**
+- [x] **Step 1: 先写失败测试**
 
 `tests/test_backend_api.py` 追加：
 
@@ -78,11 +78,11 @@ def test_cached_raises_when_stale_too_old_or_absent():
 
 （若与既有测试命名冲突，以现有风格对齐。）
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `python -m pytest tests/test_backend_api.py -q` → 新用例红（KeyError/`recent_stale` 不存在 / 断言失败）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `backend/data_source.py` 顶部常量区追加：
 
@@ -133,7 +133,7 @@ def cached(key: str, loader):
     return value
 ```
 
-- [ ] **Step 4: middleware**
+- [x] **Step 4: middleware**
 
 `backend/app.py` `create_app()` 内、`app = FastAPI(...)` 后追加：
 
@@ -150,7 +150,7 @@ def cached(key: str, loader):
 
 （确认 `backend.app` 已 `from backend import data_source` 或等价引用；若未导入，顶部补 `import backend.data_source as data_source`。`Request` 从 `starlette.requests` 导入或 FastAPI 已导出。）
 
-- [ ] **Step 5: middleware 测试**
+- [x] **Step 5: middleware 测试**
 
 `tests/test_backend_api.py` 追加（monkeypatch `recent_stale` 返回标记）：
 
@@ -166,7 +166,7 @@ def test_stale_header_present_when_recent_stale(monkeypatch):
     assert resp.headers.get("x-atlas-stale") == "300"
 ```
 
-- [ ] **Step 6: 跑测试确认绿 + 提交**
+- [x] **Step 6: 跑测试确认绿 + 提交**
 
 Run: `python -m pytest tests/ -q` → 全绿（40+3 新增）。
 
@@ -182,7 +182,7 @@ git commit -m "feat: 行情接口失败时降级返回缓存并输出陈旧响�
 **Files:**
 - Modify: `frontend/app.js`
 
-- [ ] **Step 1: 状态 + requestJson**
+- [x] **Step 1: 状态 + requestJson**
 
 setup 顶部（`market` ref 附近）追加：
 
@@ -202,7 +202,7 @@ setup 顶部（`market` ref 附近）追加：
 
 （正常响应无头则不清除——由 refreshAll 每轮开头统一重置，见 Step 2。）
 
-- [ ] **Step 2: refreshAll 状态机并入**
+- [x] **Step 2: refreshAll 状态机并入**
 
 `refreshAll` 开头（`results` 计算前）重置：`serverStaleAge.value = null;`
 dataState 判定（554-562）改为：
@@ -224,12 +224,12 @@ dataState 判定（554-562）改为：
 
 （收件箱 `lastRecordedDataState` 状态机不变，自动记录降级/恢复事件。）
 
-- [ ] **Step 3: return 导出 + 版本号**
+- [x] **Step 3: return 导出 + 版本号**
 
 return 对象 `dataState,` 附近追加 `serverStaleAge,`。
 `index.html` app.js 版本 `?v=20260829-6` → `?v=20260830-1`。
 
-- [ ] **Step 4: 验证 + 提交**
+- [x] **Step 4: 验证 + 提交**
 
 Run: `node --check frontend/app.js`；模板绑定闭合检查（复用会话内脚本）。
 
@@ -242,18 +242,18 @@ git commit -m "feat: 前端消费陈旧响应头并披露缓存行情状态"
 
 ### Task 4: 回归、手动验证与收尾
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 Run: `python -m pytest tests/ -q` 与 `node --check frontend/app.js` → 全绿。
 
-- [ ] **Step 2: 浏览器验证**
+- [x] **Step 2: 浏览器验证**
 
 - DevTools Network → Offline → 触发一次刷新 → 页面顶栏「缓存行情」，提示「展示服务器缓存的真实行情（约 X 分钟前）」；收件箱出现「行情数据降级」（冷却合并）
 - Network 面板响应头含 `X-Atlas-Stale`
 - 恢复 Online → 刷新 → 「真实行情」+ 收件箱「行情已恢复」
 - 未降级正常路径不受影响（响应头缺失）
 
-- [ ] **Step 3: 完成分支**
+- [x] **Step 3: 完成分支**
 
 ```bash
 git flow feature finish stale-cache-fallback

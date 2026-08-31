@@ -20,7 +20,7 @@
 
 ### Task 1: 分支准备
 
-- [ ] **Step 1: 开启 feature 分支**
+- [x] **Step 1: 开启 feature 分支**
 
 ```bash
 git flow feature start notification-center
@@ -37,7 +37,7 @@ Expected: 基于 develop（`a764e20`）。
 - Modify: `tests/test_backend_api.py`（workspace GET 断言）
 - Modify: `backend/storage.py:239-271,203-211`
 
-- [ ] **Step 1: 先写失败测试**
+- [x] **Step 1: 先写失败测试**
 
 `tests/test_settings_api.py` 追加（沿用文件内现有断言风格）：
 
@@ -57,12 +57,12 @@ def test_notification_desktop_settings_defaults_and_normalization(client):
 
 `tests/test_backend_api.py` 的 workspace 测试中追加断言：GET `/api/workspace` 的 `alerts` 每项含数值型 `createdAtMs`。
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 Run: `python -m pytest tests/test_settings_api.py tests/test_backend_api.py -q`
 Expected: 新断言失败（KeyError / 断言失败）。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `backend/storage.py` `DEFAULT_WORKSPACE_SETTINGS`（251 行 `conflictPolicy` 后）追加：
 
@@ -84,7 +84,7 @@ Expected: 新断言失败（KeyError / 断言失败）。
         "createdAtMs": int(alert.created_at.timestamp() * 1000),
 ```
 
-- [ ] **Step 4: 跑测试确认绿 + 提交**
+- [x] **Step 4: 跑测试确认绿 + 提交**
 
 Run: `python -m pytest tests/ -q` → 38+ 项全过。
 
@@ -100,11 +100,11 @@ git commit -m "feat: 设置新增桌面通知开关键并输出提醒 createdAtM
 **Files:**
 - Modify: `frontend/app.js`（settingsDraft 初始 152 行、scheduleWorkspaceSync catch 369 行、adoptServerSnapshot 386 行、pushLocalWorkspace 402 行、unreadAlerts 245 行、refreshAll dataState 534-542 行、showToast 前 addAlert 697 行、saveSettings catch、backtestGrid catch、return 导出）
 
-- [ ] **Step 1: settingsDraft 初始键**
+- [x] **Step 1: settingsDraft 初始键**
 
 152 行 reactive 对象追加 `notifyDesktopAlert: true, notifyDesktopSystem: false`。
 
-- [ ] **Step 2: addAlert 冷却合并 + 桌面通知分组**
+- [x] **Step 2: addAlert 冷却合并 + 桌面通知分组**
 
 替换 `addAlert`（697-712）为：
 
@@ -144,7 +144,7 @@ git commit -m "feat: 设置新增桌面通知开关键并输出提醒 createdAtM
 
 （`count` 为本地展示字段，服务端白名单外自动丢弃；重载后由服务端 `createdAtMs` 恢复冷却基点。）
 
-- [ ] **Step 3: 四个系统事件调用点**
+- [x] **Step 3: 四个系统事件调用点**
 
 1. `adoptServerSnapshot`（386）在 `showToast(...)` 前追加：
 
@@ -185,7 +185,7 @@ git commit -m "feat: 设置新增桌面通知开关键并输出提醒 createdAtM
 
 并在 setup 顶部（`refreshInFlight` 声明附近）加 `let lastRecordedDataState = '';`。恢复事件只在实际降级过后记录一次；重复降级由 addAlert 冷却合并。
 
-- [ ] **Step 4: 保存失败接入**
+- [x] **Step 4: 保存失败接入**
 
 - `saveSettings` catch（`showToast(error.message || '设置保存失败', 'error');` 前后）追加 `addAlert('system', '设置保存失败', error.message || '未知错误');`
 - `backtestGrid` catch（838 行附近）改为：
@@ -199,7 +199,7 @@ git commit -m "feat: 设置新增桌面通知开关键并输出提醒 createdAtM
 
 （`savePlan` 为纯前端保存，无服务端失败路径，不接入——同步失败已覆盖。）
 
-- [ ] **Step 5: unreadAlerts 排除系统事件**
+- [x] **Step 5: unreadAlerts 排除系统事件**
 
 245 行改为：
 
@@ -207,7 +207,7 @@ git commit -m "feat: 设置新增桌面通知开关键并输出提醒 createdAtM
     const unreadAlerts = computed(() => alerts.value.filter((alert) => !alert.read && alert.kind !== 'system').length);
 ```
 
-- [ ] **Step 6: 验证 + 提交**
+- [x] **Step 6: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 通过。
 
@@ -228,7 +228,7 @@ git commit -m "feat: 系统事件接入提醒中心并支持冷却合并与分�
 **Interfaces:**
 - Produces: `alertFilter`（ref：'all'/'trade'/'system'）、`filteredAlerts`（computed）
 
-- [ ] **Step 1: app.js 筛选状态**
+- [x] **Step 1: app.js 筛选状态**
 
 `unreadAlerts` computed 后插入：
 
@@ -243,7 +243,7 @@ git commit -m "feat: 系统事件接入提醒中心并支持冷却合并与分�
 
 `return` 导出对象中 `alerts,` 附近追加 `alertFilter, filteredAlerts,`。
 
-- [ ] **Step 2: 提醒中心 UI**
+- [x] **Step 2: 提醒中心 UI**
 
 552 行 surface-heading 后插入筛选条：
 
@@ -255,7 +255,7 @@ git commit -m "feat: 系统事件接入提醒中心并支持冷却合并与分�
 
 554-558 列表改造：`v-for="alert in filteredAlerts"`；空态条件改为 `!filteredAlerts.length`，文案改为"暂无提醒"/"切换分类查看其他提醒。"。
 
-- [ ] **Step 3: 图标兼容 system**
+- [x] **Step 3: 图标兼容 system**
 
 555 行 alert-icon 类与图标 ternary 改为：
 
@@ -265,7 +265,7 @@ git commit -m "feat: 系统事件接入提醒中心并支持冷却合并与分�
 
 228 行（指挥台执行跟踪）图标 ternary 同步加 `alert.kind === 'system' ? 'wrench'` 分支（类名分支保持原样）。
 
-- [ ] **Step 4: 设置页两行开关**
+- [x] **Step 4: 设置页两行开关**
 
 572 行冲突处理策略行后追加：
 
@@ -274,7 +274,7 @@ git commit -m "feat: 系统事件接入提醒中心并支持冷却合并与分�
             <section v-if="settingsTab === 'workspace'" class="surface settings-row"><div><strong>桌面通知：系统事件</strong><span>冲突自愈、行情降级等收件箱事件弹系统通知</span></div><label class="toggle"><input v-model="settingsDraft.notifyDesktopSystem" type="checkbox"><span class="toggle-track"><span></span></span></label></section>
 ```
 
-- [ ] **Step 5: 样式 + 验证 + 提交**
+- [x] **Step 5: 样式 + 验证 + 提交**
 
 styles.css"===== P1 unified trading desk ====="块后追加：
 
@@ -315,12 +315,12 @@ git commit -m "feat: 提醒中心分类筛选与桌面通知设置开关"
 
 ### Task 5: 回归、手动验证与收尾
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 Run: `python -m pytest tests/ -q` 与 `node --check frontend/app.js`
 Expected: 全部通过。
 
-- [ ] **Step 2: 浏览器验证**
+- [x] **Step 2: 浏览器验证**
 
 - 双开标签触发冲突 → 收件箱出现"工作区冲突已自动处理"、角标不亮、桌面通知不弹（system 默认关）
 - 10 分钟内重复冲突 → 合并为 ×N 计数条目
@@ -328,7 +328,7 @@ Expected: 全部通过。
 - 提醒中心三个筛选 chips 正确过滤；清空已读作用于全部
 - 设置两行开关保存/往返（刷新后保持）
 
-- [ ] **Step 3: 完成 feature 分支**
+- [x] **Step 3: 完成 feature 分支**
 
 ```bash
 git flow feature finish notification-center

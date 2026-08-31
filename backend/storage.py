@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from redis import Redis
-from sqlalchemy import DateTime, Float, Integer, JSON, String, UniqueConstraint, create_engine, select, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, select, text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from backend.settings import get_settings
 
@@ -21,7 +21,7 @@ class WatchlistItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
     code: Mapped[str] = mapped_column(String(32), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class TradePlan(Base):
@@ -40,9 +40,9 @@ class TradePlan(Base):
     note: Mapped[str] = mapped_column(String(2000), default="")
     status: Mapped[str] = mapped_column(String(32), default="执行中", index=True)
     triggered: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
 
@@ -55,7 +55,7 @@ class Alert(Base):
     title: Mapped[str] = mapped_column(String(256))
     message: Mapped[str] = mapped_column(String(2000))
     read: Mapped[bool] = mapped_column(default=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
 
 
 class GridStrategy(Base):
@@ -79,9 +79,9 @@ class GridStrategy(Base):
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_backtest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     latest_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
 
@@ -95,11 +95,12 @@ class GridBacktest(Base):
     config: Mapped[dict[str, Any]] = mapped_column(JSON)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
     trade_count: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
 
 
 class Strategy(Base):
     """通用策略（双均线/DCA/MACD 等非网格类型）。网格继续使用 GridStrategy。"""
+
     __tablename__ = "strategies"
 
     id: Mapped[str] = mapped_column(String(96), primary_key=True)
@@ -115,14 +116,15 @@ class Strategy(Base):
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_backtest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     latest_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
 
 class StrategyBacktest(Base):
     """通用策略回测记录。"""
+
     __tablename__ = "strategy_backtests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -133,7 +135,7 @@ class StrategyBacktest(Base):
     config: Mapped[dict[str, Any]] = mapped_column(JSON)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
     trade_count: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
 
 
 class MarketBar(Base):
@@ -151,7 +153,7 @@ class MarketBar(Base):
     volume: Mapped[float | None] = mapped_column(Float, nullable=True)
     amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(64), default="Tencent public quote API")
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class WorkspaceSettings(Base):
@@ -159,7 +161,9 @@ class WorkspaceSettings(Base):
 
     workspace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
 
 
 class WorkspaceState(Base):
@@ -168,7 +172,7 @@ class WorkspaceState(Base):
     workspace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     revision: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
 
@@ -178,13 +182,25 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
 def initialize_storage() -> None:
+    # 注意：正式迁移走 Alembic（backend/migrations/），此处仅兼容历史部署。
+    # 新部署通过 python -m alembic upgrade head 建表，此兜底逻辑对已迁移库无副作用。
     Base.metadata.create_all(engine)
     # Lightweight forward migration for instances created before grid scheduling existed.
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS mode VARCHAR(16) NOT NULL DEFAULT 'classic'"))
-        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS lookback INTEGER NOT NULL DEFAULT 120"))
-        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS settlement_days INTEGER NOT NULL DEFAULT 1"))
-        connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS slippage_bps DOUBLE PRECISION NOT NULL DEFAULT 5"))
+        connection.execute(
+            text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS mode VARCHAR(16) NOT NULL DEFAULT 'classic'")
+        )
+        connection.execute(
+            text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS lookback INTEGER NOT NULL DEFAULT 120")
+        )
+        connection.execute(
+            text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS settlement_days INTEGER NOT NULL DEFAULT 1")
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS slippage_bps DOUBLE PRECISION NOT NULL DEFAULT 5"
+            )
+        )
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS last_backtest_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS latest_metrics JSONB"))
@@ -295,7 +311,10 @@ DEFAULT_WORKSPACE_SETTINGS = {
 
 def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     allowed_sources = {"tencent", "akshare", "tushare"}
-    data = {**DEFAULT_WORKSPACE_SETTINGS, **{key: value for key, value in payload.items() if key in DEFAULT_WORKSPACE_SETTINGS}}
+    data = {
+        **DEFAULT_WORKSPACE_SETTINGS,
+        **{key: value for key, value in payload.items() if key in DEFAULT_WORKSPACE_SETTINGS},
+    }
     for key in ("realtimeSource", "historySource", "screenerSource"):
         if data[key] not in allowed_sources:
             data[key] = "tencent"
@@ -306,7 +325,9 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["cacheSeconds"] = max(2, min(int(data["cacheSeconds"]), 300))
     data["timeoutSeconds"] = max(2, min(int(data["timeoutSeconds"]), 60))
     data["retryCount"] = max(0, min(int(data["retryCount"]), 5))
-    data["conflictPolicy"] = data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"
+    data["conflictPolicy"] = (
+        data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"
+    )
     data["fallbackEnabled"] = bool(data["fallbackEnabled"])
     data["monitorEnabled"] = bool(data["monitorEnabled"])
     data["notifyDesktopAlert"] = bool(data["notifyDesktopAlert"])
@@ -343,22 +364,35 @@ def _bump_workspace_revision(session, workspace_id: str) -> None:
 def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
     watchlist = list(dict.fromkeys(str(code) for code in payload.get("watchlist", []) if code))
     with SessionLocal.begin() as session:
-        existing_watchlist = session.scalars(select(WatchlistItem).where(WatchlistItem.workspace_id == workspace_id)).all()
-        for item in existing_watchlist:
-            session.delete(item)
+        existing_watchlist = session.scalars(
+            select(WatchlistItem).where(WatchlistItem.workspace_id == workspace_id)
+        ).all()
+        for watch_item in existing_watchlist:
+            session.delete(watch_item)
         session.add_all([WatchlistItem(workspace_id=workspace_id, code=code) for code in watchlist])
 
         plans_payload = [item for item in payload.get("plans", []) if item.get("id") and item.get("code")]
         plan_ids = {item["id"] for item in plans_payload}
-        for plan in session.scalars(select(TradePlan).where(TradePlan.workspace_id == workspace_id)).all():
-            if plan.id not in plan_ids:
-                session.delete(plan)
+        for existing_plan in session.scalars(select(TradePlan).where(TradePlan.workspace_id == workspace_id)).all():
+            if existing_plan.id not in plan_ids:
+                session.delete(existing_plan)
         for item in plans_payload:
             if not item.get("id") or not item.get("code"):
                 continue
             plan = session.get(TradePlan, item["id"])
             if plan is None:
-                plan = TradePlan(id=item["id"], workspace_id=workspace_id, code=item["code"], direction=item.get("direction", "buy"), entry=0, stop=0, target=0, capital=0, position=0, validity="本周内")
+                plan = TradePlan(
+                    id=item["id"],
+                    workspace_id=workspace_id,
+                    code=item["code"],
+                    direction=item.get("direction", "buy"),
+                    entry=0,
+                    stop=0,
+                    target=0,
+                    capital=0,
+                    position=0,
+                    validity="本周内",
+                )
                 session.add(plan)
             plan.workspace_id = workspace_id
             plan.code = item["code"]
@@ -375,13 +409,19 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
 
         alerts_payload = [item for item in payload.get("alerts", []) if item.get("id")]
         alert_ids = {item["id"] for item in alerts_payload}
-        for alert in session.scalars(select(Alert).where(Alert.workspace_id == workspace_id)).all():
-            if alert.id not in alert_ids:
-                session.delete(alert)
+        for existing_alert in session.scalars(select(Alert).where(Alert.workspace_id == workspace_id)).all():
+            if existing_alert.id not in alert_ids:
+                session.delete(existing_alert)
         for item in alerts_payload:
             alert = session.get(Alert, item["id"])
             if alert is None:
-                alert = Alert(id=item["id"], workspace_id=workspace_id, kind=item.get("kind", "info"), title=item.get("title", "提醒"), message=item.get("message", ""))
+                alert = Alert(
+                    id=item["id"],
+                    workspace_id=workspace_id,
+                    kind=item.get("kind", "info"),
+                    title=item.get("title", "提醒"),
+                    message=item.get("message", ""),
+                )
                 session.add(alert)
             alert.workspace_id = workspace_id
             alert.kind = item.get("kind", "info")
@@ -447,13 +487,18 @@ def save_grid_strategy(payload: dict[str, Any], workspace_id: str = "default") -
         strategy.schedule = str(payload.get("schedule", "manual"))
         strategy.status = str(payload.get("status", "启用"))
     with SessionLocal() as session:
-        return _grid_strategy_dict(session.get(GridStrategy, strategy_id))
+        saved_strategy = session.get(GridStrategy, strategy_id)
+        if saved_strategy is None:
+            raise RuntimeError(f"网格策略不存在: {strategy_id}")
+        return _grid_strategy_dict(saved_strategy)
 
 
 def list_grid_strategies(workspace_id: str = "default") -> list[dict[str, Any]]:
     with SessionLocal() as session:
         rows = session.scalars(
-            select(GridStrategy).where(GridStrategy.workspace_id == workspace_id).order_by(GridStrategy.updated_at.desc())
+            select(GridStrategy)
+            .where(GridStrategy.workspace_id == workspace_id)
+            .order_by(GridStrategy.updated_at.desc())
         ).all()
         return [_grid_strategy_dict(row) for row in rows]
 
@@ -528,7 +573,9 @@ def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "q
                 continue
             latest_date = trade_date
             row = session.scalars(
-                select(MarketBar).where(MarketBar.code == code, MarketBar.trade_date == trade_date, MarketBar.adjustment == adjustment)
+                select(MarketBar).where(
+                    MarketBar.code == code, MarketBar.trade_date == trade_date, MarketBar.adjustment == adjustment
+                )
             ).first()
             if row is None:
                 row = MarketBar(code=code, trade_date=trade_date, adjustment=adjustment)
@@ -536,11 +583,13 @@ def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "q
             for field in ("open", "high", "low", "close", "volume", "amount"):
                 value = bar.get(field)
                 setattr(row, field, float(value) if value is not None else None)
-            row.fetched_at = datetime.now(timezone.utc)
+            row.fetched_at = datetime.now(UTC)
     return latest_date
 
 
-def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default") -> None:
+def save_grid_backtest(
+    strategy_id: str, code: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default"
+) -> None:
     with SessionLocal.begin() as session:
         session.add(
             GridBacktest(
@@ -554,7 +603,7 @@ def save_grid_backtest(strategy_id: str, code: str, config: dict[str, Any], resu
         )
         strategy = session.get(GridStrategy, strategy_id)
         if strategy:
-            strategy.last_backtest_at = datetime.now(timezone.utc)
+            strategy.last_backtest_at = datetime.now(UTC)
             strategy.latest_metrics = result["metrics"]
 
 
@@ -601,7 +650,10 @@ def save_strategy(payload: dict[str, Any], workspace_id: str = "default") -> dic
         strategy.schedule = str(payload.get("schedule", "manual"))
         strategy.status = str(payload.get("status", "启用"))
     with SessionLocal() as session:
-        return _strategy_dict(session.get(Strategy, strategy_id))
+        saved_strategy = session.get(Strategy, strategy_id)
+        if saved_strategy is None:
+            raise RuntimeError(f"策略不存在: {strategy_id}")
+        return _strategy_dict(saved_strategy)
 
 
 def list_strategies(workspace_id: str = "default") -> list[dict[str, Any]]:
@@ -623,7 +675,9 @@ def delete_strategy(strategy_id: str, workspace_id: str = "default") -> bool:
         strategy = session.get(Strategy, strategy_id)
         if not strategy or strategy.workspace_id != workspace_id:
             return False
-        for backtest in session.scalars(select(StrategyBacktest).where(StrategyBacktest.strategy_id == strategy_id)).all():
+        for backtest in session.scalars(
+            select(StrategyBacktest).where(StrategyBacktest.strategy_id == strategy_id)
+        ).all():
             session.delete(backtest)
         session.delete(strategy)
     return True
@@ -631,9 +685,7 @@ def delete_strategy(strategy_id: str, workspace_id: str = "default") -> bool:
 
 def list_scheduled_strategies() -> list[dict[str, Any]]:
     with SessionLocal() as session:
-        rows = session.scalars(
-            select(Strategy).where(Strategy.status == "启用", Strategy.schedule == "daily")
-        ).all()
+        rows = session.scalars(select(Strategy).where(Strategy.status == "启用", Strategy.schedule == "daily")).all()
         return [_strategy_dict(row) for row in rows]
 
 
@@ -644,7 +696,14 @@ def set_strategy_next_run(strategy_id: str, next_run_at: datetime | None) -> Non
             strategy.next_run_at = next_run_at
 
 
-def save_strategy_backtest(strategy_id: str, code: str, strategy_type: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default") -> None:
+def save_strategy_backtest(
+    strategy_id: str,
+    code: str,
+    strategy_type: str,
+    config: dict[str, Any],
+    result: dict[str, Any],
+    workspace_id: str = "default",
+) -> None:
     with SessionLocal.begin() as session:
         session.add(
             StrategyBacktest(
@@ -659,5 +718,5 @@ def save_strategy_backtest(strategy_id: str, code: str, strategy_type: str, conf
         )
         strategy = session.get(Strategy, strategy_id)
         if strategy:
-            strategy.last_backtest_at = datetime.now(timezone.utc)
+            strategy.last_backtest_at = datetime.now(UTC)
             strategy.latest_metrics = result["metrics"]

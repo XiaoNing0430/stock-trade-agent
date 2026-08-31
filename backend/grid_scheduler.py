@@ -52,15 +52,19 @@ def run_scheduled_strategy(strategy: dict) -> None:
     lookback = int(config.get("lookback", 120))
     history = load_history(strategy["code"], limit=max(20, min(lookback, 240)))
     profile = classify_code(strategy["code"])
-    config.update({
-        "capital": float(strategy.get("capital", 100000)),
-        "feeBps": float(strategy.get("feeBps", 3)),
-        "securityType": profile["securityType"],
-        "exchange": profile["exchange"],
-        "lookback": lookback,
-    })
+    config.update(
+        {
+            "capital": float(strategy.get("capital", 100000)),
+            "feeBps": float(strategy.get("feeBps", 3)),
+            "securityType": profile["securityType"],
+            "exchange": profile["exchange"],
+            "lookback": lookback,
+        }
+    )
     result = engine["backtest"](history, config)
-    save_strategy_backtest(strategy["id"], strategy["code"], strategy_type, strategy, result, strategy.get("workspaceId", "default"))
+    save_strategy_backtest(
+        strategy["id"], strategy["code"], strategy_type, strategy, result, strategy.get("workspaceId", "default")
+    )
 
 
 def schedule_strategy(strategy: dict) -> datetime | None:

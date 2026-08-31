@@ -22,7 +22,9 @@ def build_grid(lower: float, upper: float, grid_count: int) -> list[float]:
     return [round(lower + step * index, 4) for index in range(grid_count + 1)]
 
 
-def suggest_grid(bars: list[dict[str, Any]], grid_count: int = 8, capital: float = 100000, mode: str = "classic") -> dict[str, Any]:
+def suggest_grid(
+    bars: list[dict[str, Any]], grid_count: int = 8, capital: float = 100000, mode: str = "classic"
+) -> dict[str, Any]:
     closes = [float(bar["close"]) for bar in bars if bar.get("close") is not None]
     if len(closes) < 2:
         raise ValueError("至少需要 2 个交易日的数据")
@@ -35,19 +37,28 @@ def suggest_grid(bars: list[dict[str, Any]], grid_count: int = 8, capital: float
     lot_size = max(100, floor(per_grid_amount / reference_price / 100) * 100)
     minimum_capital = ceil(max(100 * upper * grid_count * 0.35, 10000) / 100) * 100
     return {
-        "lower": round(lower, 2), "upper": round(upper, 2), "center": round(center, 2),
-        "referencePrice": round(reference_price, 2), "step": round(step, 3),
-        "upTriggerPct": round(step / reference_price * 100, 2), "downTriggerPct": round(step / reference_price * 100, 2),
-        "perGridAmount": round(per_grid_amount, 2), "lotSize": lot_size,
-        "suggestedCapital": round(max(capital, minimum_capital), 2), "minimumCapital": round(minimum_capital, 2),
+        "lower": round(lower, 2),
+        "upper": round(upper, 2),
+        "center": round(center, 2),
+        "referencePrice": round(reference_price, 2),
+        "step": round(step, 3),
+        "upTriggerPct": round(step / reference_price * 100, 2),
+        "downTriggerPct": round(step / reference_price * 100, 2),
+        "perGridAmount": round(per_grid_amount, 2),
+        "lotSize": lot_size,
+        "suggestedCapital": round(max(capital, minimum_capital), 2),
+        "minimumCapital": round(minimum_capital, 2),
         "mode": mode,
         "buyRule": "价格下跌一个网格买入" if mode == "classic" else "价格上涨一个网格买入",
         "sellRule": "价格上涨一个网格卖出" if mode == "classic" else "价格下跌一个网格卖出",
-        "levels": build_grid(lower, upper, grid_count), "lookback": len(closes),
+        "levels": build_grid(lower, upper, grid_count),
+        "lookback": len(closes),
     }
 
 
-def transaction_fee(side: str, value: float, fee_bps: float, security_type: str = "股票", exchange: str = "上交所") -> float:
+def transaction_fee(
+    side: str, value: float, fee_bps: float, security_type: str = "股票", exchange: str = "上交所"
+) -> float:
     commission_rate = fee_bps / 10000
     commission = max(5.0, value * commission_rate)
     stamp_duty = value * 0.0005 if security_type == "股票" and side == "sell" else 0.0
@@ -56,8 +67,11 @@ def transaction_fee(side: str, value: float, fee_bps: float, security_type: str 
 
 
 def buy_and_hold_benchmark(
-    bars: list[dict[str, Any]], capital: float, fee_bps: float = 3,
-    security_type: str = "股票", exchange: str = "上交所",
+    bars: list[dict[str, Any]],
+    capital: float,
+    fee_bps: float = 3,
+    security_type: str = "股票",
+    exchange: str = "上交所",
 ) -> dict[str, Any]:
     """Buy-and-hold reference: fill max 100-share lots on the first close, hold to the last."""
     if not bars:
@@ -65,14 +79,16 @@ def buy_and_hold_benchmark(
     first_close = float(bars[0]["close"])
     last_close = float(bars[-1]["close"])
     lots = floor(capital / first_close / 100) * 100
-    while lots and lots * first_close + transaction_fee("buy", lots * first_close, fee_bps, security_type, exchange) > capital:
+    while (
+        lots
+        and lots * first_close + transaction_fee("buy", lots * first_close, fee_bps, security_type, exchange) > capital
+    ):
         lots -= 100
     invested = lots * first_close if lots else 0
     cash = capital - invested - (transaction_fee("buy", invested, fee_bps, security_type, exchange) if lots else 0)
     end_equity = cash + lots * last_close if lots else cash
     curve = [
-        {"date": bar.get("date", ""), "equity": round((cash + lots * float(bar["close"])) / capital, 6)}
-        for bar in bars
+        {"date": bar.get("date", ""), "equity": round((cash + lots * float(bar["close"])) / capital, 6)} for bar in bars
     ]
     return {
         "endEquity": round(end_equity, 2),
@@ -82,9 +98,18 @@ def buy_and_hold_benchmark(
 
 
 def backtest_grid(
-    bars: list[dict[str, Any]], lower: float, upper: float, grid_count: int, capital: float,
-    fee_bps: float = 3, mode: str = "classic", security_type: str = "股票",
-    exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5, price_limit_pct: float = 0.1,
+    bars: list[dict[str, Any]],
+    lower: float,
+    upper: float,
+    grid_count: int,
+    capital: float,
+    fee_bps: float = 3,
+    mode: str = "classic",
+    security_type: str = "股票",
+    exchange: str = "上交所",
+    settlement_days: int = 1,
+    slippage_bps: float = 5,
+    price_limit_pct: float = 0.1,
 ) -> dict[str, Any]:
     if len(bars) < 2 or capital <= 0:
         raise ValueError("历史数据或本金无效")
@@ -163,7 +188,16 @@ def backtest_grid(
                 cash -= value + trade_fee
                 shares += lots
                 lots_held.append({"shares": lots, "available_day": day_index + settlement_days})
-                trades.append({"date": date, "side": "buy", "triggerPrice": round(level, 2), "price": round(execution_price, 2), "shares": lots, "fee": round(trade_fee, 2)})
+                trades.append(
+                    {
+                        "date": date,
+                        "side": "buy",
+                        "triggerPrice": round(level, 2),
+                        "price": round(execution_price, 2),
+                        "shares": lots,
+                        "fee": round(trade_fee, 2),
+                    }
+                )
 
         for level in sell_levels:
             eligible = sum(lot["shares"] for lot in lots_held if lot["available_day"] <= day_index)
@@ -182,37 +216,64 @@ def backtest_grid(
             trade_fee = fee("sell", value)
             cash += value - trade_fee
             shares -= lots
-            trades.append({"date": date, "side": "sell", "triggerPrice": round(level, 2), "price": round(execution_price, 2), "shares": lots, "fee": round(trade_fee, 2)})
+            trades.append(
+                {
+                    "date": date,
+                    "side": "sell",
+                    "triggerPrice": round(level, 2),
+                    "price": round(execution_price, 2),
+                    "shares": lots,
+                    "fee": round(trade_fee, 2),
+                }
+            )
 
         equity_curve.append(cash + shares * close)
         previous_close = close
 
-    end_equity = equity_curve[-1]
     benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
     equity_curve_normalized = [
-        {"date": bar.get("date", ""), "equity": round(eq / capital, 6)}
-        for bar, eq in zip(bars, equity_curve)
+        {"date": bar.get("date", ""), "equity": round(eq / capital, 6)} for bar, eq in zip(bars, equity_curve)
     ]
-    metrics = _compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange,
-        skipped_limit_up_days, skipped_limit_down_days, skipped_suspension_days,
-        one_price_limit_up_days, one_price_limit_down_days)
+    metrics = _compute_metrics(
+        bars,
+        trades,
+        equity_curve,
+        capital,
+        fee_bps,
+        security_type,
+        exchange,
+        skipped_limit_up_days,
+        skipped_limit_down_days,
+        skipped_suspension_days,
+        one_price_limit_up_days,
+        one_price_limit_down_days,
+    )
     return {
         "levels": levels,
         "trades": trades[-100:],
         "equityCurve": equity_curve_normalized,
         "benchmarkCurve": benchmark["curve"],
         "metrics": metrics,
-        "assumptions": ("经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
-                        f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"
-                        "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"),
+        "assumptions": (
+            "经典网格按日内先低后高触发；趋势网格按日内先高后低触发。"
+            f"按 100 股整数倍、T+{settlement_days} 可卖、{slippage_bps} BP 滑点和股票/ETF差异化费用计算。"
+            "一字涨停日仅可卖出、一字跌停日仅可买入，停牌日整日跳过。"
+        ),
     }
 
 
 def _compute_metrics(
-    bars: list[dict[str, Any]], trades: list[dict[str, Any]], equity_curve: list[float],
-    capital: float, fee_bps: float, security_type: str, exchange: str,
-    skipped_limit_up_days: int = 0, skipped_limit_down_days: int = 0,
-    skipped_suspension_days: int = 0, one_price_limit_up_days: int = 0,
+    bars: list[dict[str, Any]],
+    trades: list[dict[str, Any]],
+    equity_curve: list[float],
+    capital: float,
+    fee_bps: float,
+    security_type: str,
+    exchange: str,
+    skipped_limit_up_days: int = 0,
+    skipped_limit_down_days: int = 0,
+    skipped_suspension_days: int = 0,
+    one_price_limit_up_days: int = 0,
     one_price_limit_down_days: int = 0,
 ) -> dict[str, Any]:
     """统一指标计算：收益/回撤/夏普/胜率/round-trip/利润因子等。
@@ -233,15 +294,17 @@ def _compute_metrics(
     excess_return_pct = round(total_return * 100 - benchmark_return_pct, 2)
 
     # Risk-adjusted metrics from the strategy daily equity curve.
-    daily_returns = [equity_curve[i] / equity_curve[i - 1] - 1 for i in range(1, len(equity_curve)) if equity_curve[i - 1]]
+    daily_returns = [
+        equity_curve[i] / equity_curve[i - 1] - 1 for i in range(1, len(equity_curve)) if equity_curve[i - 1]
+    ]
     vol = None
     if len(daily_returns) >= 2:
         sample_vol = stdev(daily_returns)
         if sample_vol > 0:
             vol = sample_vol
     mean_daily = mean(daily_returns) if daily_returns else 0.0
-    annualized_volatility = round(vol * (252 ** 0.5) * 100, 2) if vol else None
-    sharpe = round(mean_daily / vol * (252 ** 0.5), 2) if vol and len(daily_returns) >= 20 else None
+    annualized_volatility = round(vol * (252**0.5) * 100, 2) if vol else None
+    sharpe = round(mean_daily / vol * (252**0.5), 2) if vol and len(daily_returns) >= 20 else None
     total_fees = round(sum(trade["fee"] for trade in trades), 2)
     turnover_multiple = round(sum(trade["price"] * trade["shares"] for trade in trades) / capital, 2)
 
@@ -320,19 +383,56 @@ def _max_drawdown_duration(equity_curve: list[float]) -> int:
 
 
 def optimize_grid(
-    bars: list[dict[str, Any]], capital: float, fee_bps: float = 3, mode: str = "classic",
-    security_type: str = "股票", exchange: str = "上交所", settlement_days: int = 1, slippage_bps: float = 5, price_limit_pct: float = 0.1,
+    bars: list[dict[str, Any]],
+    capital: float,
+    fee_bps: float = 3,
+    mode: str = "classic",
+    security_type: str = "股票",
+    exchange: str = "上交所",
+    settlement_days: int = 1,
+    slippage_bps: float = 5,
+    price_limit_pct: float = 0.1,
 ) -> list[dict[str, Any]]:
     split_index = max(2, int(len(bars) * 0.7))
-    training_bars, validation_bars = bars[:split_index], bars[split_index - 1:]
+    training_bars, validation_bars = bars[:split_index], bars[split_index - 1 :]
     baseline = suggest_grid(training_bars, grid_count=8, capital=capital, mode=mode)
-    center, lower_gap, upper_gap = baseline["center"], baseline["center"] - baseline["lower"], baseline["upper"] - baseline["center"]
+    center, lower_gap, upper_gap = (
+        baseline["center"],
+        baseline["center"] - baseline["lower"],
+        baseline["upper"] - baseline["center"],
+    )
     candidates = []
     for grid_count in (6, 8, 10, 12):
         for multiplier in (0.8, 1.0, 1.2):
             lower, upper = max(0.01, center - lower_gap * multiplier), center + upper_gap * multiplier
-            in_sample = backtest_grid(training_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct)
-            out_of_sample = backtest_grid(validation_bars, lower, upper, grid_count, capital, fee_bps, mode, security_type, exchange, settlement_days, slippage_bps, price_limit_pct)
+            in_sample = backtest_grid(
+                training_bars,
+                lower,
+                upper,
+                grid_count,
+                capital,
+                fee_bps,
+                mode,
+                security_type,
+                exchange,
+                settlement_days,
+                slippage_bps,
+                price_limit_pct,
+            )
+            out_of_sample = backtest_grid(
+                validation_bars,
+                lower,
+                upper,
+                grid_count,
+                capital,
+                fee_bps,
+                mode,
+                security_type,
+                exchange,
+                settlement_days,
+                slippage_bps,
+                price_limit_pct,
+            )
             in_metrics = in_sample["metrics"]
             out_metrics = out_of_sample["metrics"]
             if len(validation_bars) < 20:
@@ -347,16 +447,18 @@ def optimize_grid(
                 or out_metrics["sellCount"] == 0
                 or out_metrics["excessReturnPct"] <= 0
             )
-            candidates.append({
-                "gridCount": grid_count,
-                "lower": round(lower, 2),
-                "upper": round(upper, 2),
-                "step": round((upper - lower) / grid_count, 3),
-                "inSampleMetrics": in_metrics,
-                "metrics": out_metrics,
-                "flag": flag,
-                "recommended": recommended,
-            })
+            candidates.append(
+                {
+                    "gridCount": grid_count,
+                    "lower": round(lower, 2),
+                    "upper": round(upper, 2),
+                    "step": round((upper - lower) / grid_count, 3),
+                    "inSampleMetrics": in_metrics,
+                    "metrics": out_metrics,
+                    "flag": flag,
+                    "recommended": recommended,
+                }
+            )
 
     def sort_key(item: dict[str, Any]) -> tuple[float, float, float]:
         m = item["metrics"]

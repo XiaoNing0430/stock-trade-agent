@@ -21,7 +21,7 @@
 
 **Files:** 无
 
-- [ ] **Step 1: 开启 feature 分支**
+- [x] **Step 1: 开启 feature 分支**
 
 ```bash
 git flow feature start conflict-policy-toast-fix
@@ -41,7 +41,7 @@ Expected: 基于 `develop`（d81ef4a）创建并切换。
 - Consumes: `_normalize_workspace_settings(payload: dict) -> dict`（纯函数）、`DEFAULT_WORKSPACE_SETTINGS: dict`
 - Produces: `data["conflictPolicy"] ∈ {"server","local","ask"}`，缺省/非法回退 `"server"`；随 `GET/PUT /api/settings` 的 `data` 自动透出
 
-- [ ] **Step 1: 写失败测试**（`tests/test_settings_api.py` 末尾追加）
+- [x] **Step 1: 写失败测试**（`tests/test_settings_api.py` 末尾追加）
 
 ```python
 def test_conflict_policy_normalization_defaults_and_whitelist():
@@ -54,12 +54,12 @@ def test_conflict_policy_normalization_defaults_and_whitelist():
     assert _normalize_workspace_settings({"conflictPolicy": "bogus"})["conflictPolicy"] == "server"
 ```
 
-- [ ] **Step 2: 确认失败**
+- [x] **Step 2: 确认失败**
 
 Run: `python -m pytest tests/test_settings_api.py -v`
 Expected: FAIL——`KeyError: 'conflictPolicy'`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `backend/storage.py` 的 `DEFAULT_WORKSPACE_SETTINGS` 末尾（`"retryCount": 1,` 之后）加一行：
 
@@ -73,12 +73,12 @@ Expected: FAIL——`KeyError: 'conflictPolicy'`。
     data["conflictPolicy"] = data["conflictPolicy"] if data["conflictPolicy"] in {"server", "local", "ask"} else "server"
 ```
 
-- [ ] **Step 4: 确认通过 + 全量回归**
+- [x] **Step 4: 确认通过 + 全量回归**
 
 Run: `python -m pytest tests/ -q`
 Expected: 38 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add backend/storage.py tests/test_settings_api.py
@@ -97,14 +97,14 @@ git commit -m "feat: workspace 设置新增冲突处理策略归一化"
 - Consumes: Task 2 的 `settingsDraft.conflictPolicy`；既有 409 契约 `error.payload.detail.workspace`
 - Produces: 冲突分派行为（server/local 自动、ask 横幅）；设置页可改策略并持久化
 
-- [ ] **Step 1: `settingsDraft` 初始值加字段**（`retryCount: 1` 之后）
+- [x] **Step 1: `settingsDraft` 初始值加字段**（`retryCount: 1` 之后）
 
 ```js
       retryCount: 1,
       conflictPolicy: 'server'
 ```
 
-- [ ] **Step 2: 重构助手并分派**（替换现有 `adoptServerWorkspace` 与 `forceSaveWorkspace` 两个函数为以下四个，位置不变）
+- [x] **Step 2: 重构助手并分派**（替换现有 `adoptServerWorkspace` 与 `forceSaveWorkspace` 两个函数为以下四个，位置不变）
 
 ```js
     function adoptServerSnapshot(snapshot, auto = false) {
@@ -143,7 +143,7 @@ git commit -m "feat: workspace 设置新增冲突处理策略归一化"
     }
 ```
 
-- [ ] **Step 3: 409 分支按策略分派**（`scheduleWorkspaceSync` 的 catch 中，替换现有 `if (error.status === 409 ...)` 整段）
+- [x] **Step 3: 409 分支按策略分派**（`scheduleWorkspaceSync` 的 catch 中，替换现有 `if (error.status === 409 ...)` 整段）
 
 ```js
         } catch (error) {
@@ -165,13 +165,13 @@ git commit -m "feat: workspace 设置新增冲突处理策略归一化"
         } finally {
 ```
 
-- [ ] **Step 4: 设置页新增行**（`frontend/index.html` 设置区，"行情刷新间隔"行之后插入）
+- [x] **Step 4: 设置页新增行**（`frontend/index.html` 设置区，"行情刷新间隔"行之后插入）
 
 ```html
             <section class="surface settings-row"><div><strong>冲突处理策略</strong><span>多个页面同时修改工作区时的默认处理方式</span></div><select v-model="settingsDraft.conflictPolicy" aria-label="冲突处理策略"><option value="server">自动采用服务器版本（推荐）</option><option value="local">自动用本地覆盖</option><option value="ask">每次询问</option></select></section>
 ```
 
-- [ ] **Step 5: 验证 + 提交**
+- [x] **Step 5: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 语法通过。
 浏览器：设置页三种选项可保存；双标签页冲突在 server/local/ask 下行为各异。
@@ -192,13 +192,13 @@ git commit -m "feat: 冲突按工作区策略自动处理并增加设置项"
 - Consumes: 无
 - Produces: 每条 toast 独立 3.2 秒移除；连发不再互相延长
 
-- [ ] **Step 1: 替换共享定时器**（删除 `const lastToastTimer = ref(null);`，原位置改为）
+- [x] **Step 1: 替换共享定时器**（删除 `const lastToastTimer = ref(null);`，原位置改为）
 
 ```js
     const toastTimers = new Set();
 ```
 
-- [ ] **Step 2: `showToast` 尾部两行**（`clearTimeout(lastToastTimer.value); lastToastTimer.value = setTimeout(() => toast.remove(), 3200);`）替换为
+- [x] **Step 2: `showToast` 尾部两行**（`clearTimeout(lastToastTimer.value); lastToastTimer.value = setTimeout(() => toast.remove(), 3200);`）替换为
 
 ```js
       const timer = setTimeout(() => {
@@ -208,13 +208,13 @@ git commit -m "feat: 冲突按工作区策略自动处理并增加设置项"
       toastTimers.add(timer);
 ```
 
-- [ ] **Step 3: `onBeforeUnmount` 增加**（`clearTimeout(workspaceSyncTimer.value);` 之后）
+- [x] **Step 3: `onBeforeUnmount` 增加**（`clearTimeout(workspaceSyncTimer.value);` 之后）
 
 ```js
       toastTimers.forEach((timer) => clearTimeout(timer));
 ```
 
-- [ ] **Step 4: 验证 + 提交**
+- [x] **Step 4: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 语法通过。
 浏览器：连续触发两条 toast（如快速加入两个自选），各自约 3.2 秒消失。
@@ -231,18 +231,18 @@ git commit -m "fix: toast 提示改为逐条独立计时"
 **Files:**
 - Modify: `AGENTS.md`（revision-lock 条目补策略说明）
 
-- [ ] **Step 1: AGENTS.md 更新**（"Workspace sync is revision-locked" 条目中 `...and surfaces 409 via the conflict banner...` 一句替换为）
+- [x] **Step 1: AGENTS.md 更新**（"Workspace sync is revision-locked" 条目中 `...and surfaces 409 via the conflict banner...` 一句替换为）
 
 ```markdown
 The frontend keeps the latest known `revision` in `workspaceRevision` and resolves 409 by `settingsDraft.conflictPolicy`: `server` (default) auto-adopts the server snapshot, `local` auto-force-saves the local one, `ask` shows the conflict banner with "采用服务器版本" / "用本地覆盖" actions — never auto-retry a 409.
 ```
 
-- [ ] **Step 2: 全量回归**
+- [x] **Step 2: 全量回归**
 
 Run: `python -m pytest tests/ -q`、`node --check frontend/app.js`
 Expected: 38 passed / 语法通过。
 
-- [ ] **Step 3: 提交 + feature finish**
+- [x] **Step 3: 提交 + feature finish**
 
 ```bash
 git add AGENTS.md

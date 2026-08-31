@@ -22,7 +22,7 @@
 
 **Files:** 无
 
-- [ ] **Step 1: 开启 feature 分支**
+- [x] **Step 1: 开启 feature 分支**
 
 ```bash
 git flow feature start unified-trading-desk-ux
@@ -43,7 +43,7 @@ Expected: 基于 develop（`a77c45d`）创建并切换。
 - Consumes: 既有导出 `screenRows`/`filteredRows`/`gridStrategies`/`activePlans`/`unreadAlerts`/`breadth`/`selectedIndex`/`marketStatus`/`fetchedLabel`/`todayLabel`/`presetName`/`quoteFor`/`applyPreset`/`openGridStrategy`/`switchView`/`formatPct` 等格式化函数；`gridStrategies` 元素含 `status`/`lastBacktestAt`(ISO 串)/`latestMetrics.excessReturnPct`
 - Produces: `presetHits`/`strategyStats`/`riskStats`（computed，Task 3+ 不依赖；供模板绑定）
 
-- [ ] **Step 1: 替换 overview 区块**
+- [x] **Step 1: 替换 overview 区块**
 
 将 `frontend/index.html` 中 `<section v-if="view === 'overview'" class="view-panel is-active">`（122 行）至对应闭合 `</section>`（334 行）整体替换为：
 
@@ -235,7 +235,7 @@ Expected: 基于 develop（`a77c45d`）创建并切换。
 
 （原 `chartSvg` 通过 `v-html` 使用，XSS 纪律不变；`alert.time` 列在执行跟踪中省略以压缩密度，完整列表在盯盘中心。）
 
-- [ ] **Step 2: app.js 新增 computed**
+- [x] **Step 2: app.js 新增 computed**
 
 在 `const conflictSnapshot = ref(null);` 之后插入：
 
@@ -283,7 +283,7 @@ Expected: 基于 develop（`a77c45d`）创建并切换。
       riskStats,
 ```
 
-- [ ] **Step 3: styles.css 追加指挥台样式**（文件末尾追加）
+- [x] **Step 3: styles.css 追加指挥台样式**（文件末尾追加）
 
 ```css
 /* ===== P1 unified trading desk ===== */
@@ -391,7 +391,7 @@ Expected: 基于 develop（`a77c45d`）创建并切换。
 }
 ```
 
-- [ ] **Step 4: 验证 + 提交**
+- [x] **Step 4: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 语法通过。
 浏览器 1280×720：指挥台四卡 + 三工作区渲染，预设命中数与选股器实际结果一致（手动交叉验证一次），空态与主操作可见；1440×900 无横向溢出。
@@ -414,7 +414,7 @@ git commit -m "feat: 总览升级为今日交易台指挥台"
 - Consumes: 回测响应 `gridResult.history[].date`、`gridResult.config.dataAsOf`、`gridResult.metrics.skippedLimitUpDays/skippedLimitDownDays/onePriceLimitUpDays/onePriceLimitDownDays/skippedSuspensionDays`、既有导出 `providerLabel`
 - Produces: `gridProvenance`（computed 字符串）
 
-- [ ] **Step 1: 插入披露行**
+- [x] **Step 1: 插入披露行**
 
 在 `<div v-if="gridResult" class="grid-result-body">`（约 478 行）之后、第一个 `.grid-metrics` 之前插入：
 
@@ -422,7 +422,7 @@ git commit -m "feat: 总览升级为今日交易台指挥台"
                 <p v-if="gridProvenance" class="grid-provenance"><i data-lucide="database" aria-hidden="true"></i>{{ gridProvenance }}</p>
 ```
 
-- [ ] **Step 2: app.js computed**
+- [x] **Step 2: app.js computed**
 
 在 `riskStats` computed 之后插入：
 
@@ -449,7 +449,7 @@ git commit -m "feat: 总览升级为今日交易台指挥台"
 
 `return {` 导出对象中 `riskStats,` 之后追加 `gridProvenance,`。
 
-- [ ] **Step 3: styles.css 追加**
+- [x] **Step 3: styles.css 追加**
 
 ```css
 .grid-provenance {
@@ -471,7 +471,7 @@ git commit -m "feat: 总览升级为今日交易台指挥台"
 }
 ```
 
-- [ ] **Step 4: 验证 + 提交**
+- [x] **Step 4: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 语法通过。
 浏览器：运行一次回测，披露行内容与后端响应字段一致（Network 面板交叉核对 `history` 首末日期、`config.dataAsOf`、五个计数字段）；空结果时披露行不显示。
@@ -493,7 +493,7 @@ git commit -m "feat: 回测报告增加数据来源与模型边界披露行"
 - Consumes: 既有 `.screener-layout`（1527 行起的基础栅格，保持不动）、`.table-responsive` 横向滚动包裹
 - Produces: 选股器只有 view-panel 一层纵向滚动
 
-- [ ] **Step 1: 替换桌面滚动规则**
+- [x] **Step 1: 替换桌面滚动规则**
 
 将 629-667 行的整块：
 
@@ -584,7 +584,7 @@ git commit -m "feat: 回测报告增加数据来源与模型边界披露行"
 }
 ```
 
-- [ ] **Step 2: 调整 1180px 媒体查询**
+- [x] **Step 2: 调整 1180px 媒体查询**
 
 `@media (max-width: 1180px)` 内 `.screener-view .screener-layout { grid-template-rows: minmax(220px, 1fr) minmax(260px, 1fr); }` 替换为：
 
@@ -596,7 +596,7 @@ git commit -m "feat: 回测报告增加数据来源与模型边界披露行"
 
 （同块内 `.screener-layout { grid-template-columns: minmax(0, 1fr); }` 与 order 规则保持不动。）
 
-- [ ] **Step 3: 验证 + 提交**
+- [x] **Step 3: 验证 + 提交**
 
 浏览器 1280×720 与 1440×900：选股器页面只有 view-panel 一层纵向滚动（筛选面板与结果不再各自滚动）；窄屏下结果表仍可横向滚动；680px 以下行为与改前一致。
 
@@ -618,7 +618,7 @@ git commit -m "fix: 选股器改为页面单滚动模型"
 - Consumes: 既有 `view`/`switchView`/`unreadAlerts`；plans section 当前条件 `v-else-if="view === 'plans'"`、monitor section 当前条件 `v-else-if="view === 'monitor'"`（实施时以实际文件为准）
 - Produces: `mobileExecTab`/`execShowsPlans`/`execShowsAlerts`；新视图 id `exec`（键盘快捷键与桌面导航不涉及）
 
-- [ ] **Step 1: index.html 插入底部导航**
+- [x] **Step 1: index.html 插入底部导航**
 
 在 `</main>`（约 607 行）之后、`#app` 闭合 `</div>` 之前插入：
 
@@ -632,7 +632,7 @@ git commit -m "fix: 选股器改为页面单滚动模型"
     </nav>
 ```
 
-- [ ] **Step 2: 执行标签条 + 条件改造**
+- [x] **Step 2: 执行标签条 + 条件改造**
 
 在 plans section（`v-else-if="view === 'plans'"`）之前插入：
 
@@ -645,7 +645,7 @@ git commit -m "fix: 选股器改为页面单滚动模型"
 
 plans section 条件改为 `v-else-if="view === 'plans' || execShowsPlans"`；monitor section 条件改为 `v-else-if="view === 'monitor' || execShowsAlerts"`。
 
-- [ ] **Step 3: app.js 状态**
+- [x] **Step 3: app.js 状态**
 
 在 `riskStats` computed 之后插入：
 
@@ -663,7 +663,7 @@ plans section 条件改为 `v-else-if="view === 'plans' || execShowsPlans"`；mo
       execShowsAlerts,
 ```
 
-- [ ] **Step 4: styles.css 追加**
+- [x] **Step 4: styles.css 追加**
 
 ```css
 .bottom-nav {
@@ -758,7 +758,7 @@ plans section 条件改为 `v-else-if="view === 'plans' || execShowsPlans"`；mo
 
 （追加在"===== P1 unified trading desk ====="块内；680px 块中的 `.primary-nav` 隐藏会覆盖既有 680px 块中的图标导航样式——按 CSS 顺序后定义者生效，需追加在文件末尾。）
 
-- [ ] **Step 5: 验证 + 提交**
+- [x] **Step 5: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 语法通过。
 浏览器 390×844：底部五项文字导航显示且切换正确；"执行"内两个标签各自显示计划表单+列表 / 提醒列表；顶部不再出现图标导航行；桌面 1280×720 无底部导航、计划/盯盘入口不受影响。
@@ -782,7 +782,7 @@ git commit -m "feat: 手机端底部导航与执行复合视图"
 - Consumes: 既有 `settingsDraft`/`loadSettings`/`saveSettings`/`dataSources`
 - Produces: `settingsTab`/`settingsTabs`/`settingsDirty`
 
-- [ ] **Step 1: constants.js 追加**
+- [x] **Step 1: constants.js 追加**
 
 ```js
 export const SETTINGS_TABS = [
@@ -792,7 +792,7 @@ export const SETTINGS_TABS = [
 ];
 ```
 
-- [ ] **Step 2: app.js 导入与状态**
+- [x] **Step 2: app.js 导入与状态**
 
 第 1 行导入列表中加入 `SETTINGS_TABS`：
 
@@ -824,7 +824,7 @@ import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESET
       settingsDirty,
 ```
 
-- [ ] **Step 3: index.html 设置区改造**
+- [x] **Step 3: index.html 设置区改造**
 
 在 `<div class="settings-grid">` 之前插入：
 
@@ -842,7 +842,7 @@ import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESET
 <button class="button" :class="settingsDirty ? 'button-primary' : 'button-secondary'" type="button" :disabled="settingsLoading" @click="saveSettings"><i data-lucide="save" aria-hidden="true"></i>保存设置</button>
 ```
 
-- [ ] **Step 4: styles.css 追加**
+- [x] **Step 4: styles.css 追加**
 
 ```css
 .settings-tabs {
@@ -869,7 +869,7 @@ import { STORAGE_KEY, DEFAULT_WATCHLIST, DEFAULT_FILTERS, DEFAULT_ALERTS, PRESET
 }
 ```
 
-- [ ] **Step 5: 验证 + 提交**
+- [x] **Step 5: 验证 + 提交**
 
 Run: `node --check frontend/app.js` → 语法通过。
 浏览器：三标签切换正常、各行归属正确；改动设置后保存按钮变主色，保存成功后恢复；冲突处理策略行在"工作台"标签内可保存（与 Task 5/后端策略联动）。
@@ -886,18 +886,18 @@ git commit -m "feat: 设置页改为三标签并按未保存状态高亮保存�
 **Files:**
 - 无代码改动
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 Run: `python -m pytest tests/ -q` 与 `node --check frontend/app.js`
 Expected: 38 passed / 语法通过（本计划不改后端，回归确认无意外破坏）。
 
-- [ ] **Step 2: 浏览器整体验证（按规格验证节）**
+- [x] **Step 2: 浏览器整体验证（按规格验证节）**
 
 - 桌面 1280×720 / 1440×900：五页逐页检查无内容重叠、无意外横向溢出、选股器单滚动、指挥台与披露行正常。
 - 手机 390×844：底部导航、执行复合视图、宽表横向滚动、提醒列表。
 - 回测披露行与 Network 响应字段交叉核对。
 
-- [ ] **Step 3: 完成 feature 分支**
+- [x] **Step 3: 完成 feature 分支**
 
 ```bash
 git flow feature finish unified-trading-desk-ux

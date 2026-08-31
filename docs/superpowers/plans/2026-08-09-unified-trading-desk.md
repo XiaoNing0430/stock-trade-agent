@@ -27,7 +27,7 @@
 - Modify: `backend/grid_strategy.py:50`
 - Modify: `tests/test_grid_strategy.py:30`
 
-- [ ] **Step 1: Write failing tests for the benchmark and risk metrics**
+- [x] **Step 1: Write failing tests for the benchmark and risk metrics**
 
 Append to `tests/test_grid_strategy.py`:
 
@@ -65,7 +65,7 @@ def test_short_or_zero_volatility_history_omits_risk_adjusted_metrics():
     assert result["metrics"]["sharpeRatio"] is None
 ```
 
-- [ ] **Step 2: Run the new tests and verify they fail**
+- [x] **Step 2: Run the new tests and verify they fail**
 
 Run:
 
@@ -75,7 +75,7 @@ python -m pytest tests/test_grid_strategy.py::test_backtest_reports_buy_hold_exc
 
 Expected: FAIL because `benchmarkReturnPct`, curves, and risk metrics do not exist.
 
-- [ ] **Step 3: Add focused metric helpers**
+- [x] **Step 3: Add focused metric helpers**
 
 At the top of `backend/grid_strategy.py`, import `sqrt` and `stdev`, then add:
 
@@ -127,7 +127,7 @@ def _normalized_curve(bars: list[dict[str, Any]], values: list[float], capital: 
     ]
 ```
 
-- [ ] **Step 4: Extend `backtest_grid` without changing existing fields**
+- [x] **Step 4: Extend `backtest_grid` without changing existing fields**
 
 Replace the initial position debit with an explicit fee value:
 
@@ -164,7 +164,7 @@ Return these additive top-level fields:
         "benchmarkCurve": _normalized_curve(bars, benchmark_equity, capital),
 ```
 
-- [ ] **Step 5: Run focused and existing strategy tests**
+- [x] **Step 5: Run focused and existing strategy tests**
 
 Run:
 
@@ -174,7 +174,7 @@ python -m pytest tests/test_grid_strategy.py -v
 
 Expected: all strategy tests PASS.
 
-- [ ] **Step 6: Commit the metric work**
+- [x] **Step 6: Commit the metric work**
 
 ```powershell
 git add backend/grid_strategy.py tests/test_grid_strategy.py
@@ -187,7 +187,7 @@ git commit -m "feat: add comparable grid backtest metrics"
 - Modify: `backend/grid_strategy.py:166`
 - Modify: `tests/test_grid_strategy.py:98`
 
-- [ ] **Step 1: Write failing candidate-quality tests**
+- [x] **Step 1: Write failing candidate-quality tests**
 
 Append to `tests/test_grid_strategy.py`:
 
@@ -220,7 +220,7 @@ def test_candidate_quality_flags_short_and_one_sided_validation():
     assert "样本外成交方向不完整" in quality["warnings"]
 ```
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
 Run:
 
@@ -230,7 +230,7 @@ python -m pytest tests/test_grid_strategy.py::test_candidate_quality_flags_overf
 
 Expected: collection FAIL because `candidate_quality` is not defined.
 
-- [ ] **Step 3: Implement candidate quality and stable sort keys**
+- [x] **Step 3: Implement candidate quality and stable sort keys**
 
 Add to `backend/grid_strategy.py`:
 
@@ -277,7 +277,7 @@ When building each candidate, add:
 
 Return `sorted(candidates, key=_candidate_sort_key, reverse=True)`.
 
-- [ ] **Step 4: Update the existing ranking test**
+- [x] **Step 4: Update the existing ranking test**
 
 Replace its final assertion with:
 
@@ -294,7 +294,7 @@ Replace its final assertion with:
     assert sort_keys == sorted(sort_keys, reverse=True)
 ```
 
-- [ ] **Step 5: Run the full strategy test file and commit**
+- [x] **Step 5: Run the full strategy test file and commit**
 
 Run `python -m pytest tests/test_grid_strategy.py -v`.
 
@@ -311,7 +311,7 @@ git commit -m "feat: rank grid candidates by robustness"
 - Modify: `backend/app.py:128-176`
 - Modify: `tests/test_backend_api.py`
 
-- [ ] **Step 1: Write a failing grid API contract test**
+- [x] **Step 1: Write a failing grid API contract test**
 
 Append to `tests/test_backend_api.py`:
 
@@ -340,13 +340,13 @@ def test_grid_backtest_returns_data_window_and_comparison_metrics(monkeypatch):
     assert "benchmarkReturnPct" in payload["metrics"]
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 Run `python -m pytest tests/test_backend_api.py::test_grid_backtest_returns_data_window_and_comparison_metrics -v`.
 
 Expected: FAIL because `dataWindow` is absent.
 
-- [ ] **Step 3: Add one metadata helper and reuse it across grid routes**
+- [x] **Step 3: Add one metadata helper and reuse it across grid routes**
 
 Add near `create_app` in `backend/app.py`:
 
@@ -366,7 +366,7 @@ def history_metadata(history: list[dict], data_as_of: str | None) -> dict:
 
 Add `"dataWindow": history_metadata(history, data_as_of)` to preview, backtest, and optimize responses. Keep `config.dataAsOf` for compatibility.
 
-- [ ] **Step 4: Run API regression tests and commit**
+- [x] **Step 4: Run API regression tests and commit**
 
 Run `python -m pytest tests/test_backend_api.py -v`.
 
@@ -385,7 +385,7 @@ git commit -m "feat: expose grid backtest provenance"
 - Modify: `frontend/styles.css:865-1180`
 - Create: `tests/test_frontend_contract.py`
 
-- [ ] **Step 1: Create failing static frontend contracts**
+- [x] **Step 1: Create failing static frontend contracts**
 
 Create `tests/test_frontend_contract.py`:
 
@@ -413,13 +413,13 @@ def test_screener_uses_page_scroll_contract():
     assert ".screener-view .results-table-wrap" in CSS
 ```
 
-- [ ] **Step 2: Run the contract test and verify it fails**
+- [x] **Step 2: Run the contract test and verify it fails**
 
 Run `python -m pytest tests/test_frontend_contract.py -v`.
 
 Expected: FAIL because the unified desk hooks do not exist.
 
-- [ ] **Step 3: Add dashboard derivations to `frontend/app.js`**
+- [x] **Step 3: Add dashboard derivations to `frontend/app.js`**
 
 Add computed values after `unreadAlerts`:
 
@@ -437,7 +437,7 @@ Add computed values after `unreadAlerts`:
 
 Expose these values from `setup()`.
 
-- [ ] **Step 4: Replace the overview summary with the approved hierarchy**
+- [x] **Step 4: Replace the overview summary with the approved hierarchy**
 
 In `frontend/index.html`, retain the existing market chart and watchlist, but place this status strip and workflow section before them:
 
@@ -455,7 +455,7 @@ In `frontend/index.html`, retain the existing market chart and watchlist, but pl
 </div>
 ```
 
-- [ ] **Step 5: Add restrained operational styles**
+- [x] **Step 5: Add restrained operational styles**
 
 Add:
 
@@ -510,7 +510,7 @@ Add:
 .desk-workflow .button { align-self: end; justify-self: start; }
 ```
 
-- [ ] **Step 6: Run static, syntax, and backend tests**
+- [x] **Step 6: Run static, syntax, and backend tests**
 
 Run:
 
@@ -522,7 +522,7 @@ python -m pytest -q
 
 Expected: all commands PASS.
 
-- [ ] **Step 7: Commit the unified desk**
+- [x] **Step 7: Commit the unified desk**
 
 ```powershell
 git add frontend/app.js frontend/index.html frontend/styles.css tests/test_frontend_contract.py
@@ -537,7 +537,7 @@ git commit -m "feat: add unified trading desk overview"
 - Modify: `frontend/styles.css:1880-2300`
 - Modify: `tests/test_frontend_contract.py`
 
-- [ ] **Step 1: Add failing report contracts**
+- [x] **Step 1: Add failing report contracts**
 
 Append:
 
@@ -549,13 +549,13 @@ def test_grid_report_exposes_comparison_and_robustness_sections():
     assert ".backtest-report" in CSS
 ```
 
-- [ ] **Step 2: Verify the new contract fails**
+- [x] **Step 2: Verify the new contract fails**
 
 Run `python -m pytest tests/test_frontend_contract.py::test_grid_report_exposes_comparison_and_robustness_sections -v`.
 
 Expected: FAIL on the first missing label.
 
-- [ ] **Step 3: Add a two-series SVG formatter**
+- [x] **Step 3: Add a two-series SVG formatter**
 
 Add beside `chartSvg` in `frontend/app.js`:
 
@@ -581,7 +581,7 @@ function comparisonChartSvg(strategyCurve, benchmarkCurve) {
 
 Expose `comparisonChartSvg` from `setup()`.
 
-- [ ] **Step 4: Replace the four-metric result block**
+- [x] **Step 4: Replace the four-metric result block**
 
 Replace the `v-if="gridResult"` body with:
 
@@ -617,7 +617,7 @@ In the candidate table render `candidate.metrics.excessReturnPct` and:
 </span>
 ```
 
-- [ ] **Step 5: Add report styles and candidate warning states**
+- [x] **Step 5: Add report styles and candidate warning states**
 
 Add:
 
@@ -646,7 +646,7 @@ Add:
 }
 ```
 
-- [ ] **Step 6: Run frontend contracts and syntax checks**
+- [x] **Step 6: Run frontend contracts and syntax checks**
 
 Run:
 
@@ -657,7 +657,7 @@ node --check frontend/app.js
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the report UI**
+- [x] **Step 7: Commit the report UI**
 
 ```powershell
 git add frontend/app.js frontend/index.html frontend/styles.css tests/test_frontend_contract.py
@@ -672,7 +672,7 @@ git commit -m "feat: show trustworthy grid backtest report"
 - Modify: `frontend/styles.css:602-664,2687-2730,2930-2965`
 - Modify: `tests/test_frontend_contract.py`
 
-- [ ] **Step 1: Add failing settings and scroll contracts**
+- [x] **Step 1: Add failing settings and scroll contracts**
 
 Append:
 
@@ -690,13 +690,13 @@ def test_desktop_content_uses_one_vertical_scroll_owner():
     assert "overflow-x: auto" in CSS
 ```
 
-- [ ] **Step 2: Verify the contracts fail**
+- [x] **Step 2: Verify the contracts fail**
 
 Run `python -m pytest tests/test_frontend_contract.py -v`.
 
 Expected: FAIL on missing settings hooks.
 
-- [ ] **Step 3: Add settings tab and dirty state**
+- [x] **Step 3: Add settings tab and dirty state**
 
 In `frontend/app.js` add:
 
@@ -708,7 +708,7 @@ In `frontend/app.js` add:
 
 After settings load and successful save, set `settingsSavedSnapshot.value = JSON.stringify({ ...settingsDraft })`. Expose all three values.
 
-- [ ] **Step 4: Group settings markup**
+- [x] **Step 4: Group settings markup**
 
 Add the tablist and group wrapper:
 
@@ -753,7 +753,7 @@ Add:
 .settings-field-row:last-child { border-bottom: 0; }
 ```
 
-- [ ] **Step 5: Replace nested desktop scrolling**
+- [x] **Step 5: Replace nested desktop scrolling**
 
 Update desktop CSS so `.content-area` owns vertical scrolling:
 
@@ -768,13 +768,13 @@ Update desktop CSS so `.content-area` owns vertical scrolling:
 
 Remove the fixed screener grid rows and panel `overflow-y: auto`. Preserve table horizontal scrolling.
 
-- [ ] **Step 6: Run contracts, syntax, and full tests**
+- [x] **Step 6: Run contracts, syntax, and full tests**
 
 Run `python -m pytest tests/test_frontend_contract.py -v`, `node --check frontend/app.js`, and `python -m pytest -q`.
 
 Expected: all PASS.
 
-- [ ] **Step 7: Commit desktop and settings changes**
+- [x] **Step 7: Commit desktop and settings changes**
 
 ```powershell
 git add frontend/app.js frontend/index.html frontend/styles.css tests/test_frontend_contract.py
@@ -789,7 +789,7 @@ git commit -m "feat: simplify desktop flow and settings"
 - Modify: `frontend/styles.css:2972-3150`
 - Modify: `tests/test_frontend_contract.py`
 
-- [ ] **Step 1: Add a failing mobile navigation contract**
+- [x] **Step 1: Add a failing mobile navigation contract**
 
 Append:
 
@@ -803,13 +803,13 @@ def test_mobile_navigation_has_visible_labels_and_execution_group():
     assert ".mobile-nav" in CSS
 ```
 
-- [ ] **Step 2: Verify the contract fails**
+- [x] **Step 2: Verify the contract fails**
 
 Run `python -m pytest tests/test_frontend_contract.py::test_mobile_navigation_has_visible_labels_and_execution_group -v`.
 
 Expected: FAIL because `.mobile-nav` is absent.
 
-- [ ] **Step 3: Add mobile navigation data and execution switching**
+- [x] **Step 3: Add mobile navigation data and execution switching**
 
 Add to `frontend/app.js`:
 
@@ -832,7 +832,7 @@ Expose `mobileNavItems`, and add:
     }
 ```
 
-- [ ] **Step 4: Add semantic mobile markup**
+- [x] **Step 4: Add semantic mobile markup**
 
 Keep the existing desktop sidebar and add before the toast region:
 
@@ -853,7 +853,7 @@ Add to the plan and monitor view headings:
 </div>
 ```
 
-- [ ] **Step 5: Replace the mobile top navigation CSS**
+- [x] **Step 5: Replace the mobile top navigation CSS**
 
 Add base rules:
 
@@ -895,7 +895,7 @@ At `max-width: 680px`, replace the top sidebar navigation rules with:
 .execution-tabs button[aria-selected="true"] { border-color: var(--coral); color: var(--ink); }
 ```
 
-- [ ] **Step 6: Run contracts and syntax checks**
+- [x] **Step 6: Run contracts and syntax checks**
 
 Run:
 
@@ -906,7 +906,7 @@ node --check frontend/app.js
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit mobile usability changes**
+- [x] **Step 7: Commit mobile usability changes**
 
 ```powershell
 git add frontend/app.js frontend/index.html frontend/styles.css tests/test_frontend_contract.py
@@ -919,7 +919,7 @@ git commit -m "feat: add labeled mobile trading navigation"
 - Modify: `README.md`
 - Modify: `frontend/index.html` asset version query strings
 
-- [ ] **Step 1: Update the user-facing capability summary**
+- [x] **Step 1: Update the user-facing capability summary**
 
 Add to the grid strategy paragraph in `README.md`:
 
@@ -927,11 +927,11 @@ Add to the grid strategy paragraph in `README.md`:
 回测报告同时展示买入持有基准、超额收益、最大回撤、年化波动、夏普比率、交易成本与换手；参数优化以样本外超额收益、回撤和训练/验证稳定性共同排序，并明确披露日线固定路径假设。
 ```
 
-- [ ] **Step 2: Bump static asset versions**
+- [x] **Step 2: Bump static asset versions**
 
 Update the `styles.css` and `app.js` query strings in `frontend/index.html` to one shared new version such as `v=20260809-4` so browsers load the changed assets.
 
-- [ ] **Step 3: Run complete automated verification**
+- [x] **Step 3: Run complete automated verification**
 
 Run:
 
@@ -943,11 +943,11 @@ git diff --check
 
 Expected: all tests PASS, JavaScript syntax succeeds, and `git diff --check` prints nothing.
 
-- [ ] **Step 4: Start the local app and verify API health**
+- [x] **Step 4: Start the local app and verify API health**
 
 Run `python server.py` on an available local port, then verify `/api/health`, `/api/grid/backtest`, and `/api/grid/optimize` return 200 responses with the additive metrics and quality fields.
 
-- [ ] **Step 5: Perform browser visual QA**
+- [x] **Step 5: Perform browser visual QA**
 
 Using the in-app browser, capture and inspect these views at 1280×720 and 1440×900: today desk, screener, grid report, plans, monitor, and all three settings tabs. Repeat core navigation at 390×844.
 
@@ -961,14 +961,14 @@ Acceptance criteria:
 - Missing risk metrics display `--`, never `NaN` or misleading zeroes.
 - Real-time, cached, historical, and validation states use distinct text.
 
-- [ ] **Step 6: Commit documentation and asset versions**
+- [x] **Step 6: Commit documentation and asset versions**
 
 ```powershell
 git add README.md frontend/index.html
 git commit -m "docs: describe trustworthy grid research workflow"
 ```
 
-- [ ] **Step 7: Review the final change set**
+- [x] **Step 7: Review the final change set**
 
 Run:
 

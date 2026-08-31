@@ -2,8 +2,6 @@ import os
 
 import uvicorn
 
-from backend.app import app, create_app
-
 
 def main():
     uvicorn.run(

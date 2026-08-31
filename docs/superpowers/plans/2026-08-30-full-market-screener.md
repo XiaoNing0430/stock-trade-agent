@@ -12,7 +12,7 @@
 
 ### Task 1: 分支准备
 
-- [ ] `git flow feature start full-market-screener`
+- [x] `git flow feature start full-market-screener`
 
 ---
 
@@ -20,7 +20,7 @@
 
 **Files:** `backend/data_source.py`, `backend/app.py`, `tests/test_backend_api.py`
 
-- [ ] **Step 1: 失败测试**
+- [x] **Step 1: 失败测试**
 
 `tests/test_backend_api.py` 追加：
 
@@ -80,11 +80,11 @@ def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
     assert len(data["rows"]) == 1
 ```
 
-- [ ] **Step 2: 跑测试确认红**
+- [x] **Step 2: 跑测试确认红**
 
 `python -m pytest tests/test_backend_api.py -q`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `backend/data_source.py` 末尾追加：
 
@@ -169,7 +169,7 @@ def load_screener_v2(page: int = 1, page_size: int = 50, sort_by: str = "changeP
             raise HTTPException(status_code=502, detail={"error": str(exc), "provider": "Tencent rank API"})
 ```
 
-- [ ] **Step 4: 跑测试确认绿 + 提交**
+- [x] **Step 4: 跑测试确认绿 + 提交**
 
 `python -m pytest tests/ -q` → 全绿。
 
@@ -184,7 +184,7 @@ git commit -m "feat: 全市场选股器腾讯排名接口与分页端点"
 
 **Files:** `frontend/app.js`, `frontend/index.html`, `frontend/styles.css`, `frontend/index.html`（app.js version bump）
 
-- [ ] **Step 1: app.js 新增状态与函数**
+- [x] **Step 1: app.js 新增状态与函数**
 
 - `screenerViewMode` ref: `'featured'`（精选 50） | `'all'`（全市场）
 - `screenerPage` ref, `screenerTotal` ref, `screenerSortBy` ref, `screenerSortDir` ref
@@ -193,7 +193,7 @@ git commit -m "feat: 全市场选股器腾讯排名接口与分页端点"
 - `toggleScreenerMode()` / `screenerPageUp()` / `screenerPageDown()` / `screenerSort(column)` 函数
 - return 导出所有新 ref 与函数
 
-- [ ] **Step 2: index.html 升级选股器视图**
+- [x] **Step 2: index.html 升级选股器视图**
 
 - 顶部加切换标签：「精选 50」/「全市场」
 - 全市场模式下：
@@ -202,14 +202,14 @@ git commit -m "feat: 全市场选股器腾讯排名接口与分页端点"
   - 表头点击触发排序（正序/倒序切换）
 - 精选模式下保持现有内容不变
 
-- [ ] **Step 3: styles.css 追加样式**
+- [x] **Step 3: styles.css 追加样式**
 
 - `.screener-tabs` / `.screener-tab` 切换标签样式
 - `.screener-sort` 排序箭头
 - `.pagination` 分页器样式
 - `.screener-search` 搜索框
 
-- [ ] **Step 4: 验证 + 提交**
+- [x] **Step 4: 验证 + 提交**
 
 `node --check frontend/app.js` + 模板闭包检查。
 
@@ -222,18 +222,18 @@ git commit -m "feat: 选股器升级为全市场分页排序与精选切换"
 
 ### Task 4: 回归、验证与收尾
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 `python -m pytest tests/ -q` + `node --check frontend/app.js` → 全绿。
 
-- [ ] **Step 2: 浏览器手动验证**
+- [x] **Step 2: 浏览器手动验证**
 
 - 选股器出现「精选 50」/「全市场」切换标签
 - 全市场标签下：默认按涨跌幅排序第一页 50 只，分页器可用
 - 点击表头列可切换排序（涨跌幅/成交额/换手率/市值等）
 - 精选标签下保持原有 50 只不变
 
-- [ ] **Step 3: 完成分支**
+- [x] **Step 3: 完成分支**
 
 ```bash
 git flow feature finish full-market-screener

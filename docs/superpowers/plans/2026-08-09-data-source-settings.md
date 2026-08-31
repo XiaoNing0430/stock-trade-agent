@@ -25,7 +25,7 @@
 
 **接口：** `get_workspace_settings(workspace_id)`、`save_workspace_settings(payload, workspace_id)`、`GET /api/settings`、`PUT /api/settings`。
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 ```python
 def test_settings_api_returns_defaults_without_secrets(client):
@@ -34,17 +34,17 @@ def test_settings_api_returns_defaults_without_secrets(client):
     assert 'tushareToken' not in str(payload)
 ```
 
-- [ ] **步骤 2：运行失败测试**
+- [x] **步骤 2：运行失败测试**
 
 运行：`python -m pytest tests/test_settings_api.py::test_settings_api_returns_defaults_without_secrets -q -p no:cacheprovider`
 
 预期：接口不存在。
 
-- [ ] **步骤 3：实现存储和接口**
+- [x] **步骤 3：实现存储和接口**
 
 创建工作区唯一 JSON 设置行；以白名单规范化来源、刷新间隔、缓存、超时和重试；接口仅返回 `tushareConfigured` 布尔值。
 
-- [ ] **步骤 4：运行测试**
+- [x] **步骤 4：运行测试**
 
 运行：`python -m pytest tests/test_settings_api.py -q -p no:cacheprovider`
 
@@ -58,7 +58,7 @@ def test_settings_api_returns_defaults_without_secrets(client):
 
 **接口：** `source_capabilities()`、`test_data_source(source)`；扩展 `load_market`、`load_history`、`load_screener` 以接收配置并返回实际来源。
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 ```python
 def test_history_falls_back_when_preferred_source_fails(monkeypatch):
@@ -69,21 +69,21 @@ def test_history_falls_back_when_preferred_source_fails(monkeypatch):
     assert source == 'tencent'
 ```
 
-- [ ] **步骤 2：运行失败测试**
+- [x] **步骤 2：运行失败测试**
 
 运行：`python -m pytest tests/test_data_sources.py::test_history_falls_back_when_preferred_source_fails -q -p no:cacheprovider`
 
 预期：函数不存在。
 
-- [ ] **步骤 3：实现适配器**
+- [x] **步骤 3：实现适配器**
 
 保留腾讯实现为默认适配器；为 AkShare 与 Tushare 增加延迟导入和字段映射；实时行情仅允许腾讯，历史日线和选股允许三来源，首选失败时按固定顺序降级。
 
-- [ ] **步骤 4：接入路由和定时回测**
+- [x] **步骤 4：接入路由和定时回测**
 
 市场、历史、选股和网格接口读取工作区设置；响应和市场日线快照记录实际来源。
 
-- [ ] **步骤 5：运行来源测试**
+- [x] **步骤 5：运行来源测试**
 
 运行：`python -m pytest tests/test_data_sources.py tests/test_backend_api.py -q -p no:cacheprovider`
 
@@ -97,15 +97,15 @@ def test_history_falls_back_when_preferred_source_fails(monkeypatch):
 
 **接口：** 使用设置 API；新增 `settingsDraft`、`settingsStatus`、`loadSettings()`、`saveSettings()` 和 `testDataSource(source)`。
 
-- [ ] **步骤 1：增加设置导航和三个标签**
+- [x] **步骤 1：增加设置导航和三个标签**
 
 工作台、数据获取、连接状态三个标签；按用途选择来源，未配置 Token 时禁用 Tushare。
 
-- [ ] **步骤 2：接入保存和连接测试**
+- [x] **步骤 2：接入保存和连接测试**
 
 加载时读取设置，保存后刷新行情；测试按钮显示可用状态和诊断信息，不显示敏感数据。
 
-- [ ] **步骤 3：完善窄屏样式与验证**
+- [x] **步骤 3：完善窄屏样式与验证**
 
 标签与来源状态行可在窄屏换行，且没有页面横向溢出。
 
@@ -114,10 +114,10 @@ def test_history_falls_back_when_preferred_source_fails(monkeypatch):
 **文件：**
 - 创建：`docs/superpowers/plans/2026-08-09-data-source-settings.md`
 
-- [ ] **步骤 1：运行检查**
+- [x] **步骤 1：运行检查**
 
 运行：`node --check frontend/app.js`、`python -m pytest -q -p no:cacheprovider`、`git diff --check`。
 
-- [ ] **步骤 2：提交并推送**
+- [x] **步骤 2：提交并推送**
 
 运行：`git add backend frontend tests requirements.txt docs/superpowers/plans/2026-08-09-data-source-settings.md`，随后提交 `feat: add configurable market data sources` 并推送 `main`。
