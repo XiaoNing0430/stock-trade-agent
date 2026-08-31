@@ -10,8 +10,8 @@ UI copy is Chinese. Keep new user-facing strings in Chinese unless a task says o
 
 ## Tech Stack
 
-- **Frontend:** Vue 3 (global build, `vue.global.prod.js`), no bundler, no npm build step. App code uses **ES modules** (browser `type="module"`; `package.json` has `"type":"module"` for `node --check`). Served as static files by FastAPI.
-- **Backend:** Python / FastAPI, SQLAlchemy 2.0 (PostgreSQL), Redis (reserved / status ping only), APScheduler (grid backtest scheduling), requests (external quote API).
+- **Frontend:** Vue 3 + TypeScript 5.9 (strict) + Vite 8 + Pinia 4 + vitest 4 + @vue/test-utils + lucide. Source in `frontend/src/` (stores/, modules/, views/, types/, api/, app.ts, main.ts, App.vue). Built by Vite, served as static files or via Vite dev server.
+- **Backend:** Python / FastAPI + SQLAlchemy 2.0 + Pydantic v2 + Alembic 1.14 (migrations in `backend/migrations/`) + APScheduler (grid backtest scheduling) + ruff + mypy + pytest-cov.
 - **Data source:** Tencent public quote API (`qt.gtimg.cn`, `web.ifzq.gtimg.cn`). Only data source currently integrated.
 - **Config:** `.env` (git-ignored) sourced from `.env.example`.
 
@@ -25,52 +25,94 @@ backend/
   data_source.py          Tencent quote API adapter + classification + fetch/retry + runtime config
   grid_strategy.py        Grid math: build_grid, suggest_grid, backtest_grid, optimize_grid (+ benchmark/risk metrics)
   grid_scheduler.py       APScheduler wrappers for daily grid backtests (Asia/Shanghai)
-  storage.py              SQLAlchemy models + persistence helpers (workspace, plans, alerts, grid)
+  schemas.py              24 Pydantic request/response models (+ 1 alias)
+  storage.py              SQLAlchemy models + persistence helpers (10 tables)
+  strategy_engines.py     Strategy backtest engines (grid, SMA, DCA, MACD)
   settings.py             pydantic-settings; env (POSTGRES_*, REDIS_*, TUSHARE_TOKEN)
+  migrations/             Alembic migration scripts (baseline + forward)
 frontend/
-  index.html              Vue template (single file, all views inline)
-  app.js                  Vue app setup + all logic (ES module; imports helpers from modules/) 
-  modules/                ES modules: constants.js / format.js / chart.js (pure helpers, no build)
-  styles.css              All styling (single file, CSS variables)
-  vendor/                 Vendored vue.global.prod.js + lucide.min.js (no CDN)
+  index.html              Vite entry HTML — references /src/main.ts
+  src/
+    main.ts               Vue app bootstrap (createApp, Pinia, mount)
+    app.ts                Vue app setup, router, polling, error handling
+    App.vue               Root SFC — layout shell
+    styles.css            All styling (CSS variables, single file)
+    api/
+      client.ts           Axios-like fetch wrapper
+    stores/               8 Pinia stores
+      useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
+      useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
+      useAlertsStore.ts / useSettingsStore.ts
+    modules/              Pure logic helpers
+      constants.ts / format.ts / chart.ts / planUtils.ts
+      marketUtils.ts / signalUtils.ts / alertUtils.ts
+    views/                7 SFC views
+      ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
+      ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
+    types/
+      models.ts           TypeScript type definitions
 tests/
   test_backend_api.py     FastAPI routes + data_source parsing (+ HTTP retry/backoff, runtime config)
   test_grid_strategy.py   Grid math (+ benchmark/risk metrics, candidate robustness)
+  test_grid_scheduler_coverage.py
   test_settings_api.py    Settings API + default settings assertions
+  test_schemas.py         Pydantic model validation tests
+  test_storage_coverage.py
+  test_strategy_engines.py
+  frontend/               10 vitest test files (66 tests total)
 docs/superpowers/          specs/ + plans/ (design & implementation docs)
 .worktrees/                git worktrees (git-ignored)
 ```
 
 ## Running the App
 
+The app supports **dual-track** operation:
+
+### Development (hot-reload mode)
+
 ```powershell
 # From the repo root. Requires PostgreSQL + Redis reachable (see .env).
+npm run dev
+```
+
+This starts both the Vite dev server on `:5173` (frontend HMR) and the FastAPI backend on `:4173` (API). Frontend proxies `/api` requests to the backend.
+
+Open <http://127.0.0.1:5173>. API docs at <http://127.0.0.1:4173/docs>.
+
+### Production (static build)
+
+```powershell
+npm run build
 python server.py
 # or
 python -m backend.main
 ```
 
-Open <http://127.0.0.1:4173>. API docs at <http://127.0.0.1:4173/docs>.
+`npm run build` runs `vue-tsc --noEmit` (type checking) + `vite build` → outputs to `frontend/dist/`. The FastAPI backend serves the static build on `:4173`.
+
+Open <http://127.0.0.1:4173>.
+
+**Compatibility:** If `frontend/dist/` does not exist, `python server.py` falls back to serving the raw `frontend/` source files — but this requires the Vite dev server to be running separately for the frontend to function. Without either `dist/` or `npm run dev`, the frontend is unavailable (the backend API still works).
 
 `.env` is git-ignored. Copy `.env.example` to `.env` and fill in `POSTGRES_*` / `REDIS_*` before first run. Never commit real credentials.
 
 ## Testing
 
 ```powershell
-npm run verify                        # full regression: frontend node:test + node --check + backend pytest
-npm run test:frontend                 # frontend unit tests (node:test on tests/frontend/*.test.js)
-python -m pytest tests/ -v            # backend tests (fast + offline via monkeypatch)
+npm run verify                        # full regression: vitest + vue-tsc + pytest
+npx vitest run                        # frontend unit tests (66 tests, 10 files, jsdom + @vue/test-utils)
+python -m pytest tests/ -v            # backend tests (139 tests, fast + offline via monkeypatch)
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
-pre-commit run --all-files            # run all pre-commit hooks (ruff / mypy / eslint / prettier / node-check)
+pre-commit run --all-files            # run all pre-commit hooks (ruff / mypy / eslint / prettier / vue-tsc)
 ```
 
 Notes:
 
-- On Windows, `node --test` must use the quoted glob form `"tests/frontend/*.test.js"` (already wired up as `npm run test:frontend`); the trailing-slash form (`node --test tests/frontend/`) errors on Windows.
-- Frontend unit tests for the pure helper modules (format / chart / constants) live in `tests/frontend/*.test.js` and run via `node:test` — no external JS test framework is needed. Browser-level behavior beyond these units is still verified manually in the browser (`docs/superpowers/specs/...` list the acceptance checks).
-- Pre-commit hooks (`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `node-check`) run automatically on `git commit`.
+- Backend pytest runs with coverage (≥80% gate, currently 97.8%).
+- Pre-commit hooks (`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`) run automatically on `git commit`.
+- `npm run build` also runs `vue-tsc --noEmit` as a type-check gate before Vite bundling.
 
 ## Key Conventions / Rules
 
@@ -112,7 +154,7 @@ Notes:
 
 - PostgreSQL stores watchlist, trade plans, alerts, grid strategies/backtests, market bars, and workspace settings. Redis is only pinged for `storage_status()`; the actual quote cache is an in-memory `dict` in `data_source.py`. The HTTP timeout/retry/cache-TTL are driven by workspace settings via `data_source.apply_runtime_config(...)` (defaults: TTL 8s, timeout 10s, retry 1).
 - The screener currently uses a curated ~50-stock universe (`REAL_UNIVERSE` in `data_source.py`). Expanding to the full A-share market is Phase 2 — do not silently expand it.
-- `storage.py` uses raw `ALTER TABLE ... IF NOT EXISTS` for forward migrations rather than Alembic. Prefer adding to that mechanism over a new migration framework.
+- Schema migrations use **Alembic** (`backend/migrations/`). Baseline migration at `c1a08e78583e_baseline_schema.py`. Add new migrations via `alembic revision --autogenerate -m "description"` and review the generated script before committing.
 
 ## When to Ask
 
