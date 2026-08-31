@@ -855,3 +855,571 @@ def test_strategy_backtest_falls_back_to_local_cache(monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert data["dataSource"] == "local"
+
+
+# ===== data_source 边缘分支（numeric / classify_code / price_limit / _http_get / parse / load 等） =====
+
+
+def test_numeric_handles_empty_and_invalid():
+    from backend.data_source import numeric
+
+    assert numeric(None) is None
+    assert numeric("") is None
+    assert numeric("-") is None
+    assert numeric("—") is None
+    assert numeric("abc") is None
+    assert numeric("12.5") == 12.5
+
+
+def test_classify_code_deep_etf_and_unknown():
+    assert data_source.classify_code("159915")["securityType"] == "ETF"
+    assert data_source.classify_code("159915")["board"] == "深市ETF"
+    assert data_source.classify_code("181888")["board"] == "深市ETF"
+    assert data_source.classify_code("900001")["exchange"] == "未知"
+
+
+def test_market_for_code_maps_market():
+    assert data_source.market_for_code("600519") == "沪深主板"
+    assert data_source.market_for_code("900001") == "未知"
+
+
+def test_price_limit_ratio_by_board():
+    assert data_source.price_limit_ratio("830799") == 0.30  # 北交所
+    assert data_source.price_limit_ratio("300750") == 0.20  # 创业板
+    assert data_source.price_limit_ratio("688981") == 0.20  # 科创板
+    assert data_source.price_limit_ratio("600519") == 0.10
+
+
+def test_http_get_raises_after_retries_exhausted(monkeypatch):
+    def always_fail(url, params=None, headers=None, timeout=None):
+        raise data_source.requests.ConnectionError("boom")
+
+    monkeypatch.setattr(data_source.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(data_source.requests, "get", always_fail)
+    data_source.apply_runtime_config(retry_count=2)
+    try:
+        try:
+            data_source._http_get("https://example.test", {})
+            raise AssertionError("should raise")
+        except data_source.requests.ConnectionError:
+            pass
+    finally:
+        data_source.apply_runtime_config(retry_count=1)
+
+
+def test_parse_quote_body_short_or_invalid_returns_none():
+    assert data_source.parse_quote_body("sh600519", "v_sh600519=") is None  # 长度 < 35
+    values = [""] * 54
+    values[1] = "贵州茅台"
+    values[2] = "600519"
+    values[3] = "abc"  # 价格非数值 → prev_close 也不为 None？need prev_close set
+    values[4] = "2033.00"
+    assert data_source.parse_quote_body("sh600519", "~".join(values)) is None  # price=None → None
+
+
+def test_load_quote_symbols_parses_multiple_quotes(monkeypatch):
+    def quote_body(name, code, price):
+        values = [""] * 54
+        values[1] = name
+        values[2] = code
+        values[3] = price
+        values[4] = "10.0"
+        return "~".join(values)
+
+    body = (
+        f'v_sh600519="{quote_body("贵州茅台", "600519", "2060.9")}";'
+        f'v_sz000001="{quote_body("平安银行", "000001", "11.2")}";'
+    )
+    monkeypatch.setattr(data_source, "fetch_text", lambda url, params: body)
+    data_source.cache.clear()
+    quotes = data_source.load_quote_symbols(["sh600519", "sz000001", "sz666666"])
+    assert [q["code"] for q in quotes] == ["600519", "000001"]
+
+
+def test_load_queries_uses_tencent_symbols(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        data_source, "load_quote_symbols", lambda symbols: seen.update(symbols=symbols) or [{"code": "600519"}]
+    )
+    data_source.cache.clear()
+    quotes = data_source.load_quotes(["600519", " 600519 "])
+    assert quotes == [{"code": "600519"}]
+    assert seen["symbols"] == ["sh600519"]
+
+
+def test_load_history_skips_short_rows(monkeypatch):
+    def fake_fetch_json(url, params):
+        return {
+            "data": {
+                "sh600519": {
+                    "qfqday": [
+                        ["2026-08-06", 10, 11, 12, 9],  # 只有 5 个元素 → 跳过
+                        ["2026-08-07", 10, 11, 12, 9, 1000, 11000],
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(data_source, "fetch_json", fake_fetch_json)
+    data_source.cache.clear()
+    history = data_source.load_history("600519", limit=40)
+    assert len(history) == 1
+    assert history[0]["date"] == "2026-08-07"
+    assert history[0]["amount"] == 11000
+
+
+def test_load_market_builds_quotes_and_indices(monkeypatch):
+    stock = {"code": "600519", "name": "贵州茅台", "price": 2060.9}
+    idx = {"code": "000001", "name": "上证指数", "price": 3100.1}
+
+    monkeypatch.setattr(data_source, "load_quotes", lambda codes: [stock] if "600519" in codes else [])
+    monkeypatch.setattr(
+        data_source, "load_quote_symbols", lambda symbols: [idx] if any("000001" in s for s in symbols) else []
+    )
+    data_source.cache.clear()
+    payload = data_source.load_market(["600519"])
+    assert payload["quotes"][0]["code"] == "600519"
+    assert payload["indices"][0]["name"] == "上证指数"
+    assert payload["indices"][0]["securityType"] == "指数"
+
+
+def test_load_screener_filters_by_market(monkeypatch):
+    rows = [
+        {"code": "600001", "market": "沪深主板", "change": 1.0},
+        {"code": "300001", "market": "创业板", "change": 2.0},
+    ]
+    monkeypatch.setattr(data_source, "load_quotes", lambda codes: rows)
+    payload = data_source.load_screener("创业板", page_size=20)
+    assert [r["code"] for r in payload["rows"]] == ["300001"]
+
+
+def test_normalize_rank_item_handles_empty_values():
+    from backend.data_source import _normalize_rank_item
+
+    item = _normalize_rank_item({"code": "sh600519", "zxj": "", "zdf": "bad", "name": "贵州茅台"})
+    assert item["price"] is None
+    assert item["changePct"] is None
+
+
+# ===== app.py 路由覆盖率补全 =====
+
+
+def test_workspace_put_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(app_module, "get_workspace_revision", lambda workspace_id="default": 0, raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "save_workspace",
+        lambda payload, workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.put("/api/workspace", json={"watchlist": [], "plans": [], "alerts": []})
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_settings_get_falls_back_to_defaults_on_storage_error(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["refreshInterval"] == 15
+
+
+def test_settings_put_saves_and_applies(monkeypatch):
+    saved_payload = {}
+
+    def fake_save(payload, workspace_id="default"):
+        saved_payload["payload"] = dict(payload)
+        return {
+            **payload,
+            "timeoutSeconds": 7,
+            "retryCount": 2,
+            "cacheSeconds": 5,
+            "rateLimitRps": 10,
+        }
+
+    monkeypatch.setattr(app_module, "save_workspace_settings", fake_save, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.put("/api/settings", json={"timeoutSeconds": 7, "refreshInterval": 30})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"]["timeoutSeconds"] == 7
+    assert "timeoutSeconds" in saved_payload["payload"]
+
+
+def test_settings_put_validation_failure(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "save_workspace_settings",
+        lambda payload, workspace_id="default": (_ for _ in ()).throw(RuntimeError("boom")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.put("/api/settings", json={"refreshInterval": 30})
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "VALIDATION_ERROR"
+
+
+def test_lifespan_survives_settings_failure(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/health")
+    assert resp.status_code == 200
+
+
+def test_grid_preview_returns_suggestion(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(
+        app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30")
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/grid/preview", json={"code": "600519", "gridCount": 6, "capital": 100000})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["code"] == "600519"
+    assert data["dataSource"] == "tencent"
+    assert "lower" in data["suggestion"]
+
+
+def test_grid_preview_history_failure_returns_422(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "_load_history_with_fallback",
+        lambda code, limit, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/grid/preview", json={"code": "600519"})
+    assert resp.status_code == 422
+
+
+def test_grid_backtest_returns_unified_shape(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(
+        app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30")
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post(
+            "/api/grid/backtest",
+            json={
+                "code": "600519",
+                "lower": 80,
+                "upper": 130,
+                "gridCount": 6,
+                "capital": 100000,
+                "feeBps": 3,
+                "mode": "classic",
+                "lookback": 120,
+            },
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["code"] == "600519"
+    assert data["config"]["gridCount"] == 6
+    assert "metrics" in data
+    assert data["history"][0]["date"] == bars[0]["date"]
+
+
+def test_grid_backtest_with_save_persists_strategy(monkeypatch):
+    bars = _strategy_bars()
+    monkeypatch.setattr(
+        app_module, "_load_history_with_fallback", lambda code, limit, is_index=False: (bars, "tencent", "2026-08-30")
+    )
+    calls = {}
+
+    def fake_save_grid_strategy(payload, workspace_id="default"):
+        calls["payload"] = payload
+        return {**payload, "id": payload["id"], "workspaceId": workspace_id}
+
+    monkeypatch.setattr(app_module, "save_grid_strategy", fake_save_grid_strategy)
+    monkeypatch.setattr(app_module, "save_grid_backtest", lambda *args, **kwargs: None)
+    monkeypatch.setattr(app_module, "schedule_strategy", lambda strategy: None)
+    monkeypatch.setattr(
+        app_module, "get_grid_strategy", lambda sid: {"id": sid, "code": "600519", "workspaceId": "default"}
+    )
+
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post(
+            "/api/grid/backtest",
+            json={
+                "code": "600519",
+                "lower": 80,
+                "upper": 130,
+                "gridCount": 6,
+                "capital": 100000,
+                "feeBps": 3,
+                "mode": "classic",
+                "name": "茅台网格",
+                "schedule": "daily",
+                "save": True,
+                "id": "g-cov-save",
+            },
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert calls["payload"]["schedule"] == "daily"
+    assert data["strategy"]["id"] == "g-cov-save"
+
+
+def test_grid_backtest_history_failure_returns_422(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "_load_history_with_fallback",
+        lambda code, limit, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post(
+            "/api/grid/backtest",
+            json={"code": "600519", "lower": 80, "upper": 130, "gridCount": 6, "capital": 100000},
+        )
+    assert resp.status_code == 422
+
+
+def test_grid_optimize_returns_candidates(monkeypatch):
+    bars = _strategy_bars(60)
+    monkeypatch.setattr(app_module, "load_history", lambda code, limit=40, is_index=False: bars)
+    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history: "2026-08-30")
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/grid/optimize", json={"code": "600519", "capital": 100000, "feeBps": 3})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["candidates"]) >= 1
+
+
+def test_grid_optimize_history_failure_returns_422(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "load_history",
+        lambda code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/grid/optimize", json={"code": "600519"})
+    assert resp.status_code == 422
+
+
+def test_grid_strategies_lists_strategies(monkeypatch):
+    monkeypatch.setattr(app_module, "list_grid_strategies", lambda workspace_id="default": [], raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/grid/strategies")
+    assert resp.status_code == 200
+    assert resp.json()["strategies"] == []
+
+
+def test_grid_strategies_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "list_grid_strategies",
+        lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/grid/strategies")
+    assert resp.status_code == 503
+
+
+def test_grid_strategy_status_update_success(monkeypatch):
+    strategy = {"id": "g1", "workspaceId": "default", "status": "启用", "schedule": "manual"}
+    monkeypatch.setattr(app_module, "get_grid_strategy", lambda sid: dict(strategy), raising=False)
+    monkeypatch.setattr(
+        app_module, "save_grid_strategy", lambda payload, workspace_id="default": payload, raising=False
+    )
+    monkeypatch.setattr(app_module, "schedule_strategy", lambda strategy: None, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/grid/strategies/g1", json={"status": "暂停"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "暂停"
+
+
+def test_grid_strategy_status_not_found(monkeypatch):
+    monkeypatch.setattr(app_module, "get_grid_strategy", lambda sid: None, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/grid/strategies/absent", json={"status": "暂停"})
+    assert resp.status_code == 404
+
+
+def test_grid_strategy_delete_success(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_grid_strategy", lambda sid, workspace_id="default": True, raising=False)
+    monkeypatch.setattr(app_module, "unschedule_strategy", lambda sid: None, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/grid/strategies/g1")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+
+
+def test_strategy_list_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "list_strategies",
+        lambda workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/strategy/strategies")
+    assert resp.status_code == 503
+
+
+def test_strategy_status_update_success(monkeypatch):
+    strategy = {"id": "s1", "workspaceId": "default", "status": "启用", "schedule": "manual"}
+    monkeypatch.setattr(app_module, "get_strategy", lambda sid: dict(strategy), raising=False)
+    monkeypatch.setattr(app_module, "save_strategy", lambda payload, workspace_id="default": payload, raising=False)
+    monkeypatch.setattr(app_module, "schedule_strategy", lambda strategy: None, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/strategy/strategies/s1", json={"status": "暂停"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "暂停"
+
+
+def test_strategy_delete_success(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_generic_strategy", lambda sid, workspace_id="default": True, raising=False)
+    monkeypatch.setattr(app_module, "unschedule_strategy", lambda sid: None, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/strategy/strategies/s1")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+
+
+def test_strategy_backtest_unknown_type_returns_422():
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/backtest", json={"strategyType": "nope", "code": "600519", "config": {}})
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "VALIDATION_ERROR"
+
+
+def test_strategy_backtest_history_failure_returns_422(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "_load_history_with_fallback",
+        lambda code, limit, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post(
+            "/api/strategy/backtest",
+            json={
+                "strategyType": "ma_cross",
+                "code": "600519",
+                "config": {"fastPeriod": 5, "slowPeriod": 20},
+            },
+        )
+    assert resp.status_code == 422
+
+
+def test_screener_upstream_failure_returns_502(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "load_screener",
+        lambda market, page_size: (_ for _ in ()).throw(ConnectionError("upstream down")),
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener")
+    assert resp.status_code == 502
+
+
+def test_screener_v2_upstream_failure_returns_502(monkeypatch):
+    def boom(page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
+        raise ConnectionError("rank down")
+
+    monkeypatch.setattr(data_source, "load_screener_v2", boom)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2")
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_lifespan_survives_storage_init_failure(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "initialize_storage",
+        lambda: (_ for _ in ()).throw(RuntimeError("db init down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/health")
+    assert resp.status_code == 200
+
+
+def test_lifespan_survives_scheduler_failure(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "start_scheduler",
+        lambda: (_ for _ in ()).throw(RuntimeError("scheduler down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/health")
+    assert resp.status_code == 200
+
+
+def test_grid_strategy_status_update_storage_failure_returns_503(monkeypatch):
+    strategy = {"id": "g1", "workspaceId": "default", "status": "启用", "schedule": "manual"}
+    monkeypatch.setattr(app_module, "get_grid_strategy", lambda sid: dict(strategy), raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "save_grid_strategy",
+        lambda payload, workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/grid/strategies/g1", json={"status": "暂停"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_grid_strategy_delete_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_grid_strategy", lambda sid, workspace_id="default": True, raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "unschedule_strategy",
+        lambda sid: (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/grid/strategies/g1")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_strategy_status_update_storage_failure_returns_503(monkeypatch):
+    strategy = {"id": "s1", "workspaceId": "default", "status": "启用", "schedule": "manual"}
+    monkeypatch.setattr(app_module, "get_strategy", lambda sid: dict(strategy), raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "save_strategy",
+        lambda payload, workspace_id="default": (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.patch("/api/strategy/strategies/s1", json={"status": "暂停"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_strategy_delete_storage_failure_returns_503(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_generic_strategy", lambda sid, workspace_id="default": True, raising=False)
+    monkeypatch.setattr(
+        app_module,
+        "unschedule_strategy",
+        lambda sid: (_ for _ in ()).throw(RuntimeError("db down")),
+        raising=False,
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/strategy/strategies/s1")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "STORAGE_UNAVAILABLE"
+
+
+def test_strategy_delete_not_found_returns_404(monkeypatch):
+    monkeypatch.setattr(app_module, "delete_generic_strategy", lambda sid, workspace_id="default": False, raising=False)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.delete("/api/strategy/strategies/absent")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "NOT_FOUND"

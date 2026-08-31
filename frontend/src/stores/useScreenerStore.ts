@@ -32,10 +32,10 @@ export const useScreenerStore = defineStore('screener', () => {
     filters.market = '全部';
   }
 
-  const presets = PRESETS;
+  const presets = ref(PRESETS);
 
   const presetHits = computed(() =>
-    presets.map((preset) => ({
+    presets.value.map((preset) => ({
       name: preset.name,
       icon: preset.icon,
       iconClass: preset.iconClass,
@@ -55,7 +55,7 @@ export const useScreenerStore = defineStore('screener', () => {
   );
 
   const presetDescription = computed(() => {
-    return presets.find((preset) => preset.name === presetName.value)?.description || '';
+    return presets.value.find((preset) => preset.name === presetName.value)?.description || '';
   });
 
   const filteredRows = computed(() => {
