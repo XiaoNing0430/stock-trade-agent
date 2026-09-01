@@ -2,6 +2,35 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.4.1] - 2026-08-30
+
+### 工程化打磨
+
+#### 性能
+- lucide 图标按需导入（`frontend/src/modules/lucideIcons.ts`，45 个实际使用图标，PascalCase 键），构建产物 >500KB 降至 200.65 kB（gzip 65.40 kB），消除 Vite chunk 体积警告。
+
+#### 部署
+- **Docker 化部署**：`Dockerfile` multi-stage 构建（node:22-alpine 前端 + python:3.13-slim 后端）+ `docker-compose.yml`（postgres:16 / redis:7 / app 三服务，健康检查依赖）。
+- `ARG REGISTRY` 支持镜像源覆盖（受限网络可用 `--build-arg REGISTRY=hub.rat.dev/library` 构建）；前端构建阶段复制根级 tsconfig/vite 配置；`HOST=0.0.0.0` 使容器端口映射生效。
+- 宿主端口 5433/6380 避开本机已有 PostgreSQL/Redis；不挂载 `./frontend/dist` 避免遮蔽镜像内构建产物。
+
+#### 测试
+- 新增 **Playwright e2e** 冒烟测试（`e2e/smoke.spec.ts` 3 项：首页加载 / 导航菜单 / API 健康检查），`npm run test:e2e`。
+- Chromium 浏览器二进制经 `PLAYWRIGHT_DOWNLOAD_HOST` 镜像源安装（国内网络可用）。
+
+#### 依赖升级
+- lucide `1.37.0` → `1.38.0`、APScheduler `3.10.4` → `3.11.3`、akshare `1.18.83` → `1.18.94`（minor 安全升级，全量验证通过）。
+- eslint 10 / TypeScript 7 / alembic 1.19 列为待评估 major（破坏性风险，需独立分支验证），跟踪清单见 `ROADMAP.md`。
+
+#### 文档
+- 新增 `ROADMAP.md`：未来功能规划（全市场选股器 / 新策略类型 / 多数据源 / 多语言）+ 依赖升级跟踪。
+- `OPERATIONS.md` 工程化工具链章节深化：npm scripts 对照表、CI job 明细、Docker 部署说明、依赖升级纪律。
+
+### 修复
+- Dockerfile 构建缺少根级 `tsconfig.json` / `vite.config.ts` 导致容器内 `vue-tsc` 失败 → 修复复制配置。
+- 容器端口映射失效（`server.py` 默认绑定 127.0.0.1）→ `ENV HOST=0.0.0.0`。
+- Playwright Chromium 下载超时（Google storage 不可达）→ 镜像源重装。
+
 ## [v0.4.0] - 2026-08-30
 
 ### 工程化
