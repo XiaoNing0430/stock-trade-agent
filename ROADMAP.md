@@ -12,9 +12,9 @@
 - 相关设计文档：`docs/superpowers/plans/2026-08-30-full-market-screener.md`
 
 ### 新策略类型
-- 当前支持：网格、双均线（SMA）、定投（DCA）、MACD 四种
-- 可扩展：均值回归、动量策略、布林带反转等
-- 策略引擎已泛化（`backend/strategy_engines.py`），新增策略只需实现计算函数 + 注册到 `STRATEGY_ENGINES`
+- [x] 当前支持：网格、双均线（SMA）、定投（DCA）、MACD 四种
+- [x] 已扩展：布林带反转、唐奇安突破、动量、多因子（ADX 状态过滤 + 动态切换 + 僵局保护）
+- [x] 策略引擎已泛化（`backend/strategy_engines.py` + `backend/strategy_base.py` + `backend/indicators.py`）
 
 ### 多数据源接入
 - 当前仅 Tencent 公开行情接口
