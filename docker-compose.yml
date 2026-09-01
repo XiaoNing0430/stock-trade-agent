@@ -28,7 +28,11 @@ services:
       retries: 5
 
   app:
-    build: .
+    build:
+      context: .
+      # 受限网络可指定国内镜像源：docker compose build --build-arg REGISTRY=hub.rat.dev/library
+      args:
+        REGISTRY: ${REGISTRY:-docker.io/library}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -36,6 +40,8 @@ services:
       redis:
         condition: service_healthy
     environment:
+      HOST: 0.0.0.0
+      PORT: 4173
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: postgres
