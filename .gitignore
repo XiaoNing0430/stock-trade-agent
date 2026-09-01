@@ -22,6 +22,10 @@ build/
 .vite/
 .parcel-cache/
 
+# Playwright e2e
+test-results/
+playwright-report/
+
 # Local runtime and editor files
 *.log
 *.pid

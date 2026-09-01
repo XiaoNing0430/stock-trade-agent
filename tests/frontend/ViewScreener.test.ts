@@ -5,6 +5,7 @@ import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
+vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
 
 const makeRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
   code: '600519',

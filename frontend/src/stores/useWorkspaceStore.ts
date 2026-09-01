@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, nextTick, ref } from 'vue';
-import { createIcons, icons } from 'lucide';
+import { createIcons } from 'lucide';
+import { UI_ICONS } from '@/modules/lucideIcons';
 import type { Alert, Plan } from '@/types/models';
 import { DEFAULT_ALERTS, DEFAULT_WATCHLIST, STORAGE_KEY } from '@/modules/constants';
 import { useQuotesStore } from './useQuotesStore';
@@ -64,7 +65,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function renderIcons() {
     if (createIcons) {
-      createIcons({ icons, attrs: { width: 16, height: 16, 'stroke-width': 1.8 } });
+      createIcons({ icons: UI_ICONS, attrs: { width: 16, height: 16, 'stroke-width': 1.8 } });
     }
   }
 
