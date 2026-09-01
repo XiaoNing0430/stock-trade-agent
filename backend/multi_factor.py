@@ -85,7 +85,14 @@ class MultiFactorStrategy(BaseStrategy):
 
         if sig is None or sig.module is None:
             return None
-        stats = self._module_stats[sig.module]
+        return self._apply_freeze(sig)
+
+    def _apply_freeze(self, sig: Signal) -> Signal | None:
+        """冻结检查：模块冻结时压制信号并计数（供子类复用，保证父类抑制逻辑生效）。"""
+        module = sig.module
+        if module is None:
+            return sig
+        stats = self._module_stats[module]
         if stats["frozen"]:
             stats["frozenPeriods"][-1]["suppressedSignals"] = stats["frozenPeriods"][-1].get("suppressedSignals", 0) + 1
             return None  # 冻结中：信号被压制，资金保持现金
@@ -119,7 +126,7 @@ class MultiFactorStrategy(BaseStrategy):
         }
         self._pending_buy_cost = {}
         result = super().backtest(bars, config)
-        # 冻结期结束标记：以最后一根 K 线为 end（若仍冻结则保持 None）
+        # 冻结期信息（end 在冻结解除时设置，目前为永久冻结）
         result["moduleUsage"] = self._module_stats
         result["theoreticalIfUnfrozen"] = [
             {
@@ -137,7 +144,7 @@ class MultiFactorStrategy(BaseStrategy):
         return (
             f"多因子模型：ADX 市场状态过滤器（≥{adx_threshold:.0f} 为趋势市，激活唐奇安突破；"
             f"否则为震荡市，激活布林带反转）。入口用 ADX 确认趋势，出口用通道反向突破（不依赖 ADX，避免双重延迟）。"
-            f"模块连续亏损达 {max_losses} 笔后冻结，资金保持现金；盈利后自动复位。"
+            f"模块连续亏损达 {max_losses} 笔后冻结，资金保持现金；盈利后计数器复位。"
             f"ADX 为滞后指标，市场状态切换存在延迟，此为已知局限。"
             "按当日收盘价成交、100 股整数倍、T+1 可卖。"
             "费用包含佣金（最低 5 元）、印花税（卖出 0.05%）及过户费。"
