@@ -1,10 +1,8 @@
 from backend.grid_strategy import backtest_grid
-from backend.strategy_engines import (
-    STRATEGY_ENGINES,
-    backtest_dca,
-    backtest_ma_cross,
-    backtest_macd,
-)
+from backend.strategies.dca import DcaStrategy
+from backend.strategies.ma_cross import MaCrossStrategy
+from backend.strategies.macd import MacdStrategy
+from backend.strategy_engines import STRATEGY_ENGINES
 
 
 def _trend_bars(count=120, start=100.0, dip=0.7, rise=1.3):
@@ -44,13 +42,17 @@ def test_compute_metrics_matches_backtest_grid_metrics():
 
 
 def test_ma_cross_returns_unified_shape():
-    result = backtest_ma_cross(_trend_bars(), {"fastPeriod": 5, "slowPeriod": 20, "capital": 100000, "feeBps": 3})
+    result = MaCrossStrategy().backtest(
+        _trend_bars(), {"fastPeriod": 5, "slowPeriod": 20, "capital": 100000, "feeBps": 3}
+    )
     assert set(result.keys()) == {"trades", "equityCurve", "benchmarkCurve", "metrics", "assumptions"}
     assert "双均线" in result["assumptions"]
 
 
 def test_ma_cross_creates_buy_on_golden_cross():
-    result = backtest_ma_cross(_trend_bars(), {"fastPeriod": 5, "slowPeriod": 20, "capital": 100000, "feeBps": 3})
+    result = MaCrossStrategy().backtest(
+        _trend_bars(), {"fastPeriod": 5, "slowPeriod": 20, "capital": 100000, "feeBps": 3}
+    )
     buys = [t for t in result["trades"] if t["side"] == "buy"]
     sells = [t for t in result["trades"] if t["side"] == "sell"]
     assert buys, "先跌后涨序列应触发金叉买入"
@@ -60,14 +62,14 @@ def test_ma_cross_creates_buy_on_golden_cross():
 
 def test_ma_cross_requires_fast_lt_slow():
     try:
-        backtest_ma_cross(_trend_bars(), {"fastPeriod": 20, "slowPeriod": 5})
+        MaCrossStrategy().backtest(_trend_bars(), {"fastPeriod": 20, "slowPeriod": 5})
         assert False, "fastPeriod >= slowPeriod 应报错"
     except ValueError:
         pass
 
 
 def test_dca_returns_unified_shape():
-    result = backtest_dca(
+    result = DcaStrategy().backtest(
         _trend_bars(50),
         {
             "amountPerPeriod": 5000,
@@ -84,7 +86,7 @@ def test_dca_returns_unified_shape():
 
 def test_dca_buys_periodically():
     count, interval = 60, 5
-    result = backtest_dca(
+    result = DcaStrategy().backtest(
         _trend_bars(count),
         {
             "amountPerPeriod": 15000,
@@ -106,7 +108,7 @@ def test_dca_stop_profit_triggers_sell():
         {"date": f"2026-01-{i + 1:02d}", "open": 100, "high": 100, "low": 100, "close": 100 + i * 5, "volume": 10000}
         for i in range(30)
     ]
-    result = backtest_dca(
+    result = DcaStrategy().backtest(
         bars,
         {
             "amountPerPeriod": 10000,
@@ -122,7 +124,7 @@ def test_dca_stop_profit_triggers_sell():
 
 
 def test_macd_returns_unified_shape():
-    result = backtest_macd(
+    result = MacdStrategy().backtest(
         _trend_bars(), {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9, "capital": 100000, "feeBps": 3}
     )
     assert set(result.keys()) == {"trades", "equityCurve", "benchmarkCurve", "metrics", "assumptions"}
@@ -130,7 +132,7 @@ def test_macd_returns_unified_shape():
 
 
 def test_macd_warms_up_before_trading():
-    result = backtest_macd(
+    result = MacdStrategy().backtest(
         _trend_bars(), {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9, "capital": 100000, "feeBps": 3}
     )
     warmup = 26 + 9
@@ -141,7 +143,7 @@ def test_macd_warms_up_before_trading():
 
 
 def test_macd_creates_trades_after_warmup():
-    result = backtest_macd(
+    result = MacdStrategy().backtest(
         _trend_bars(), {"fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9, "capital": 100000, "feeBps": 3}
     )
     assert result["trades"], "先跌后涨序列应在预热期后触发交易"
