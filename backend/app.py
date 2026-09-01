@@ -507,6 +507,7 @@ def create_app() -> FastAPI:
                     "securityType": profile["securityType"],
                     "exchange": profile["exchange"],
                     "lookback": lookback,
+                    "capitalAllocation": payload.capitalAllocation,
                 }
             )
             result = engine["backtest"](history, config)

@@ -154,7 +154,15 @@ def test_macd_creates_trades_after_warmup():
 
 
 def test_strategy_engines_registry_lists_all_types():
-    assert set(STRATEGY_ENGINES.keys()) == {"ma_cross", "dca", "macd"}
+    assert set(STRATEGY_ENGINES.keys()) == {
+        "ma_cross",
+        "dca",
+        "macd",
+        "bollinger",
+        "donchian",
+        "momentum",
+        "multi_factor",
+    }
     for spec in STRATEGY_ENGINES.values():
         assert spec["label"]
         assert callable(spec["backtest"])

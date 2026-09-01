@@ -22,3 +22,10 @@ def test_strategy_backtest_defaults():
     assert s.feeBps == 3
     assert s.schedule == "manual"
     assert s.lookback == 120
+
+
+def test_strategy_backtest_in_accepts_capital_allocation():
+    from backend.schemas import StrategyBacktestIn
+
+    payload = StrategyBacktestIn(strategyType="momentum", code="600519", capital=100000, capitalAllocation=0.6)
+    assert payload.capitalAllocation == 0.6

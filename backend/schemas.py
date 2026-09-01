@@ -106,6 +106,7 @@ class StrategyBacktestIn(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     capital: float = 100000
     feeBps: float = 3
+    capitalAllocation: float = Field(default=1.0, ge=0.1, le=1.0)
     name: str | None = None
     schedule: str = "manual"
     save: bool = False
