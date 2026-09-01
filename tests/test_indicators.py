@@ -99,6 +99,12 @@ def test_rsi_known_all_gains():
     assert out[4] == 100.0
 
 
+def test_rsi_flat_series_neutral():
+    out = rsi([100.0, 100.0, 100.0, 100.0, 100.0], 3)
+    assert out[:3] == [None, None, None]
+    assert out[4] == 50.0
+
+
 def test_adx_known_trend_strength():
     # 持续单边上涨 → ADX 应显著高于震荡序列
     up_bars = [{"date": f"d{i}", "open": 100 + i, "high": 101 + i, "low": 99 + i, "close": 100 + i} for i in range(30)]

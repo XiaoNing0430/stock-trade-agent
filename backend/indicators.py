@@ -114,7 +114,7 @@ def deviation(values: list[float], period: int = 20) -> list[float | None]:
 
 
 def rsi(values: list[float], period: int = 14) -> list[float | None]:
-    """相对强弱指标（Wilder 平滑），全涨返回 100。"""
+    """相对强弱指标（Wilder 平滑），全涨返回 100，全平返回 50（中性）。"""
     n = len(values)
     if n <= period:
         return [None] * n
@@ -130,7 +130,12 @@ def rsi(values: list[float], period: int = 14) -> list[float | None]:
     for i in range(period, n):
         avg_g = (avg_g * (period - 1) + gains[i - 1]) / period
         avg_l = (avg_l * (period - 1) + losses[i - 1]) / period
-        result[i] = 100.0 if avg_l == 0 else 100.0 - 100.0 / (1.0 + avg_g / avg_l)
+        if avg_g == 0 and avg_l == 0:
+            result[i] = 50.0  # 全平：无波动，中性
+        elif avg_l == 0:
+            result[i] = 100.0  # 全涨：强超买
+        else:
+            result[i] = 100.0 - 100.0 / (1.0 + avg_g / avg_l)
     return result
 
 
