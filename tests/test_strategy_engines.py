@@ -1,7 +1,10 @@
 from backend.grid_strategy import backtest_grid
+from backend.strategies.bollinger import BollingerStrategy
 from backend.strategies.dca import DcaStrategy
+from backend.strategies.donchian import DonchianStrategy
 from backend.strategies.ma_cross import MaCrossStrategy
 from backend.strategies.macd import MacdStrategy
+from backend.strategies.momentum import MomentumStrategy
 from backend.strategy_engines import STRATEGY_ENGINES
 
 
@@ -194,3 +197,67 @@ def test_strategy_engines_shared_instance_no_pending_leak():
     assert r1["metrics"]["tradeCount"] == r2["metrics"]["tradeCount"]
     assert r1["metrics"]["endEquity"] == r2["metrics"]["endEquity"]
     assert r1["trades"] == r2["trades"]
+
+
+def test_bollinger_returns_unified_shape():
+    result = BollingerStrategy().backtest(_trend_bars(), {"period": 20, "numStd": 2.0, "capital": 100000, "feeBps": 3})
+    assert set(result.keys()) == {"trades", "equityCurve", "benchmarkCurve", "metrics", "assumptions"}
+    assert "布林带" in result["assumptions"]
+
+
+def test_bollinger_buys_below_lower_band():
+    # 先暴跌跌穿下轨 → 买入；再暴涨上穿上轨 → 卖出
+    bars = []
+    for i in range(40):
+        if i < 20:
+            close = 100.0 - i * 2  # 跌至 62（i=19）
+        else:
+            close = 60.0 + i * 3  # 涨回
+        bars.append(
+            {
+                "date": f"2026-01-{i + 1:02d}",
+                "open": close,
+                "high": close + 1,
+                "low": close - 1,
+                "close": close,
+                "volume": 10000,
+            }
+        )
+    result = BollingerStrategy().backtest(bars, {"period": 10, "numStd": 1.5, "capital": 100000, "feeBps": 3})
+    sides = [t["side"] for t in result["trades"]]
+    assert "buy" in sides and "sell" in sides
+
+
+def test_donchian_buys_on_breakout_with_adx():
+    # 先横盘整理（通道上轨压低），再单边上涨突破上轨 + ADX>25 → 买入。
+    # 注意：donchian 上轨含当日最高价，若 high=close+2 恒成立则 close>upper 永假，
+    # 故突破段将 high 设为 close−1（突破日收盘价高于当日最高价，模拟跳空收高形态）。
+    bars = []
+    for i in range(80):
+        if i < 30:
+            close = 100.0 + (i % 5) * 1.0  # 横盘：100–104
+            high = close + 2.0
+            low = close - 2.0
+        else:
+            close = 108.0 + (i - 30) * 2.0  # 突破后单边上涨
+            high = close - 1.0
+            low = close - 3.0
+        bars.append(
+            {"date": f"2026-01-{i + 1:02d}", "open": close, "high": high, "low": low, "close": close, "volume": 10000}
+        )
+    result = DonchianStrategy().backtest(
+        bars, {"period": 10, "adxPeriod": 14, "adxThreshold": 25, "capital": 100000, "feeBps": 3}
+    )
+    assert result["trades"], "横盘后单边上涨应触发唐奇安买入"
+    assert "唐奇安" in result["assumptions"]
+
+
+def test_momentum_trades_on_thresholds():
+    bars = [
+        {"date": f"2026-01-{i + 1:02d}", "open": 100, "high": 100, "low": 100, "close": 100 + i * 3, "volume": 10000}
+        for i in range(30)
+    ]
+    result = MomentumStrategy().backtest(
+        bars, {"period": 5, "entryPct": 5, "exitPct": -3, "capital": 100000, "feeBps": 3}
+    )
+    assert result["trades"], "持续上涨应触发动量买入"
