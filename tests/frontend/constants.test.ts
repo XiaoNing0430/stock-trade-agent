@@ -45,9 +45,9 @@ test('SETTINGS_TABS 结构完整', () => {
   }
 });
 
-test('STRATEGY_TYPES 包含四种策略', () => {
+test('STRATEGY_TYPES 包含八种策略', () => {
   const ids = STRATEGY_TYPES.map((item) => item.id);
-  assert.deepEqual(ids, ['grid', 'ma_cross', 'dca', 'macd']);
+  assert.deepEqual(ids, ['grid', 'ma_cross', 'dca', 'macd', 'bollinger', 'donchian', 'momentum', 'multi_factor']);
   for (const item of STRATEGY_TYPES) {
     assert.equal(typeof item.label, 'string');
     assert.equal(typeof item.description, 'string');
@@ -55,7 +55,7 @@ test('STRATEGY_TYPES 包含四种策略', () => {
 });
 
 test('STRATEGY_SCHEMAS 各类型配置字段结构', () => {
-  for (const type of ['ma_cross', 'dca', 'macd']) {
+  for (const type of ['ma_cross', 'dca', 'macd', 'bollinger', 'donchian', 'momentum', 'multi_factor']) {
     const schema = STRATEGY_SCHEMAS[type];
     assert.ok(Array.isArray(schema) && schema.length > 0, `${type} 应有配置字段`);
     for (const field of schema) {

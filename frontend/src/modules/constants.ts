@@ -69,6 +69,10 @@ export const STRATEGY_TYPES = [
   { id: 'ma_cross', label: '双均线', description: '快线上穿买入，下穿卖出' },
   { id: 'dca', label: '定投', description: '定期定额 + 止盈止损' },
   { id: 'macd', label: 'MACD', description: 'DIF 上穿 DEA 买入，下穿卖出' },
+  { id: 'bollinger', label: '布林带反转', description: '跌破下轨买入，上穿上轨卖出（均值回归）' },
+  { id: 'donchian', label: '唐奇安突破', description: '通道突破入场，反向突破离场（ADX 确认）' },
+  { id: 'momentum', label: '动量', description: 'N 日涨跌幅阈值进出，独立资金管理' },
+  { id: 'multi_factor', label: '多因子', description: 'ADX 状态过滤器 + 动态模块切换' },
 ];
 
 export const STRATEGY_SCHEMAS: Record<
@@ -98,6 +102,30 @@ export const STRATEGY_SCHEMAS: Record<
     { key: 'fastPeriod', label: '快线周期', type: 'int', default: 12, min: 2, max: 30, suffix: '日' },
     { key: 'slowPeriod', label: '慢线周期', type: 'int', default: 26, min: 5, max: 60, suffix: '日' },
     { key: 'signalPeriod', label: '信号周期', type: 'int', default: 9, min: 2, max: 30, suffix: '日' },
+  ],
+  bollinger: [
+    { key: 'period', label: '均线周期', type: 'int', default: 20, min: 5, max: 120, suffix: '日' },
+    { key: 'numStd', label: '标准差倍数', type: 'float', default: 2, min: 0.5, max: 4, step: 0.1, suffix: 'σ' },
+  ],
+  donchian: [
+    { key: 'period', label: '通道周期', type: 'int', default: 20, min: 5, max: 120, suffix: '日' },
+    { key: 'adxPeriod', label: 'ADX 周期', type: 'int', default: 14, min: 5, max: 60, suffix: '日' },
+    { key: 'adxThreshold', label: 'ADX 阈值', type: 'int', default: 25, min: 10, max: 50, suffix: '' },
+  ],
+  momentum: [
+    { key: 'period', label: '动量周期', type: 'int', default: 20, min: 3, max: 120, suffix: '日' },
+    { key: 'entryPct', label: '入场阈值', type: 'float', default: 5, min: 0.5, max: 50, step: 0.5, suffix: '%' },
+    { key: 'exitPct', label: '退出阈值', type: 'float', default: -3, min: -50, max: 0, step: 0.5, suffix: '%' },
+  ],
+  multi_factor: [
+    { key: 'adxPeriod', label: 'ADX 周期', type: 'int', default: 14, min: 5, max: 60, suffix: '日' },
+    { key: 'adxThreshold', label: 'ADX 阈值', type: 'int', default: 25, min: 10, max: 50, suffix: '' },
+    { key: 'maxConsecutiveLosses', label: '最大连续亏损', type: 'int', default: 10, min: 2, max: 50, suffix: '笔' },
+    { key: 'rangePeriod', label: '震荡MA周期', type: 'int', default: 20, min: 5, max: 120, suffix: '日' },
+    { key: 'rangeStd', label: '震荡标准差', type: 'float', default: 2, min: 0.5, max: 4, step: 0.1, suffix: 'σ' },
+    { key: 'trendPeriod', label: '趋势通道周期', type: 'int', default: 20, min: 5, max: 120, suffix: '日' },
+    { key: 'trendAdxPeriod', label: '趋势ADX周期', type: 'int', default: 14, min: 5, max: 60, suffix: '日' },
+    { key: 'trendAdxThreshold', label: '趋势ADX阈值', type: 'int', default: 25, min: 10, max: 50, suffix: '' },
   ],
 };
 
