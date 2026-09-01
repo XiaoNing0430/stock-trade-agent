@@ -17,6 +17,10 @@ class DcaStrategy(BaseStrategy):
         super().__init__()
         self._pending = 0.0  # 资金不足一手时滚入下一期
 
+    def backtest(self, bars, config):
+        self._pending = 0.0
+        return super().backtest(bars, config)
+
     def signal_at(self, index, state):
         amount_per = float(self._cfg("amountPerPeriod", 5000))
         interval = int(self._cfg("intervalDays", 5))

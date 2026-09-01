@@ -156,3 +156,41 @@ def test_strategy_engines_registry_lists_all_types():
         assert spec["label"]
         assert callable(spec["backtest"])
         assert spec["configSchema"]
+
+
+def test_strategy_engines_shared_instance_is_reentrant():
+    """注册表共享实例连续两次回测结果必须一致（DCA _pending 不得泄漏）。"""
+    from backend.strategy_engines import STRATEGY_ENGINES
+
+    config = {
+        "amountPerPeriod": 15000,
+        "intervalDays": 5,
+        "stopProfitPct": 500,
+        "stopLossPct": 500,
+        "capital": 300000,
+        "feeBps": 3,
+    }
+    r1 = STRATEGY_ENGINES["dca"]["backtest"](_trend_bars(60), config)
+    r2 = STRATEGY_ENGINES["dca"]["backtest"](_trend_bars(60), config)
+    assert r1["metrics"]["tradeCount"] == r2["metrics"]["tradeCount"]
+    assert r1["metrics"]["endEquity"] == r2["metrics"]["endEquity"]
+    assert r1["trades"] == r2["trades"]
+
+
+def test_strategy_engines_shared_instance_no_pending_leak():
+    """低资金配置下 _pending 滚存易残留，连续回测必须仍然一致（防状态泄漏回归）。"""
+    from backend.strategy_engines import STRATEGY_ENGINES
+
+    config = {
+        "amountPerPeriod": 5000,
+        "intervalDays": 3,
+        "stopProfitPct": 500,
+        "stopLossPct": 500,
+        "capital": 100000,
+        "feeBps": 3,
+    }
+    r1 = STRATEGY_ENGINES["dca"]["backtest"](_trend_bars(60), config)
+    r2 = STRATEGY_ENGINES["dca"]["backtest"](_trend_bars(60), config)
+    assert r1["metrics"]["tradeCount"] == r2["metrics"]["tradeCount"]
+    assert r1["metrics"]["endEquity"] == r2["metrics"]["endEquity"]
+    assert r1["trades"] == r2["trades"]
