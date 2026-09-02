@@ -118,6 +118,8 @@ class AssetMetadata(ABC):
 
 - **按能力路由**：设置中的 `realtimeSource` / `historySource` / `screenerSource` / `fundamentalSource`（新增）各自选定源；同一能力缺省 `tencent`。
 - **降级链**：首选源失败 → 若 `fallbackEnabled=true` → 遍历其余 `capabilities` 含该能力的源 → 均失败则报错。
+- **降级深度硬上限**：`FALLBACK_MAX_DEPTH = 3`（最多尝试 3 个源，之后直接报错），防止 N 个源超时累积（如 3 源 × 5s = 15s 才返回 502）。
+- **降级链路日志**：记录完整降级路径（如 `eastmoney → tencent → mock_us`），便于监控。
 - 降级发生时更新 provider 标记（前端已按 `provider` 展示数据来源）。
 - 保留现有 `apply_runtime_config`（超时/重试/缓存/限频）与 `cached`/`mark_stale` 降级缓存机制。
 
@@ -125,9 +127,9 @@ class AssetMetadata(ABC):
 
 | 适配器 | 市场 | 类型 | capabilities | 依赖 | 备注 |
 |--------|------|------|--------------|------|------|
-| TencentSource | A 股 | 实盘 | realtime/history/screener/fundamental | 无 | 现有代码重构进新接口 |
-| EastMoneySource | A 股 | 实盘 | realtime/history/screener/fundamental | 无 | 免费公开接口，无 token |
-| MockUSSource | 美股 | 模拟 | realtime/history/screener | 无 | 随机/固定数据，全链路验证 |
+| TencentSource | A 股 | 实盘 | realtime/history/screener | 无 | 现有代码重构进新接口；腾讯 PE/PB 字段常缺失（创业板/科创板尤甚），**不含 fundamental**，避免财务数据缺失触发不必要降级 |
+| EastMoneySource | A 股 | 实盘 | realtime/history/screener/fundamental | 无 | 免费公开接口，无 token；**fundamental 唯一提供方** |
+| MockUSSource | 美股 | 模拟 | realtime/history/screener | 无 | 随机/固定数据，全链路验证；**仅用于 feature/multi-data-source 分支验证，预计移除版本 v2.3.0（真实美股接入后）；若当前日期 > 2027-01-01，启动时抛出 DeprecationWarning** |
 
 ## 前端改动
 
