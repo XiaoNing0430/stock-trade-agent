@@ -369,6 +369,7 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
         ).all()
         for watch_item in existing_watchlist:
             session.delete(watch_item)
+        session.flush()  # 确保 DELETE 先执行，避免 INSERT 撞唯一约束
         session.add_all([WatchlistItem(workspace_id=workspace_id, code=code) for code in watchlist])
 
         plans_payload = [item for item in payload.get("plans", []) if item.get("id") and item.get("code")]
