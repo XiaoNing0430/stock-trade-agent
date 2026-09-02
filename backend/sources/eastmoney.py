@@ -14,8 +14,8 @@ from backend.sources.cn_impl import CNAssetMetadata, CNDataNormalizer, CNMarketC
 _QUOTE_FIELDS = "f2,f3,f4,f5,f6,f8,f9,f10,f12,f14,f15,f16,f17,f18"
 # 排行字段（screener）
 _CLIST_FIELDS = "f2,f3,f5,f6,f8,f9,f10,f12,f14"
-# 财务字段（fundamental）
-_STOCK_FIELDS = "f2,f3,f9,f10,f23,f43,f44,f45,f46,f47,f57,f58,f162,f164,f167,f168,f169,f170,f171,f173,f177,f178"
+# 财务字段（fundamental，stock/get 实测返回字段）
+_STOCK_FIELDS = "f43,f44,f45,f46,f47,f57,f58,f162,f164,f167,f168,f169,f170,f171,f173,f177,f178"
 
 # 东财 secid 前缀：1. = 上交所, 0. = 深交所/北交所
 _SECID_MAP = {"上交所": "1.", "深交所": "0.", "北交所": "0."}
@@ -224,15 +224,21 @@ class EastMoneySource(DataSource):
         data = self._http_get(self.STOCK_URL, params)
         raw = data.get("data") or {}
         return {
-            "code": code,
-            "name": raw.get("f14", ""),
-            "price": numeric(raw.get("f2")),
-            "change": numeric(raw.get("f3")),
-            "pe": numeric(raw.get("f9")),
-            "pb": numeric(raw.get("f10")),
-            "totalMarketCap": numeric(raw.get("f164")),
-            "circulatingMarketCap": numeric(raw.get("f167")),
-            "turnoverRate": numeric(raw.get("f162")),
-            "peTtm": numeric(raw.get("f168")),
-            "pbMrq": numeric(raw.get("f173")),
+            "code": raw.get("f57"),
+            "name": raw.get("f58"),
+            "price": numeric(raw.get("f43")),
+            "open": numeric(raw.get("f46")),
+            "high": numeric(raw.get("f44")),
+            "low": numeric(raw.get("f45")),
+            "volume": numeric(raw.get("f47")),
+            "pe": numeric(raw.get("f162")),
+            "pb": numeric(raw.get("f164")),
+            "roe": numeric(raw.get("f167")),
+            "totalShares": numeric(raw.get("f168")),
+            "floatShares": numeric(raw.get("f169")),
+            "floatMarketCap": numeric(raw.get("f170")),
+            "totalMarketCap": numeric(raw.get("f171")),
+            "turnoverRate": numeric(raw.get("f173")),
+            "peg": numeric(raw.get("f177")),
+            "mainForceFlow": numeric(raw.get("f178")),
         }

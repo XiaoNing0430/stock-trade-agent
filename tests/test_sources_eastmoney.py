@@ -251,24 +251,33 @@ def test_em_load_market_indices(monkeypatch: Any) -> None:
     assert result["indices"][2]["exchange"] == "深交所"
 
 
-def test_em_load_fundamentals(monkeypatch: Any) -> None:
+def test_parse_em_fundamentals(monkeypatch: Any) -> None:
+    """验证 load_fundamentals 按真实 stock/get 字段映射解析。"""
     source = EastMoneySource()
 
     def fake_get(url: str, params: dict[str, Any], headers: dict[str, Any], timeout: int) -> Any:
+        assert params["fields"] == "f43,f44,f45,f46,f47,f57,f58,f162,f164,f167,f168,f169,f170,f171,f173,f177,f178"
         return _make_fake_json(
             {
                 "rc": 0,
                 "data": {
-                    "f2": 1297.5,
-                    "f3": -0.16,
-                    "f9": 30.2,
-                    "f10": 5.8,
-                    "f14": "贵州茅台",
-                    "f162": 0.35,
-                    "f164": 1630000000000.0,
-                    "f167": 1550000000000.0,
-                    "f168": 28.5,
-                    "f173": 5.6,
+                    "f43": 1297.5,
+                    "f44": 1305.0,
+                    "f45": 1290.0,
+                    "f46": 1300.0,
+                    "f47": 20308,
+                    "f57": "600519",
+                    "f58": "贵州茅台",
+                    "f162": 25.3,
+                    "f164": 6.8,
+                    "f167": 0.15,
+                    "f168": 1256197800,
+                    "f169": 1256197800,
+                    "f170": 1620000000000,
+                    "f171": 1625000000000,
+                    "f173": 0.78,
+                    "f177": 22.1,
+                    "f178": 12300000,
                 },
             }
         )
@@ -278,13 +287,10 @@ def test_em_load_fundamentals(monkeypatch: Any) -> None:
     assert result["code"] == "600519"
     assert result["name"] == "贵州茅台"
     assert result["price"] == 1297.5
-    assert result["pe"] == 30.2
-    assert result["pb"] == 5.8
-    assert result["totalMarketCap"] == 1630000000000.0
-    assert result["circulatingMarketCap"] == 1550000000000.0
-    assert result["turnoverRate"] == 0.35
-    assert result["peTtm"] == 28.5
-    assert result["pbMrq"] == 5.6
+    assert result["pe"] == 25.3
+    assert result["pb"] == 6.8
+    assert result["turnoverRate"] == 0.78
+    assert result["mainForceFlow"] == 12300000
 
 
 def test_em_empty_codes_returns_empty() -> None:
