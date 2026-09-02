@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, nextTick, ref, reactive } from 'vue';
-import { STRATEGY_SCHEMAS, STRATEGY_TYPES } from '@/modules/constants';
+import { STRATEGY_SCHEMAS, STRATEGY_TYPES as STRATEGY_TYPES_LIST } from '@/modules/constants';
 import { useWorkspaceStore } from './useWorkspaceStore';
 import { useQuotesStore } from './useQuotesStore';
 import { useAlertsStore } from './useAlertsStore';
@@ -17,6 +17,9 @@ export const useStrategyStore = defineStore('strategy', () => {
   const strategySuggestion = ref<any>(null);
   const strategyResult = ref<any>(null);
   const strategies = ref<any[]>([]);
+  // storeToRefs 只解构 ref/reactive/computed——普通常量数组需用 ref 包装，
+  // 否则 ViewGrid 中解构出的 STRATEGY_TYPES 为 undefined 导致策略 tab 不渲染。
+  const STRATEGY_TYPES = ref(STRATEGY_TYPES_LIST);
   const strategyDraft = reactive({
     id: '',
     code: quotes.selectedCode,
@@ -33,7 +36,7 @@ export const useStrategyStore = defineStore('strategy', () => {
   const strategyInstrument = computed(() => quotes.quoteFor(normalizedStrategyCode.value));
   const hasStrategyResult = computed(() => Boolean(strategyResult.value));
   const strategyTypeLabel = computed(
-    () => (STRATEGY_TYPES.find((item) => item.id === strategyType.value) || {}).label || '策略'
+    () => (STRATEGY_TYPES.value.find((item) => item.id === strategyType.value) || {}).label || '策略'
   );
 
   const strategyProvenance = computed(() => {
