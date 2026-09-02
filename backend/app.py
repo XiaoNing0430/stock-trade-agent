@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
@@ -49,6 +50,7 @@ from backend.schemas import (
     WorkspacePut,
     WorkspacePutOut,
 )
+from backend.sources import get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     delete_grid_strategy,
@@ -197,23 +199,17 @@ def create_app() -> FastAPI:
         tushare_configured = bool(
             getattr(__import__("backend.settings", fromlist=["get_settings"]).get_settings(), "tushare_token", "")
         )
-        return SettingsOut(
-            data=data,
-            sources=[
-                {
-                    "id": "tencent",
-                    "name": "腾讯公开行情",
-                    "realtime": True,
-                    "history": True,
-                    "screener": True,
-                    "available": True,
-                },
+        sources: list[dict[str, Any]] = [dict(info) for info in get_all_sources_info()]
+        # 已注册适配器之外的计划中源：保留 installed/config 探测信息（available=False）
+        sources.extend(
+            [
                 {
                     "id": "akshare",
                     "name": "AkShare",
                     "realtime": False,
                     "history": True,
                     "screener": True,
+                    "fundamental": False,
                     "available": False,
                     "installed": akshare_installed,
                     "reason": "暂未支持切换，适配器开发中" if akshare_installed else "未安装 AkShare",
@@ -224,13 +220,15 @@ def create_app() -> FastAPI:
                     "realtime": False,
                     "history": True,
                     "screener": True,
+                    "fundamental": False,
                     "available": False,
                     "installed": tushare_installed,
                     "tushareConfigured": tushare_configured,
                     "reason": "暂未支持切换，适配器开发中" if tushare_configured else "未配置 TUSHARE_TOKEN",
                 },
-            ],
+            ]
         )
+        return SettingsOut(data=data, sources=sources)
 
     @app.put("/api/settings")
     def update_settings(

@@ -298,6 +298,7 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "realtimeSource": "tencent",
     "historySource": "tencent",
     "screenerSource": "tencent",
+    "fundamentalSource": "eastmoney",
     "fallbackEnabled": True,
     "refreshInterval": 15,
     "cacheSeconds": 8,
@@ -310,15 +311,14 @@ DEFAULT_WORKSPACE_SETTINGS = {
 
 
 def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
-    allowed_sources = {"tencent", "akshare", "tushare"}
+    allowed_sources = {"tencent", "eastmoney", "akshare", "tushare", "mock_us"}
     data = {
         **DEFAULT_WORKSPACE_SETTINGS,
         **{key: value for key, value in payload.items() if key in DEFAULT_WORKSPACE_SETTINGS},
     }
-    for key in ("realtimeSource", "historySource", "screenerSource"):
+    for key in ("realtimeSource", "historySource", "screenerSource", "fundamentalSource"):
         if data[key] not in allowed_sources:
             data[key] = "tencent"
-    data["realtimeSource"] = "tencent"
     data["workspaceName"] = str(data["workspaceName"]).strip()[:64] or DEFAULT_WORKSPACE_SETTINGS["workspaceName"]
     data["defaultCapital"] = max(1000, min(float(data["defaultCapital"]), 100000000))
     data["refreshInterval"] = max(5, min(int(data["refreshInterval"]), 300))
