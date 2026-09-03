@@ -36,7 +36,7 @@ export const useQuotesStore = defineStore('quotes', () => {
   });
 
   const hasLiveQuotes = computed(() => market.quotes.length > 0 || useScreenerStore().screenRows.length > 0);
-  const providerLabel = computed(() => (market.provider ? 'Tencent 行情' : '行情代理'));
+  const providerLabel = computed(() => market.provider || '行情代理');
   const marketStatus = computed(() => {
     if (dataState.value === 'live' && hasLiveQuotes.value) return '已连接';
     if (dataState.value === 'stale') return '缓存';
