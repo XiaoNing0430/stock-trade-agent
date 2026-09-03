@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import date, time
 from typing import Any, Literal
 
-Capability = Literal["realtime", "history", "screener", "fundamental"]
+Capability = Literal["realtime", "history", "screener", "paged_screener", "fundamental"]
 
 
 class DataSource(ABC):
@@ -25,6 +25,12 @@ class DataSource(ABC):
 
     @abstractmethod
     def load_screener(self, market: str, page_size: int) -> dict[str, Any]: ...
+
+    def load_screener_paged(
+        self, page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc"
+    ) -> dict[str, Any]:
+        """全市场分页排序选股；仅声明 paged_screener 能力位的源实现此方法。"""
+        raise NotImplementedError(f"{self.id} does not support paged_screener")
 
     @property
     @abstractmethod

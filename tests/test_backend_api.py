@@ -685,6 +685,11 @@ def test_screener_v2_endpoint_returns_proper_shape(monkeypatch):
         def json(self):
             return fake_data
 
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
     data_source.cache.clear()
     monkeypatch.setattr(data_source, "_http_get", lambda url, params: FakeResponse())
     from fastapi.testclient import TestClient
@@ -1374,17 +1379,6 @@ def test_screener_upstream_failure_returns_502(monkeypatch):
     assert resp.status_code == 502
 
 
-def test_screener_v2_upstream_failure_returns_502(monkeypatch):
-    def boom(page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
-        raise ConnectionError("rank down")
-
-    monkeypatch.setattr(data_source, "load_screener_v2", boom)
-    with TestClient(app_module.create_app()) as client:
-        resp = client.get("/api/screener/v2")
-    assert resp.status_code == 502
-    assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
-
-
 def test_lifespan_survives_storage_init_failure(monkeypatch):
     monkeypatch.setattr(
         app_module,
@@ -1473,3 +1467,77 @@ def test_strategy_delete_not_found_returns_404(monkeypatch):
         resp = client.delete("/api/strategy/strategies/absent")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "NOT_FOUND"
+
+
+def test_screener_v2_routes_via_router_tencent(monkeypatch):
+    """默认设置（screenerSource=tencent）下 /api/screener/v2 走腾讯排名委托。"""
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+
+    def fake_v2(page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
+        return {
+            "total": 4596,
+            "page": page,
+            "pageSize": page_size,
+            "rows": [{"code": "600519", "name": "贵州茅台", "price": 1297.5}],
+            "provider": "Tencent rank API",
+        }
+
+    monkeypatch.setattr("backend.data_source.load_screener_v2", fake_v2)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2?page=2&pageSize=50")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 4596
+    assert data["page"] == 2
+    assert data["provider"] == "Tencent rank API"
+
+
+def test_screener_v2_routes_via_router_eastmoney(monkeypatch):
+    """screenerSource=eastmoney 时 /api/screener/v2 走东财 clist 分页。"""
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "eastmoney", "fallbackEnabled": True},
+    )
+
+    def fake_paged(self, page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
+        return {
+            "total": 4596,
+            "page": page,
+            "pageSize": page_size,
+            "rows": [{"code": "300750", "name": "宁德时代", "price": 210.18}],
+            "provider": "东方财富实时行情",
+        }
+
+    from backend.sources.eastmoney import EastMoneySource
+
+    monkeypatch.setattr(EastMoneySource, "load_screener_paged", fake_paged)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2?page=1&pageSize=50")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["provider"] == "东方财富实时行情"
+    assert data["rows"][0]["code"] == "300750"
+
+
+def test_screener_v2_upstream_failure_returns_502(monkeypatch):
+    """路由选中源请求失败时返回 502 UPSTREAM_UNAVAILABLE。"""
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+
+    def fake_v2(page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
+        raise RuntimeError("全市场选股器请求失败: timeout")
+
+    monkeypatch.setattr("backend.data_source.load_screener_v2", fake_v2)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2")
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["detail"]["code"] == "UPSTREAM_UNAVAILABLE"

@@ -19,8 +19,9 @@ def test_tencent_source_capabilities_realtime_no_fundamental() -> None:
     assert "realtime" in source.capabilities
     assert "history" in source.capabilities
     assert "screener" in source.capabilities
+    assert "paged_screener" in source.capabilities
     assert "fundamental" not in source.capabilities
-    assert source.capabilities == frozenset({"realtime", "history", "screener"})
+    assert source.capabilities == frozenset({"realtime", "history", "screener", "paged_screener"})
 
 
 def test_tencent_source_cn_components() -> None:

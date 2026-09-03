@@ -14,6 +14,15 @@ from backend.sources.cn_impl import CNAssetMetadata, CNDataNormalizer, CNMarketC
 _QUOTE_FIELDS = "f2,f3,f4,f5,f6,f8,f9,f10,f12,f14,f15,f16,f17,f18"
 # 排行字段（screener）
 _CLIST_FIELDS = "f2,f3,f5,f6,f8,f9,f10,f12,f14"
+# 前端排序字段 → clist fid（f2 现价 f3 涨跌幅 f6 成交额 f8 换手率 f9 PE f20 总市值）
+_EM_SORT_MAP = {
+    "changePct": "f3",
+    "amount": "f6",
+    "turnoverRate": "f8",
+    "price": "f2",
+    "peTtm": "f9",
+    "totalMarketCap": "f20",
+}
 # 财务字段（fundamental，stock/get 实测返回字段）
 _STOCK_FIELDS = "f43,f44,f45,f46,f47,f57,f58,f162,f164,f167,f168,f169,f170,f171,f173,f177,f178"
 
@@ -37,7 +46,7 @@ def _secid(code: str) -> str:
 class EastMoneySource(DataSource):
     id = "eastmoney"
     name = "东方财富行情"
-    capabilities = frozenset[Capability]({"realtime", "history", "screener", "fundamental"})
+    capabilities = frozenset[Capability]({"realtime", "history", "screener", "paged_screener", "fundamental"})
     available = True
     provider_label = "东方财富实时行情"
 
@@ -213,6 +222,36 @@ class EastMoneySource(DataSource):
             "total": total,
             "rows": rows,
             "universeSize": len(rows),
+        }
+
+    def load_screener_paged(
+        self, page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc"
+    ) -> dict[str, Any]:
+        """全市场分页排序选股（clist 原生 pn/pz/fid/po），返回 shape 与腾讯 v2 一致。"""
+        params: dict[str, Any] = {
+            "fltt": 2,
+            "invt": 2,
+            "fid": _EM_SORT_MAP.get(sort_by, "f3"),
+            "po": 1 if sort_dir == "desc" else 0,
+            "np": 1,
+            "pn": page,
+            "pz": page_size,
+            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+            "fields": _CLIST_FIELDS,
+        }
+        data = self._http_get(self.CLIST_URL, params)
+        payload = data.get("data") or {}
+        rows = []
+        for raw in payload.get("diff", []):
+            quote = self._parse_quote(raw)
+            if quote is not None:
+                rows.append(quote)
+        return {
+            "total": int(payload.get("total", 0)),
+            "page": page,
+            "pageSize": page_size,
+            "rows": rows,
+            "provider": self.provider_label,
         }
 
     def load_fundamentals(self, code: str) -> dict[str, Any]:

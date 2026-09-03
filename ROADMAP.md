@@ -7,9 +7,10 @@
 ## 待办（方向 2 — 后续功能开发）
 
 ### 全市场选股器
-- 当前精选约 50 只股票池（`REAL_UNIVERSE`），扩展至全 A 股（~4600 只）
-- 腾讯排名接口已接入（`/api/screener/v2`），需完善分页、排序、缓存
-- 相关设计文档：`docs/superpowers/plans/2026-08-30-full-market-screener.md`
+- [x] 已扩容为全市场分页排序选股器（腾讯排名接口，~4600 只，分页/排序/缓存已完成）
+- [x] 已接入多数据源 Router：`/api/screener/v2` 按 `screenerSource` 设置选源（腾讯排名委托 / 东财 clist 原生分页）
+- [x] 前端「精选 50 / 全市场」双模式 + 表头排序 + 分页器（Vue 3 + Pinia）
+- 相关设计文档：`docs/superpowers/plans/2026-09-02-full-market-screener-v2.md`（旧版已归档）
 
 ### 新策略类型
 - [x] 当前支持：网格、双均线（SMA）、定投（DCA）、MACD 四种

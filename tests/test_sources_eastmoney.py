@@ -32,10 +32,11 @@ def test_em_source_basic_attributes() -> None:
 
 def test_em_source_capabilities_fundamental() -> None:
     source = EastMoneySource()
-    assert source.capabilities == frozenset({"realtime", "history", "screener", "fundamental"})
+    assert source.capabilities == frozenset({"realtime", "history", "screener", "paged_screener", "fundamental"})
     assert "realtime" in source.capabilities
     assert "history" in source.capabilities
     assert "screener" in source.capabilities
+    assert "paged_screener" in source.capabilities
     assert "fundamental" in source.capabilities
 
 
@@ -321,3 +322,97 @@ def test_em_history_with_extra_parts(monkeypatch: Any) -> None:
     assert result[0]["date"] == "2026-09-01"
     assert result[0]["amount"] == 1950000000.00
     assert result[1]["date"] == "2026-09-02"
+
+
+def _paged_payload() -> dict[str, Any]:
+    """clist 分页接口的模拟响应（2 行）。"""
+    return {
+        "rc": 0,
+        "data": {
+            "total": 4596,
+            "diff": [
+                {"f2": 1297.5, "f3": -0.16, "f4": -2.06, "f12": "600519", "f14": "贵州茅台"},
+                {"f2": 210.18, "f3": 1.05, "f4": 2.18, "f12": "300750", "f14": "宁德时代"},
+            ],
+        },
+    }
+
+
+def test_load_screener_paged_maps_params(monkeypatch: Any) -> None:
+    """分页排序参数正确映射到 clist 的 pn/pz/fid/po。"""
+    source = EastMoneySource()
+    captured: dict[str, Any] = {}
+
+    def fake_get(url: str, params: dict[str, Any], headers: dict[str, Any], timeout: int) -> Any:
+        captured["url"] = url
+        captured["params"] = params
+        return _make_fake_json(_paged_payload())
+
+    monkeypatch.setattr("requests.get", fake_get)
+    result = source.load_screener_paged(page=3, page_size=50, sort_by="changePct", sort_dir="desc")
+
+    assert captured["url"] == source.CLIST_URL
+    params = captured["params"]
+    assert params["pn"] == 3
+    assert params["pz"] == 50
+    assert params["fid"] == "f3"  # changePct → f3
+    assert params["po"] == 1  # desc → 1
+    # 返回 shape 与腾讯 v2 一致
+    assert result["total"] == 4596
+    assert result["page"] == 3
+    assert result["pageSize"] == 50
+    assert result["provider"] == "东方财富实时行情"
+    assert len(result["rows"]) == 2
+
+
+def test_load_screener_paged_sort_map_and_asc(monkeypatch: Any) -> None:
+    """排序字段映射表与 asc 方向。"""
+    source = EastMoneySource()
+    captured: dict[str, Any] = {}
+
+    def fake_get(url: str, params: dict[str, Any], headers: dict[str, Any], timeout: int) -> Any:
+        captured["params"] = params
+        return _make_fake_json(_paged_payload())
+
+    monkeypatch.setattr("requests.get", fake_get)
+    source.load_screener_paged(page=1, page_size=50, sort_by="amount", sort_dir="asc")
+    assert captured["params"]["fid"] == "f6"  # amount → f6
+    assert captured["params"]["po"] == 0  # asc → 0
+
+    source.load_screener_paged(page=1, page_size=50, sort_by="turnoverRate", sort_dir="desc")
+    assert captured["params"]["fid"] == "f8"  # turnoverRate → f8
+
+    source.load_screener_paged(page=1, page_size=50, sort_by="unknownField", sort_dir="desc")
+    assert captured["params"]["fid"] == "f3"  # 未知字段回退 f3
+
+
+def test_load_screener_paged_normalizes_rows(monkeypatch: Any) -> None:
+    """行数据走 _parse_quote 标准化，缺失字段为 None。"""
+    source = EastMoneySource()
+
+    def fake_get(url: str, params: dict[str, Any], headers: dict[str, Any], timeout: int) -> Any:
+        return _make_fake_json(_paged_payload())
+
+    monkeypatch.setattr("requests.get", fake_get)
+    result = source.load_screener_paged()
+    rows = result["rows"]
+    assert rows[0]["code"] == "600519"
+    assert rows[0]["name"] == "贵州茅台"
+    assert rows[0]["price"] == 1297.5
+    assert rows[0]["change"] == -0.16
+    assert rows[0]["prevClose"] == 1297.5 - (-2.06)
+    assert rows[0]["volumeRatio"] is None
+
+
+def test_load_screener_paged_upstream_failure(monkeypatch: Any) -> None:
+    """上游失败抛 RuntimeError（沿用 _http_get 异常传播）。"""
+    source = EastMoneySource()
+
+    def fake_get(url: str, params: dict[str, Any], headers: dict[str, Any], timeout: int) -> Any:
+        raise ConnectionError("em down")
+
+    monkeypatch.setattr("requests.get", fake_get)
+    import pytest
+
+    with pytest.raises(ConnectionError, match="em down"):
+        source.load_screener_paged()
