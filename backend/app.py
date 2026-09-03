@@ -15,9 +15,6 @@ from starlette.requests import Request
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
-    load_history,
-    load_market,
-    load_screener,
     price_limit_ratio,
     recent_stale,
 )
@@ -96,9 +93,16 @@ DIST_DIR = FRONTEND_DIR / "dist"
 
 
 def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None]:
-    """优先实时行情；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf)。"""
+    """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf)。"""
+    from backend.sources import build_router
+
+    settings = get_workspace_settings("default")
+    router = build_router()
     try:
-        history = load_history(code, limit=limit, is_index=is_index)
+        source = router.route_with_fallback(
+            settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+        )
+        history = source.load_history(code, limit=limit, is_index=is_index)
         data_as_of = save_market_bars(code, history)
         return history, "live", data_as_of
     except Exception:
@@ -249,9 +253,17 @@ def create_app() -> FastAPI:
     @app.get("/api/market")
     def market(codes: str = Query(default="")) -> MarketOut:
         try:
-            return MarketOut.model_validate(load_market(codes.split(",") if codes else []))
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("realtimeSource", "tencent"), "realtime", settings.get("fallbackEnabled", True)
+            )
+            payload = source.load_market(codes.split(",") if codes else [])
+            payload["provider"] = source.provider_label
+            return MarketOut.model_validate(payload)
         except Exception as exc:
-            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
 
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)) -> HistoryOut:
@@ -273,12 +285,18 @@ def create_app() -> FastAPI:
         market: str = Query(default="全部"), pageSize: int = Query(default=300, alias="pageSize")
     ) -> ScreenerOut:
         try:
-            payload = load_screener(market, pageSize)
-            payload["provider"] = "Tencent public quote API"
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("screenerSource", "tencent"), "screener", settings.get("fallbackEnabled", True)
+            )
+            payload = source.load_screener(market, pageSize)
+            payload["provider"] = source.provider_label
             payload["fetchedAt"] = int(time.time() * 1000)
             return ScreenerOut.model_validate(payload)
         except Exception as exc:
-            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
 
     @app.get("/api/screener/v2")
     def screener_v2(
@@ -399,7 +417,13 @@ def create_app() -> FastAPI:
             code = payload.code
             profile = classify_code(code)
             lookback = max(20, min(payload.lookback, 240))
-            history = load_history(code, limit=lookback)
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+            )
+            history = source.load_history(code, limit=lookback, is_index=False)
             data_as_of = save_market_bars(code, history)
             return GridOptimizeOut(
                 code=code,
