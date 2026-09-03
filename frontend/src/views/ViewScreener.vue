@@ -18,6 +18,83 @@
     <div class="screener-tabs">
       <button :class="['screener-tab', { 'is-active': screenerMode === 'featured' }]" type="button" @click="switchScreenerMode('featured')">精选 50</button>
       <button :class="['screener-tab', { 'is-active': screenerMode === 'all' }]" type="button" @click="switchScreenerMode('all')">全市场</button>
+      <button :class="['screener-tab', { 'is-active': screenerMode === 'strategy' }]" type="button" @click="openStrategyTab()">策略</button>
+    </div>
+
+    <div v-if="screenerMode === 'strategy'" class="screener-layout">
+      <section class="filter-panel surface">
+        <div class="surface-heading">
+          <div>
+            <span class="section-kicker">PIPELINE</span>
+            <h3>策略选股</h3>
+          </div>
+          <i data-lucide="git-branch" class="heading-icon" aria-hidden="true"></i>
+        </div>
+        <div class="field-grid">
+          <label class="field">
+            <span>策略</span>
+            <select v-model="strategyName" class="input">
+              <option v-for="s in strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+          <div class="field">
+            <span>模式</span>
+            <div class="screener-tabs strategy-mode-tabs">
+              <button :class="['screener-tab', { 'is-active': strategyRunMode === 'quick' }]" type="button" @click="switchStrategyMode('quick')">极速</button>
+              <button :class="['screener-tab', { 'is-active': strategyRunMode === 'deep' }]" type="button" @click="switchStrategyMode('deep')">深度</button>
+            </div>
+          </div>
+        </div>
+        <p class="heading-note">{{ strategyDescription }}{{ strategyRunMode === 'deep' ? '（深度模式需逐票拉取历史数据，预计 10–30 秒）' : '' }}</p>
+        <div class="filter-divider"></div>
+        <button class="button button-primary" type="button" :disabled="strategyLoading" @click="runStrategy">
+          <i data-lucide="play" aria-hidden="true"></i>
+          {{ strategyLoading ? '计算中…' : '运行策略' }}
+        </button>
+      </section>
+
+      <div class="results-panel surface">
+        <div class="surface-heading">
+          <div>
+            <span class="section-kicker">RESULTS</span>
+            <h3>命中结果 <span v-if="strategyReferenceDate" class="heading-note">基准日期 {{ strategyReferenceDate }}</span></h3>
+          </div>
+          <span v-if="strategyCached" class="scan-time">{{ strategyStale ? '⚠ 数据可能滞后（缓存降级）' : '缓存命中' }}</span>
+        </div>
+        <div v-if="strategyStale" class="empty-state"><i data-lucide="alert-triangle" aria-hidden="true"></i><strong>数据可能滞后</strong><span>数据源暂时不可用，以下为上次缓存结果，请稍后强制刷新。</span></div>
+        <div class="table-responsive results-table-wrap">
+          <table class="data-table data-table-dense">
+            <thead><tr>
+              <th>代码</th>
+              <th>名称</th>
+              <th class="text-end">评分</th>
+              <th>达标因子</th>
+              <th class="text-end">现价</th>
+              <th class="text-end">涨跌幅</th>
+              <th class="text-end">PE</th>
+              <th class="text-end">PB</th>
+              <th class="text-end">ROE</th>
+              <th class="text-end">操作</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="stock in strategyRows" :key="stock.code" class="clickable-row" @click="selectStock(stock.code)">
+                <td>{{ stock.code }}</td>
+                <td><div class="stock-cell"><span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span><div class="stock-cell-copy"><strong>{{ stock.name }}</strong></div></div></td>
+                <td class="text-end"><strong>{{ stock.score ?? '--' }}</strong></td>
+                <td><span v-for="tag in strategyFactorTags(stock)" :key="tag" class="sort-arrow factor-tag">{{ tag }}</span><span v-if="!strategyFactorTags(stock).length">--</span></td>
+                <td class="text-end">{{ formatNullable(stock.price) }}</td>
+                <td class="text-end" :class="trendClass(stock.changePct)">{{ formatPctNullable(stock.changePct) }}</td>
+                <td class="text-end">{{ formatNullable(stock.pe, 1) }}</td>
+                <td class="text-end">{{ formatNullable(stock.pb, 2) }}</td>
+                <td class="text-end">{{ stock.roe != null ? stock.roe.toFixed(1) + '%' : '--' }}</td>
+                <td class="text-end"><button class="table-action" type="button" :aria-label="isWatched(stock.code) ? '移出自选' : '加入自选'" :data-tooltip="isWatched(stock.code) ? '移出自选' : '加入自选'" @click.stop="toggleWatch(stock.code)"><i :data-lucide="isWatched(stock.code) ? 'star-off' : 'star'" aria-hidden="true"></i></button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="strategyLoading" class="empty-state"><i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在运行策略</strong><span>{{ strategyRunMode === 'deep' ? '深度模式需逐票计算因子，请稍候。' : '极速模式筛选中…' }}</span></div>
+        <div v-else-if="!strategyRows.length" class="empty-state"><i data-lucide="search-x" aria-hidden="true"></i><strong>暂无结果</strong><span>点击「运行策略」开始选股。</span></div>
+      </div>
     </div>
 
     <div v-if="screenerMode === 'featured'" class="screener-layout">
@@ -152,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
@@ -168,12 +245,28 @@ const plans = usePlansStore();
 const {
   screenerUpdatedLabel, screenerMode, presets, presetName, filters, filteredRows, screenTotal,
   presetDescription, screenerAllRows, screenerAllTotal, screenerPage, screenerLoading,
+  strategies, strategyName, strategyRunMode, strategyRows, strategyLoading, strategyCached,
+  strategyStale, strategyReferenceDate,
 } = storeToRefs(screener);
 const { loading } = storeToRefs(quotes);
 const { signalClass, signalText } = plans;
-const { switchScreenerMode, applyPreset, resetFilters, exportResults, screenerSort, screenerSortIcon, screenerPageUp, screenerPageDown, scanNow } = screener;
+const {
+  switchScreenerMode, applyPreset, resetFilters, exportResults, screenerSort, screenerSortIcon,
+  screenerPageUp, screenerPageDown, scanNow, runStrategy, switchStrategyMode, strategyFactorTags, loadStrategies,
+} = screener;
 const { selectStock, isWatched, toggleWatch } = quotes;
 const { renderIcons } = workspace;
+
+const strategyDescription = computed(
+  () => strategies.value.find((s: any) => s.id === strategyName.value)?.description || ''
+);
+
+/** 切到策略 tab：加载策略列表（幂等），首次进入自动空态提示。 */
+function openStrategyTab() {
+  if (screenerMode.value === 'strategy') return;
+  screenerMode.value = 'strategy';
+  if (!strategies.value.length) loadStrategies();
+}
 
 onMounted(() => renderIcons());
 </script>

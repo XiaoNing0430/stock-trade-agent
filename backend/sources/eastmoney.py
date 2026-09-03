@@ -132,6 +132,9 @@ class EastMoneySource(DataSource):
             "fqt": 1,  # 前复权
             "end": "20500101",
             "lmt": limit,
+            # 缺 fields1/fields2 时接口返回空 klines（实测 2026-09）
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57",
         }
         data = self._http_get(self.KLINE_URL, params)
         klines = (data.get("data") or {}).get("klines", [])

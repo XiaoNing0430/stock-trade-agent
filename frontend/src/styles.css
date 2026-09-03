@@ -3692,3 +3692,17 @@ textarea:focus-visible {
 .view-panel.is-active .selected-stock-panel {
   margin-top: 0;
 }
+
+/* 策略选股：达标因子标签 */
+.factor-tag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-raised, rgba(59, 130, 246, 0.12));
+  font-size: 11px;
+  white-space: nowrap;
+}
+.strategy-mode-tabs {
+  margin-top: 4px;
+}

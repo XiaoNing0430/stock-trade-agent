@@ -34,6 +34,8 @@ from backend.schemas import (
     HistoryOut,
     MarketOut,
     ScreenerOut,
+    ScreenerStrategyOut,
+    ScreenerStrategyRunIn,
     SettingsOut,
     SettingsPut,
     SettingsPutOut,
@@ -317,6 +319,52 @@ def create_app() -> FastAPI:
             return payload
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
+
+    # 模块级单例：策略管道跨请求复用缓存/锁（FastAPI 多 worker 间不共享，单实例部署足够）
+    _strategy_pipeline: dict[str, Any] = {}
+
+    @app.get("/api/screener/strategies")
+    def screener_strategies():
+        from backend.screener.loader import list_strategies
+
+        strategies = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "sortBy": c.sort_by,
+                "topN": c.top_n,
+                "deepCap": c.deep_cap,
+                "factorCount": len(c.advanced_factors),
+            }
+            for c in list_strategies()
+        ]
+        return {"strategies": strategies}
+
+    @app.post("/api/screener/strategy", response_model=ScreenerStrategyOut)
+    def screener_strategy_run(payload: ScreenerStrategyRunIn) -> ScreenerStrategyOut:
+        from backend.screener.pipeline import ScreenerPipeline
+
+        pipeline = _strategy_pipeline.get("p")
+        if pipeline is None:
+            from backend.sources import build_router as _build_router
+
+            # 显式经 app 模块的 get_workspace_settings（测试可 mock；运行时读真实设置）
+            pipeline = ScreenerPipeline(_build_router(), settings_getter=lambda: get_workspace_settings("default"))
+            _strategy_pipeline["p"] = pipeline
+        try:
+            result = pipeline.run(
+                payload.strategy,
+                mode=payload.mode,
+                refresh=payload.refresh,
+                reference_date=payload.referenceDate,
+            )
+        except ValueError as exc:
+            # 未知策略 / 非法 mode / 非法 referenceDate → 422
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc))
+        except Exception as exc:
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
+        return ScreenerStrategyOut(**result)
 
     @app.post("/api/grid/preview")
     def grid_preview(payload: GridPreviewIn) -> GridPreviewOut:

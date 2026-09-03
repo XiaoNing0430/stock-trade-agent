@@ -416,3 +416,27 @@ def test_load_screener_paged_upstream_failure(monkeypatch: Any) -> None:
 
     with pytest.raises(ConnectionError, match="em down"):
         source.load_screener_paged()
+
+
+def test_load_history_sends_field_lists(monkeypatch: Any) -> None:
+    """回归：东财 K 线接口缺 fields1/fields2 时返回空 klines（2026-09 实测）。"""
+    source = EastMoneySource()
+    captured: dict[str, Any] = {}
+
+    def fake_get(url: str, params: dict[str, Any], headers: dict[str, Any], timeout: int) -> Any:
+        captured["params"] = params
+        return _make_fake_json(
+            {
+                "data": {
+                    "klines": [
+                        "2026-09-01,1300.00,1295.00,1301.00,1290.00,15000,1950000000.00",
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr("requests.get", fake_get)
+    result = source.load_history("600519", limit=5)
+    assert len(result) == 1
+    assert captured["params"]["fields1"] == "f1,f2,f3,f4,f5,f6"
+    assert captured["params"]["fields2"] == "f51,f52,f53,f54,f55,f56,f57"

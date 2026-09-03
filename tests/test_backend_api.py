@@ -1541,3 +1541,146 @@ def test_screener_v2_upstream_failure_returns_502(monkeypatch):
     assert resp.status_code == 502
     body = resp.json()
     assert body["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_screener_strategies_endpoint(monkeypatch):
+    """GET /api/screener/strategies 列出内置策略。"""
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/strategies")
+    assert resp.status_code == 200
+    data = resp.json()
+    ids = {s["id"] for s in data["strategies"]}
+    assert {"oversold_bounce", "trend_breakout"}.issubset(ids)
+    assert all("name" in s and "topN" in s for s in data["strategies"])
+
+
+def test_screener_strategy_run_quick(monkeypatch):
+    """POST /api/screener/strategy quick 模式：mock 管道依赖，端到端返回。"""
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+
+    from backend.sources import tencent as tx_module
+
+    fake_rows = [
+        {
+            "code": "600519",
+            "name": "贵州茅台",
+            "price": 1297.5,
+            "changePct": 1.2,
+            "pe": 15.0,
+            "pb": 2.0,
+            "turnoverRate": 2.0,
+            "volume": 1000.0,
+            "amount": 1e8,
+        },
+        {
+            "code": "300750",
+            "name": "宁德时代",
+            "price": 210.0,
+            "changePct": 2.0,
+            "pe": 20.0,
+            "pb": 3.0,
+            "turnoverRate": 3.0,
+            "volume": 2000.0,
+            "amount": 2e8,
+        },
+    ]
+
+    class FakeCal:
+        market = "CN"
+
+        def previous_trading_day(self, day):
+            return day
+
+    monkeypatch.setattr(
+        tx_module.TencentSource,
+        "load_screener",
+        lambda self, market, page_size=300: {"total": len(fake_rows), "rows": fake_rows},
+    )
+    monkeypatch.setattr(tx_module.TencentSource, "calendar", property(lambda self: FakeCal()))
+    from backend.sources.eastmoney import EastMoneySource
+
+    monkeypatch.setattr(
+        EastMoneySource,
+        "load_fundamentals",
+        lambda self, code: {"code": code, "roe": 15.0, "totalMarketCap": 1.0, "peg": None},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/screener/strategy", json={"strategy": "oversold_bounce", "mode": "quick"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mode"] == "quick"
+    assert data["strategy"] == "oversold_bounce"
+    assert data["total"] == len(data["rows"]) <= 10
+    assert data["cached"] is False
+    assert data["stale"] is False
+    assert data["referenceDate"]
+    assert data["provider"] == "Tencent public quote API"
+    assert data["elapsedMs"] >= 0
+
+
+def test_screener_strategy_unknown_422(monkeypatch):
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/screener/strategy", json={"strategy": "nope"})
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "VALIDATION_ERROR"
+
+
+def test_screener_strategy_invalid_reference_date_422(monkeypatch):
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post(
+            "/api/screener/strategy", json={"strategy": "oversold_bounce", "referenceDate": "2026/08/01"}
+        )
+    assert resp.status_code == 422
+
+
+def test_screener_strategy_cached_second_call(monkeypatch):
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+
+    from backend.sources import tencent as tx_module
+
+    fake_rows = [
+        {
+            "code": "600519",
+            "name": "贵州茅台",
+            "price": 1297.5,
+            "changePct": 1.2,
+            "pe": 15.0,
+            "pb": 2.0,
+            "turnoverRate": 2.0,
+            "volume": 1000.0,
+            "amount": 1e8,
+        }
+    ]
+
+    class FakeCal:
+        market = "CN"
+
+        def previous_trading_day(self, day):
+            return day
+
+    monkeypatch.setattr(
+        tx_module.TencentSource,
+        "load_screener",
+        lambda self, market, page_size=300: {"total": len(fake_rows), "rows": fake_rows},
+    )
+    monkeypatch.setattr(tx_module.TencentSource, "calendar", property(lambda self: FakeCal()))
+    from backend.sources.eastmoney import EastMoneySource
+
+    monkeypatch.setattr(
+        EastMoneySource,
+        "load_fundamentals",
+        lambda self, code: {"code": code, "roe": 15.0, "totalMarketCap": 1.0, "peg": None},
+    )
+    with TestClient(app_module.create_app()) as client:
+        r1 = client.post("/api/screener/strategy", json={"strategy": "oversold_bounce"})
+        r2 = client.post("/api/screener/strategy", json={"strategy": "oversold_bounce"})
+    assert r1.json()["cached"] is False
+    assert r2.json()["cached"] is True

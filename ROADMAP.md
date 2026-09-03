@@ -16,6 +16,11 @@
 - [x] 当前支持：网格、双均线（SMA）、定投（DCA）、MACD 四种
 - [x] 已扩展：布林带反转、唐奇安突破、动量、多因子（ADX 状态过滤 + 动态切换 + 僵局保护）
 - [x] 策略引擎已泛化（`backend/strategy_engines.py` + `backend/strategy_base.py` + `backend/indicators.py`）
+- [x] 策略选股管道（混合管道：API 粗筛 → 本地因子精筛 → 财务增强；声明式策略配置
+  `backend/screener/configs/*.json`；reference_date 截断杜绝未来函数；缓存击穿互斥锁 +
+  stale 降级兜底；Semaphore→池化限频 ≤10 req/s + 阶段 deadline；trace_id + stage_timings
+  可观测。`GET /api/screener/strategies` + `POST /api/screener/strategy`，前端「策略」标签页）
+  设计文档：`docs/superpowers/plans/2026-09-02-screener-pipeline.md`
 
 ### 多数据源接入
 - 当前仅 Tencent 公开行情接口
