@@ -263,3 +263,29 @@ class StrategiesOut(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     strategies: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ScreenerStrategyRunIn(BaseModel):
+    """POST /api/screener/strategy 请求体。"""
+
+    strategy: str
+    mode: str = "quick"  # quick（纯粗筛）/ deep（API 粗筛 + 本地因子精筛）
+    refresh: bool = False  # 强制重算（绕过缓存）
+    referenceDate: str | None = None  # YYYY-MM-DD；默认上一交易日
+
+
+class ScreenerStrategyOut(BaseModel):
+    """POST /api/screener/strategy 响应；rows 内含 score/factors/roe 等透传字段。"""
+
+    model_config = ConfigDict(extra="allow")
+
+    strategy: str
+    name: str
+    mode: str
+    referenceDate: str
+    provider: str
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    total: int = 0
+    cached: bool = False
+    stale: bool = False
+    elapsedMs: int = 0
