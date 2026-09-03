@@ -306,11 +306,17 @@ def create_app() -> FastAPI:
         sortDir: str = Query(default="desc", alias="sortDir"),
     ):
         try:
-            from backend.data_source import load_screener_v2
+            from backend.sources import build_router
 
-            return load_screener_v2(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("screenerSource", "tencent"), "paged_screener", settings.get("fallbackEnabled", True)
+            )
+            payload = source.load_screener_paged(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
+            payload["fetchedAt"] = int(time.time() * 1000)
+            return payload
         except Exception as exc:
-            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent rank API")
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
 
     @app.post("/api/grid/preview")
     def grid_preview(payload: GridPreviewIn) -> GridPreviewOut:

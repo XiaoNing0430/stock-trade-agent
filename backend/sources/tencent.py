@@ -10,7 +10,7 @@ from backend.sources.cn_impl import CNAssetMetadata, CNDataNormalizer, CNMarketC
 class TencentSource(DataSource):
     id = "tencent"
     name = "腾讯公开行情"
-    capabilities = frozenset[Capability]({"realtime", "history", "screener"})
+    capabilities = frozenset[Capability]({"realtime", "history", "screener", "paged_screener"})
     available = True
     provider_label = "Tencent public quote API"
 
@@ -42,3 +42,9 @@ class TencentSource(DataSource):
 
     def load_screener(self, market: str, page_size: int = 300) -> dict[str, Any]:
         return tencent_ds.load_screener(market, page_size)
+
+    def load_screener_paged(
+        self, page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc"
+    ) -> dict[str, Any]:
+        """全市场分页排序选股：委托现有腾讯排名接口（含缓存）。"""
+        return tencent_ds.load_screener_v2(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir)

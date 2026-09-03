@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from backend.sources.base import DataSource
 from backend.sources.router import FALLBACK_MAX_DEPTH, DataSourceRouter
@@ -161,3 +163,47 @@ def test_router_no_available_source():
     router = DataSourceRouter({"tencent": s1})
     with pytest.raises(ValueError, match="No available source"):
         router.route_with_fallback("tencent", "realtime", fallback_enabled=True)
+
+
+def test_router_routes_paged_screener_to_tencent() -> None:
+    """paged_screener 能力位路由到腾讯（委托 load_screener_v2）。"""
+    from backend.sources import build_router
+
+    router = build_router()
+    source = router.route_with_fallback("tencent", "paged_screener", True)
+    assert source.id == "tencent"
+
+
+def test_router_routes_paged_screener_to_eastmoney() -> None:
+    """paged_screener 能力位路由到东财（原生 clist 分页）。"""
+    from backend.sources import build_router
+
+    router = build_router()
+    source = router.route_with_fallback("eastmoney", "paged_screener", True)
+    assert source.id == "eastmoney"
+
+
+def test_tencent_load_screener_paged_delegates(monkeypatch: Any) -> None:
+    """TencentSource.load_screener_paged 委托 tencent_ds.load_screener_v2。"""
+    from backend.sources.tencent import TencentSource
+
+    calls: dict[str, Any] = {}
+
+    def fake_v2(
+        page: int = 1, page_size: int = 50, sort_by: str = "changePct", sort_dir: str = "desc"
+    ) -> dict[str, Any]:
+        calls.update(page=page, page_size=page_size, sort_by=sort_by, sort_dir=sort_dir)
+        return {"total": 4596, "page": page, "pageSize": page_size, "rows": [], "provider": "Tencent rank API"}
+
+    monkeypatch.setattr("backend.data_source.load_screener_v2", fake_v2)
+    result = TencentSource().load_screener_paged(page=2, page_size=80, sort_by="amount", sort_dir="asc")
+    assert calls == {"page": 2, "page_size": 80, "sort_by": "amount", "sort_dir": "asc"}
+    assert result["page"] == 2
+    assert result["pageSize"] == 80
+
+
+def test_mock_us_lacks_paged_screener_capability() -> None:
+    """MockUSSource 无 paged_screener 能力（美股模拟无全 A 股概念）。"""
+    from backend.sources.mock_us import MockUSSource
+
+    assert "paged_screener" not in MockUSSource.capabilities
