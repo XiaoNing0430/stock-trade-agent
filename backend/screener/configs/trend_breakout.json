@@ -1,0 +1,19 @@
+{
+  "id": "trend_breakout",
+  "name": "趋势突破",
+  "description": "多头排列 + 动量向上 + 放量确认的趋势延续候选",
+  "quick_filters": {
+    "pe": [0, 80],
+    "pb": [0, 12],
+    "turnoverRate": [1.0, null],
+    "changePct": [1.0, null]
+  },
+  "advanced_factors": [
+    {"name": "ma_arrange", "period": 20, "operator": ">", "threshold": 0.5, "weight": 2},
+    {"name": "momentum", "period": 20, "operator": ">", "threshold": 0, "weight": 1},
+    {"name": "volume_surge", "period": 20, "operator": ">", "threshold": 1.5, "weight": 1}
+  ],
+  "sort_by": "amount",
+  "top_n": 10,
+  "deep_cap": 200
+}
