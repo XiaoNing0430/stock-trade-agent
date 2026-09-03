@@ -62,4 +62,76 @@ describe('ViewSettings', () => {
     expect(workspace.alerts.length).toBeGreaterThan(0);
     expect(wrapper.text()).toContain('真实行情连接已就绪');
   });
+
+  it('数据分组渲染4个动态数据源下拉（实时/日线/选股/基本面）', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'data';
+    // 注入模拟数据源
+    settings.dataSources = [
+      { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
+      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      { id: 'mock_us', name: '美股模拟', available: true, realtime: true, history: true, screener: true, fundamental: true },
+    ];
+    settings.settingsDraft.realtimeSource = 'tencent';
+    settings.settingsDraft.historySource = 'eastmoney';
+    settings.settingsDraft.screenerSource = 'tencent';
+    settings.settingsDraft.fundamentalSource = 'eastmoney';
+    const wrapper = mount(ViewSettings);
+    // 验证所有下拉存在且动态选项
+    const realtimeSelect = wrapper.find('select[aria-label="实时行情来源"]');
+    expect(realtimeSelect.exists()).toBe(true);
+    const realtimeOptions = realtimeSelect.findAll('option');
+    // 所有 3 个源都有 realtime 能力
+    expect(realtimeOptions.length).toBe(3);
+
+    const historySelect = wrapper.find('select[aria-label="历史日线来源"]');
+    expect(historySelect.exists()).toBe(true);
+    const historyOptions = historySelect.findAll('option');
+    expect(historyOptions.length).toBe(3);
+
+    const screenerSelect = wrapper.find('select[aria-label="选股指标来源"]');
+    expect(screenerSelect.exists()).toBe(true);
+    const screenerOptions = screenerSelect.findAll('option');
+    expect(screenerOptions.length).toBe(3);
+
+    const fundamentalSelect = wrapper.find('select[aria-label="财务数据源"]');
+    expect(fundamentalSelect.exists()).toBe(true);
+    const fundamentalOptions = fundamentalSelect.findAll('option');
+    // 只有 eastmoney 和 mock_us 有 fundamental 能力
+    expect(fundamentalOptions.length).toBe(2);
+  });
+
+  it('数据渲染不可用能力筛选（fundamental 仅 eastmoney/mock_us）', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'data';
+    settings.dataSources = [
+      { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
+      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+    ];
+    const wrapper = mount(ViewSettings);
+    // realtime 下拉有 2 个选项
+    expect(wrapper.find('select[aria-label="实时行情来源"]').findAll('option').length).toBe(2);
+    // fundamental 下拉只有 1 个选项
+    expect(wrapper.find('select[aria-label="财务数据源"]').findAll('option').length).toBe(1);
+  });
+
+  it('连接分组展示能力徽标', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'connection';
+    settings.dataSources = [
+      { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
+      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+    ];
+    const wrapper = mount(ViewSettings);
+    expect(wrapper.text()).toContain('腾讯公开行情');
+    expect(wrapper.text()).toContain('东方财富');
+    // 能力徽标文本
+    expect(wrapper.findAll('.badge').length).toBe(7); // tencent: 3 badges, eastmoney: 4 badges
+  });
 });
