@@ -15,6 +15,7 @@ export const useSettingsStore = defineStore('settings', () => {
     realtimeSource: 'tencent',
     historySource: 'tencent',
     screenerSource: 'tencent',
+    fundamentalSource: 'eastmoney',
     fallbackEnabled: true,
     refreshInterval: 15,
     cacheSeconds: 8,

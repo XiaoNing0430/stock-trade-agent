@@ -32,6 +32,7 @@ class SettingsPut(BaseModel):
     realtimeSource: str = "tencent"
     historySource: str = "tencent"
     screenerSource: str = "tencent"
+    fundamentalSource: str = "eastmoney"
     fallbackEnabled: bool = True
     refreshInterval: int = 15
     cacheSeconds: int = 8

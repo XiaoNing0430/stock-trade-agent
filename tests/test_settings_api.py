@@ -2,7 +2,12 @@ from backend import app as app_module
 from fastapi.testclient import TestClient
 
 
-def test_settings_api_returns_default_data_sources_without_secrets():
+def test_settings_api_returns_default_data_sources_without_secrets(monkeypatch):
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/settings")
 

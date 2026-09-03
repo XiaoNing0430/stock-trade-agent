@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
@@ -14,9 +15,6 @@ from starlette.requests import Request
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
-    load_history,
-    load_market,
-    load_screener,
     price_limit_ratio,
     recent_stale,
 )
@@ -49,6 +47,7 @@ from backend.schemas import (
     WorkspacePut,
     WorkspacePutOut,
 )
+from backend.sources import get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     delete_grid_strategy,
@@ -93,17 +92,24 @@ FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
 
 
-def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None]:
-    """优先实时行情；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf)。"""
+def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None, str]:
+    """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。"""
+    from backend.sources import build_router
+
+    settings = get_workspace_settings("default")
+    router = build_router()
     try:
-        history = load_history(code, limit=limit, is_index=is_index)
+        source = router.route_with_fallback(
+            settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+        )
+        history = source.load_history(code, limit=limit, is_index=is_index)
         data_as_of = save_market_bars(code, history)
-        return history, "live", data_as_of
+        return history, "live", data_as_of, source.provider_label
     except Exception:
         bars = load_market_bars(code, limit=limit)
         if not bars:
             raise
-        return bars, "local", bars[-1]["date"]
+        return bars, "local", bars[-1]["date"], "local"
 
 
 def create_app() -> FastAPI:
@@ -197,23 +203,17 @@ def create_app() -> FastAPI:
         tushare_configured = bool(
             getattr(__import__("backend.settings", fromlist=["get_settings"]).get_settings(), "tushare_token", "")
         )
-        return SettingsOut(
-            data=data,
-            sources=[
-                {
-                    "id": "tencent",
-                    "name": "腾讯公开行情",
-                    "realtime": True,
-                    "history": True,
-                    "screener": True,
-                    "available": True,
-                },
+        sources: list[dict[str, Any]] = [dict(info) for info in get_all_sources_info()]
+        # 已注册适配器之外的计划中源：保留 installed/config 探测信息（available=False）
+        sources.extend(
+            [
                 {
                     "id": "akshare",
                     "name": "AkShare",
                     "realtime": False,
                     "history": True,
                     "screener": True,
+                    "fundamental": False,
                     "available": False,
                     "installed": akshare_installed,
                     "reason": "暂未支持切换，适配器开发中" if akshare_installed else "未安装 AkShare",
@@ -224,13 +224,15 @@ def create_app() -> FastAPI:
                     "realtime": False,
                     "history": True,
                     "screener": True,
+                    "fundamental": False,
                     "available": False,
                     "installed": tushare_installed,
                     "tushareConfigured": tushare_configured,
                     "reason": "暂未支持切换，适配器开发中" if tushare_configured else "未配置 TUSHARE_TOKEN",
                 },
-            ],
+            ]
         )
+        return SettingsOut(data=data, sources=sources)
 
     @app.put("/api/settings")
     def update_settings(
@@ -251,36 +253,50 @@ def create_app() -> FastAPI:
     @app.get("/api/market")
     def market(codes: str = Query(default="")) -> MarketOut:
         try:
-            return MarketOut.model_validate(load_market(codes.split(",") if codes else []))
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("realtimeSource", "tencent"), "realtime", settings.get("fallbackEnabled", True)
+            )
+            payload = source.load_market(codes.split(",") if codes else [])
+            payload["provider"] = source.provider_label
+            return MarketOut.model_validate(payload)
         except Exception as exc:
-            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
 
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)) -> HistoryOut:
         try:
-            history, data_source_flag, data_as_of = _load_history_with_fallback(code, 120, is_index=index)
+            history, data_source_flag, data_as_of, provider = _load_history_with_fallback(code, 120, is_index=index)
             return HistoryOut(
                 code=code,
-                provider="Tencent public quote API",
+                provider=provider,
                 fetchedAt=int(time.time() * 1000),
                 history=history,
                 dataSource=data_source_flag,
                 dataAsOf=data_as_of,
             )
         except Exception as exc:
-            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
 
     @app.get("/api/screener")
     def screener(
         market: str = Query(default="全部"), pageSize: int = Query(default=300, alias="pageSize")
     ) -> ScreenerOut:
         try:
-            payload = load_screener(market, pageSize)
-            payload["provider"] = "Tencent public quote API"
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("screenerSource", "tencent"), "screener", settings.get("fallbackEnabled", True)
+            )
+            payload = source.load_screener(market, pageSize)
+            payload["provider"] = source.provider_label
             payload["fetchedAt"] = int(time.time() * 1000)
             return ScreenerOut.model_validate(payload)
         except Exception as exc:
-            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="Tencent public quote API")
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
 
     @app.get("/api/screener/v2")
     def screener_v2(
@@ -302,7 +318,7 @@ def create_app() -> FastAPI:
             code = payload.code
             profile = classify_code(code)
             grid_count = max(2, min(payload.gridCount, 30))
-            history, data_source_flag, data_as_of = _load_history_with_fallback(
+            history, data_source_flag, data_as_of, _ = _load_history_with_fallback(
                 code, max(20, min(payload.lookback, 240))
             )
             return GridPreviewOut(
@@ -324,7 +340,7 @@ def create_app() -> FastAPI:
             code = payload.code
             profile = classify_code(code)
             lookback = max(20, min(payload.lookback, 240))
-            history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
+            history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
             capital = payload.capital
             fee_bps = payload.feeBps
             grid_count = max(2, min(payload.gridCount, 30))
@@ -401,7 +417,13 @@ def create_app() -> FastAPI:
             code = payload.code
             profile = classify_code(code)
             lookback = max(20, min(payload.lookback, 240))
-            history = load_history(code, limit=lookback)
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            source = build_router().route_with_fallback(
+                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+            )
+            history = source.load_history(code, limit=lookback, is_index=False)
             data_as_of = save_market_bars(code, history)
             return GridOptimizeOut(
                 code=code,
@@ -498,7 +520,7 @@ def create_app() -> FastAPI:
             code = payload.code
             profile = classify_code(code)
             lookback = max(20, min(payload.lookback, 240))
-            history, data_source_flag, data_as_of = _load_history_with_fallback(code, lookback)
+            history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
             config = payload.config
             config.update(
                 {
