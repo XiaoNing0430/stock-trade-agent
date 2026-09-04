@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -294,3 +294,42 @@ class ScreenerStrategyOut(BaseModel):
     cached: bool = False
     stale: bool = False
     elapsedMs: int = 0
+
+
+class PlanDraftIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    name: str | None = None
+    entryPrice: float | None = Field(default=None, gt=0)
+    entryAsOfMs: int | None = Field(default=None, ge=0)
+    stopMode: Literal["atr", "ma20"] | None = None
+    rrRatio: float | None = Field(default=None, ge=1, le=10)
+    accountEquity: float | None = Field(default=None, gt=0)
+    riskPct: float | None = Field(default=None, ge=0.1, le=5)
+
+
+class PlanDraftOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    name: str = ""
+    direction: str = "buy"
+    entry: float
+    stopAtr: float | None = None
+    stopMa20: float | None = None
+    stop: float | None = None
+    target: float | None = None
+    stopDistance: float | None = None
+    atr14: float | None = None
+    ma20: float | None = None
+    riskAmount: float | None = None
+    suggestedShares: int = 0
+    positionPct: float = 0.0
+    referenceDate: str
+    entryAsOf: int | None = None
+    stale: bool = False
+    fallbackUsed: bool = False
+    provider: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    disclaimer: str
