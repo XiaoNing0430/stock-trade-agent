@@ -269,6 +269,7 @@ class IndicatorLevels:
     closed_count: int
     atr14: float | None
     ma20: float | None
+    last_close: float | None  # 截断末根收盘（涨停价提示用，二轮评审）
     stop_atr: float | None
     stop_ma20: float | None
 
@@ -297,7 +298,8 @@ def indicator_levels(bars: list[dict], ref_date: str) -> IndicatorLevels:
         ma20 = ma_values[-1] if ma_values and ma_values[-1] is not None else None
     stop_atr = round(closed[-1]["close"] - 2 * atr14, 2) if atr14 is not None else None
     stop_ma20 = round(ma20, 2) if ma20 is not None else None
-    return IndicatorLevels(reference_date=ref_date, closed_count=len(closed), atr14=atr14, ma20=ma20, stop_atr=stop_atr, stop_ma20=stop_ma20)
+    last_close = float(closed[-1]["close"]) if closed and closed[-1].get("close") is not None else None
+    return IndicatorLevels(reference_date=ref_date, closed_count=len(closed), atr14=atr14, ma20=ma20, last_close=last_close)
 ```
 
 注意：`stop_atr` 锚定**截断末根收盘**而非动态 entry（entry 由调用方在 sizing 里覆盖重算——见下）。修正：`indicator_levels` 不算 stop（entry 未知），`stop_atr/stop_ma20` 移到 `sizing` 里按 entry 现算。即 `IndicatorLevels` 只含 `reference_date/closed_count/atr14/ma20`，`sizing(entry, levels, ...)` 内部：
@@ -418,7 +420,7 @@ def test_plan_draft_out_shape() -> None:
         "code": "600519", "name": "贵州茅台", "entry": 10.0, "referenceDate": "2026-09-03",
         "disclaimer": "x",
     })
-    assert m.direction == "buy" and m.suggestedShares == 0 and m.stale is False
+    assert m.direction == "buy" and m.suggestedShares == 0 and m.stale is False and m.fallbackUsed is False
     assert m.warnings == []
 ```
 
@@ -458,6 +460,7 @@ class PlanDraftOut(BaseModel):
     referenceDate: str
     entryAsOf: int | None = None
     stale: bool = False
+    fallbackUsed: bool = False
     provider: str = ""
     warnings: list[str] = Field(default_factory=list)
     disclaimer: str
@@ -475,8 +478,8 @@ class PlanDraftOut(BaseModel):
 - Test: `tests/test_backend_api.py`（追加 assist 端点测试，monkeypatch 模式与既有 screener 测试一致）
 
 **Interfaces:**
-- Consumes: Task 1-5 全部产出；`classify_code` / `price_limit_ratio`（`backend.data_source`）；Router `route_with_fallback(source_id: str, capability: str, fallback_enabled: bool)`（capability 为字面量 `"realtime"` / `"history"`）。
-- Produces: `POST /api/assist/plan-draft`（200 草案 / 422 校验 / 429+Retry-After / 502 上游）。
+- Consumes: Task 1-5 全部产出；`classify_code` / `price_limit_ratio`（`backend.data_source`）；Router `route_with_fallback(source_id: str, capability: str, fallback_enabled: bool)`（capability 为字面量 `"realtime"` / `"history"`）；Router `route(source_id, capability)`（不降级取首选源，用于 fallbackUsed 判定）。
+- Produces: `POST /api/assist/plan-draft`（200 草案 / 422 校验 / 429+Retry-After / 502 上游）；响应含 `fallbackUsed`（二轮评审：降级透明化）。
 
 - [ ] **Step 1: service 实现**（`backend/assist/service.py`）
 
@@ -507,6 +510,14 @@ def entry_staleness(entry_as_of_ms: int | None, now_ms: int) -> tuple[bool, list
     return False, []
 
 
+def _limit_up_warning(entry: float, last_close: float, code: str) -> list[str]:
+    """触及涨停价提示（二轮评审：封板不可买入的成交风险，不阻断）。"""
+    limit_price = round(last_close * (1 + price_limit_ratio(code)), 2)
+    if entry >= limit_price:
+        return ["当前价格触及涨停，实际成交可能存在风险"]
+    return []
+
+
 def build_plan_draft(router: Any, payload: dict[str, Any], settings_getter: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     code = str(payload.get("code", "")).strip()
     profile = classify_code(code)
@@ -518,6 +529,7 @@ def build_plan_draft(router: Any, payload: dict[str, Any], settings_getter: Call
     as_of = payload.get("entryAsOfMs")
     name = str(payload.get("name") or "")
     provider = ""
+    fallback_used = False
     try:
         if entry is None:
             source = router.route_with_fallback(settings["realtimeSource"], "realtime", fallback_enabled)
@@ -530,6 +542,12 @@ def build_plan_draft(router: Any, payload: dict[str, Any], settings_getter: Call
             name = name or str(row.get("name") or "")
             provider = source.provider_label
         history_source = router.route_with_fallback(settings["historySource"], "history", fallback_enabled)
+        # fallbackUsed 判定：实际路由源 ≠ 设置首选源（二轮评审；route() 不降级，仅取首选）
+        try:
+            preferred_history = router.route(settings["historySource"], "history")
+            fallback_used = preferred_history.id != history_source.id
+        except Exception:
+            fallback_used = False
         bars = history_source.load_history(code, limit=62, is_index=False)
         ref_date = str(history_source.calendar.previous_trading_day(date.today()).isoformat())
         if not provider:
@@ -552,7 +570,8 @@ def build_plan_draft(router: Any, payload: dict[str, Any], settings_getter: Call
         cap_pct=float(settings["positionCapPct"]),
         limit_ratio=price_limit_ratio(code),
     )
-    stale, stale_warnings = entry_staleness(as_of, int(__import__("time").time() * 1000))
+    stale, stale_warnings = entry_staleness(as_of, int(time.time() * 1000))
+    limit_up_warnings = _limit_up_warning(entry, levels_last_close, code) if bars else []
     return {
         "code": code, "name": name, "direction": "buy", "entry": entry,
         "stopAtr": round(entry - 2 * levels.atr14, 2) if levels.atr14 is not None else None,
@@ -562,11 +581,13 @@ def build_plan_draft(router: Any, payload: dict[str, Any], settings_getter: Call
         "riskAmount": result.risk_amount, "suggestedShares": result.suggested_shares,
         "positionPct": result.position_pct,
         "referenceDate": levels.reference_date, "entryAsOf": as_of, "stale": stale,
-        "provider": provider, "warnings": stale_warnings + result.warnings, "disclaimer": DISCLAIMER,
+        "fallbackUsed": fallback_used,
+        "provider": provider,
+        "warnings": stale_warnings + limit_up_warnings + result.warnings, "disclaimer": DISCLAIMER,
     }
 ```
 
-（`__import__("time")` 换成顶部 `import time` + `int(time.time() * 1000)`——写代码时直接顶部导入。）
+（实现时补：`levels_last_close = float(closed_bars(bars, ref_date, 1)[-1]["close"]) if bars else None`——直接在 service 内从 `indicator_levels` 返回值取更简：给 `IndicatorLevels` 加 `last_close: float | None` 字段即可，Task 3 实现时带上。`__import__("time")` 换成顶部 `import time`。）
 
 - [ ] **Step 2: 失败测试**（`tests/test_backend_api.py` 追加；fixture/mocking 风格照抄该文件既有 screener 测试——先读文件头 30 行）
 
@@ -641,6 +662,32 @@ def test_assist_plan_draft_rate_limited(client: Any) -> None:
     assert resp.status_code == 429
     assert resp.json()["detail"]["code"] == "RATE_LIMITED"
     assert "retry-after" in {k.lower() for k in resp.headers}
+
+
+def test_assist_plan_draft_fallback_flag(monkeypatch: Any, client: Any) -> None:
+    """主源 history 失败 → 降级东财成功 → fallbackUsed=True（二轮评审）。"""
+    from backend.sources import eastmoney as em_module
+    from backend.sources import tencent as tx_module
+
+    def _tx_boom(self, code, limit, is_index=False):
+        raise RuntimeError("tencent down")
+
+    monkeypatch.setattr(tx_module.TencentSource, "load_history", _tx_boom)
+    monkeypatch.setattr(em_module.EastMoneySource, "load_history", lambda self, code, limit, is_index=False: _assist_bars())
+    monkeypatch.setattr(em_module.EastMoneySource, "calendar", property(lambda self: _AssistFakeCalendar()))
+    resp = client.post("/api/assist/plan-draft", json={"code": "600519", "entryPrice": 10.0})
+    assert resp.status_code == 200
+    assert resp.json()["fallbackUsed"] is True
+
+
+def test_assist_plan_draft_limit_up_warning(monkeypatch: Any, client: Any) -> None:
+    """entry 触及涨停价（末根收盘 10.0 × 1.10 = 11.0）→ 警告不阻断（二轮评审）。"""
+    from backend.sources import tencent as tx_module
+    monkeypatch.setattr(tx_module.TencentSource, "load_history", lambda self, code, limit, is_index=False: _assist_bars())
+    monkeypatch.setattr(tx_module.TencentSource, "calendar", property(lambda self: _AssistFakeCalendar()))
+    resp = client.post("/api/assist/plan-draft", json={"code": "600519", "entryPrice": 11.0})
+    assert resp.status_code == 200
+    assert any("涨停" in w for w in resp.json()["warnings"])
 ```
 
 `_AssistFakeCalendar`：`previous_trading_day` 返回 `date(2026, 9, 2)`（与 bars 末根 08-30 分离，验证截断）。检查该测试文件是否已有类似 FakeCalendar 可复用，有则用现成的。
@@ -676,7 +723,8 @@ def test_assist_plan_draft_rate_limited(client: Any) -> None:
         logger.info(
             "assist.plan_draft",
             extra={"trace_id": trace_id, "code": payload.code, "elapsed_ms": int((time.monotonic() - started) * 1000),
-                   "shares": draft["suggestedShares"], "stale": draft["stale"]},
+                   "shares": draft["suggestedShares"], "stale": draft["stale"],
+                   "fallback_used": draft["fallbackUsed"], "provider": draft["provider"]},
         )
         return PlanDraftOut.model_validate(draft)
 ```
@@ -809,6 +857,7 @@ export function sizePosition(entry: number, stop: number | null, equity: number,
 **Interfaces:**
 - Consumes: Task 7 纯函数；`workspace.requestJson / plans / persist / showToast / watchlistCodes / isWatched`
 - Produces: `useAssistStore` → `visible / loading / submitting / draft / error / openFor(payload) / confirmDraft() / close()`；`workspace.syncNow(): Promise<{ ok: boolean; conflict?: boolean }>`
+- 二轮评审约束：**`suggestedShares === 0` 或无有效止损时确认按钮置灰** + 提示「资金不足以按该风险比例建仓，请调高风险比例或降低入场价」——不保存无效计划；`fallbackUsed=true` 对话框顶部小黄标提示。
 
 - [ ] **Step 1: `syncNow` 实现**（`useWorkspaceStore.ts`，加在 `scheduleWorkspaceSync` 后；**不改动既有同步逻辑**）
 
@@ -816,9 +865,12 @@ export function sizePosition(entry: number, stop: number | null, equity: number,
   /** 立即执行一次工作区 PUT（对话框确认等需要确定性结果的动作用）；绝不自动重试 409。 */
   async function syncNow(): Promise<{ ok: boolean; conflict?: boolean }> {
     if (!workspaceSynced.value) return { ok: true };
-    while (workspaceSyncInFlight) {
+    let waited = 0;
+    while (workspaceSyncInFlight && waited < 3000) {   // 上限 3s：定时同步卡死时不可让 UI 假死（二轮评审）
       await new Promise((resolve) => setTimeout(resolve, 120));
+      waited += 120;
     }
+    if (workspaceSyncInFlight) return { ok: false };
     workspaceSyncInFlight = true;
     try {
       await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
@@ -835,7 +887,7 @@ export function sizePosition(entry: number, stop: number | null, equity: number,
   }
 ```
 
-（并加入 return 导出对象；`workspaceSyncInFlight` 复用现有变量，与定时同步互斥。）
+（并加入 return 导出对象；`workspaceSyncInFlight` 复用现有变量，与定时同步互斥。confirmDraft 对 `!ok && !conflict` 分支的 toast 已覆盖"同步正忙"场景——文案统一为「工作区同步失败，本地已保留（恢复后自动同步）」。）
 
 - [ ] **Step 2: 失败测试**（`tests/frontend/PlanDraftDialog.test.ts`；mount 模式照抄 `tests/frontend/ViewScreener.test.ts` 头部——Pinia + workspace requestJson spy）
 
@@ -914,6 +966,22 @@ describe('PlanDraftDialog', () => {
     await vi.dynamicImportSettled();
     expect(workspace.plans.length).toBe(0);
     expect(toastSpy).toHaveBeenCalledWith('工作区有新变更，请刷新后重试', 'error');
+  });
+
+  it('shares=0 时确认按钮置灰（不保存无效计划）', async () => {
+    const { wrapper, assist } = await mountDialog();
+    assist.draft = { ...structuredClone(DRAFT), suggestedShares: 0, positionPct: 0, warnings: [...DRAFT.warnings, '权益不足一手，无法按该风险比例建仓'] };
+    await wrapper.vm.$nextTick();
+    const btn = wrapper.find('button[data-testid="confirm"]');
+    expect(btn.attributes('disabled')).toBeDefined();
+  });
+
+  it('fallbackUsed=true 显示备用源黄标', async () => {
+    const { wrapper } = await mountDialog();
+    const assist = useAssistStore();
+    assist.draft = { ...structuredClone(DRAFT), fallbackUsed: true };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-testid="fallback-badge"]').exists()).toBe(true);
   });
 });
 ```
@@ -1061,7 +1129,7 @@ const suggestion = computed(() => {
 </script>
 ```
 
-（`settingsDraft` 的暴露路径先查 `useSettingsStore`——若 settingsDraft 不在 workspace store 上，从 `useSettingsStore().settingsDraft.defaultCapital` 取；`recalcSuggestion` 若无必要不引入，保持 `selectStop + sizePosition` 两函数。模板含：stale/warnings 横幅、entry/stopMode/rr（data-testid="rr-input"）/riskPct/capPct/手动止损输入、target/shares/positionPct 只读展示（data-testid="target"）、Kelly 折叠参考（手输胜率/盈亏比 → 半凯利展示）、disclaimer、`确认落入计划` 按钮（data-testid="confirm"，`:disabled="assist.submitting || !suggestion?.stop"`）。确认处理：构建与 `savePlan` 同形 plan 对象（`id: plan-${code}-${Date.now()}`、`validity: '本周内'`、`capital: equity`、`position: suggestion.positionPct`、`note: 用户可编辑`、`createdAt/createdAtMs/triggered:{}`）→ `assist.confirmDraft(plan)`。`ref` 需从 vue 导入。）
+（`settingsDraft` 的暴露路径先查 `useSettingsStore`——若 settingsDraft 不在 workspace store 上，从 `useSettingsStore().settingsDraft.defaultCapital` 取；`recalcSuggestion` 若无必要不引入，保持 `selectStop + sizePosition` 两函数。模板含：**stale 横幅 + fallbackUsed 小黄标（data-testid="fallback-badge"）**、warnings 列表、entry/stopMode/rr（data-testid="rr-input"）/riskPct/capPct/手动止损输入、target/shares/positionPct 只读展示（data-testid="target"）、Kelly 折叠参考（手输胜率/盈亏比 → 半凯利展示）、disclaimer、`确认落入计划` 按钮（data-testid="confirm"，**`:disabled="assist.submitting || !suggestion?.stop || suggestion?.shares === 0"`**，置灰时按钮下方显示「资金不足以按该风险比例建仓，请调高风险比例或降低入场价」）。确认处理：构建与 `savePlan` 同形 plan 对象（`id: plan-${code}-${Date.now()}`、`validity: '本周内'`、`capital: equity`、`position: suggestion.positionPct`、`note: 用户可编辑`、`createdAt/createdAtMs/triggered:{}`）→ `assist.confirmDraft(plan)`。`ref` 需从 vue 导入。）
 
 - [ ] **Step 5: App.vue 挂载**：`<PlanDraftDialog />` 加入根模板；`PlanDraftDialog` 内部以 `v-if="assist.visible"` 渲染遮罩层（复用 styles.css 既有弹层类名，若无则内联最小样式）。
 - [ ] **Step 6: 通过**（`npx vitest run tests/frontend/PlanDraftDialog.test.ts`；`npx vue-tsc --noEmit`）+ **Step 7: Commit**：`feat: 草案对话框（零 API 调参 + single-flight + 409 回滚）`
@@ -1124,7 +1192,7 @@ function openBacktest(row: any) {
 - [ ] **Step 1: 后端全量**：`python -m pytest tests/ -q`（含覆盖率 ≥80% 门禁）→ PASS
 - [ ] **Step 2: 前端全量**：`npx vitest run && npx vue-tsc --noEmit && npm run build` → PASS
 - [ ] **Step 3: lint 双轨**：`python -m ruff check backend tests server.py && python -m ruff format --check backend tests server.py && python -m mypy backend && npx eslint frontend/src --ext .ts,.vue` → 0 错误
-- [ ] **Step 4: 真实冒烟**（TestClient + 真实 Router；不 mock）：
+- [ ] **Step 4: 真实冒烟**（TestClient + 真实 Router；不 mock；**三代码覆盖 ETF 与 20% 创业板——二轮评审**）：
 
 ```powershell
 $env:PYTHONPATH="E:\Data\Code\AI\stock-trade-agent"
@@ -1134,15 +1202,20 @@ sys.stdout.reconfigure(encoding='utf-8')
 from fastapi.testclient import TestClient
 from backend import app as app_module
 with TestClient(app_module.create_app()) as client:
-    resp = client.post('/api/assist/plan-draft', json={'code': '600519', 'name': '贵州茅台'})
-    d = resp.json()
-    print(resp.status_code, json.dumps({k: d.get(k) for k in ('entry','stopAtr','stopMa20','stop','target','suggestedShares','positionPct','referenceDate','stale','provider')}, ensure_ascii=False, indent=1))
+    for code in ('600519', '510300', '300750'):
+        resp = client.post('/api/assist/plan-draft', json={'code': code})
+        if resp.status_code != 200:
+            print(code, resp.status_code, resp.json().get('detail', {}).get('error', ''))
+            continue
+        d = resp.json()
+        print(code, json.dumps({k: d.get(k) for k in ('stopAtr','stopMa20','stop','target','suggestedShares','positionPct','referenceDate','stale','fallbackUsed','provider')}, ensure_ascii=False))
+        print('  warnings:', d.get('warnings'))
 "
 ```
 
-预期：200 + 真实 ATR 止损与整手股数；若上游不可达 → 502（同样是合格证据，如实记录）。把输出粘贴进执行报告。
+预期：三只均 200 + 真实 ATR 止损与整手股数（600519 主板 10%、510300 ETF、300750 创业板 20%——`price_limit_ratio` 分支全覆盖）；若上游不可达 → 502（同样是合格证据，如实记录）。把输出粘贴进执行报告。
 
-- [ ] **Step 5: ROADMAP 勾选**：「辅助交易」P0 三项 `- [ ]` → `- [x]`（含一行交付摘要）
+- [ ] **Step 5: ROADMAP 勾选**：「辅助交易」P0 三项 `- [ ]` → `- [x]`（含一行交付摘要，**附已知限制**：「多进程部署下草案限频为近似值（worker 数 × 30）；单用户本地单进程内精确」——二轮评审）
 - [ ] **Step 6: Commit + finish + push**：
 
 ```powershell

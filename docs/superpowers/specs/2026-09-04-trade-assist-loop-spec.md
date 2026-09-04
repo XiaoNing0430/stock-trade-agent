@@ -74,6 +74,7 @@
 | referenceDate | str | 指标锚定的已收盘交易日（YYYY-MM-DD） |
 | entryAsOf | int \| null | 入场价快照时间戳（epoch 毫秒，请求透传或后端拉取时刻；评审决议） |
 | stale | bool | 入场价快照过旧（age > 60s）或时间未知时为 true（§7） |
+| fallbackUsed | bool | Router 降级到备用源时 true（对话框小黄标提示；二轮评审加固） |
 | provider | str | 行情 / 历史源 provider_label |
 | warnings | str[] | 见 §7，非阻断提示 |
 | disclaimer | str | FR-9 固定文案 |
@@ -86,7 +87,8 @@
 理由：草案是交互调参场景（反复改盈亏比重算），10 次/min 会误伤正常使用；30/min 仍将失控
 前端循环压至 0.5 req/s，较数据源底层 ≥10 req/s 的承受能力留 20 倍边际。超限返回
 `429` + `Retry-After`。实现为进程内滑动窗口（与单进程现实一致；Redis 接管属 P2 数据中台项，
-不在本 feature 引入）。
+不在本 feature 引入）。**已知限制：多进程部署（多 uvicorn worker）下限频为近似值
+（实际配额 = worker 数 × 30）；单用户本地部署单进程内精确，ROADMAP 收尾时如实标注。**
 
 ## 5. 数据需求与无未来函数纪律
 
@@ -116,6 +118,8 @@
 | 涨跌停提示 | `classify_code` 板块涨幅上限（10/20/30%）：target 距 entry 超单日上限 → warning「目标位需多日达成」（不阻断） |
 | T+1 | warning「A 股 T+1：当日买入次交易日方可卖出，止损自次一交易日生效」 |
 | 入场价快照过旧 / 时间未知 | `entryAsOfMs` 距今 > 60s → `stale=true` + warning「入场价为过期快照，请核实现价」；缺失 → `stale=true` + warning「入场价快照时间未知」。**主路径前端带价，后端不调实时接口**（v0.5.0 Router 适配器无 stale-aside 缓存，502 硬失败语义保持诚实；Redis 缓存接管属 P2） |
+| 触及涨停价 | entry ≥ round(截断末根收盘 × (1+`price_limit_ratio`), 2) → warning「当前价格触及涨停，实际成交可能存在风险」（不阻断；ETF 同样适用，主板 10%/创科 20%/北交 30%） |
+| Router 降级 | 实际路由源 ≠ 设置首选源 → `fallbackUsed=true` + 前端小黄标「当前行情源自备用节点，数据延迟可能略高」（日志记录 fallback 事件；二轮评审加固） |
 
 ## 8. 前端交互（Vue 3 + Pinia）
 
