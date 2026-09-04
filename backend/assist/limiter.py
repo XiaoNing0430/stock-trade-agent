@@ -12,6 +12,8 @@ class SlidingWindowLimiter:
     def __init__(
         self, max_events: int, window_seconds: float = 60.0, clock: Callable[[], float] = time.monotonic
     ) -> None:
+        if max_events < 1:
+            raise ValueError("max_events must be >= 1")
         self._max = max_events
         self._window = window_seconds
         self._clock = clock
@@ -19,8 +21,8 @@ class SlidingWindowLimiter:
         self._lock = threading.Lock()
 
     def check(self) -> tuple[bool, float]:
-        now = self._clock()
         with self._lock:
+            now = self._clock()
             while self._events and now - self._events[0] >= self._window:
                 self._events.popleft()
             if len(self._events) >= self._max:
