@@ -2,6 +2,7 @@
 
 ## 已发布版本
 
+- **v0.5.0** — 多数据源架构（DataSource ABC + 能力位 + Router，腾讯/东财/MockUS）+ 全市场选股器双源接入 + 策略选股管道（混合管道、声明式配置、无未来函数、缓存击穿防护、stale 降级、限频、可观测）
 - **v0.4.0** — 全栈工程化改造（ESLint/Prettier/ruff/mypy、Vite 8+TS 5.9、Pinia 8 store、Pydantic+Alembic、vitest+pytest-cov、GitHub Actions CI）
 
 ## 待办（方向 2 — 后续功能开发）
