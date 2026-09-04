@@ -307,6 +307,11 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "conflictPolicy": "server",
     "notifyDesktopAlert": True,
     "notifyDesktopSystem": False,
+    # 交易辅助 4 键：风险%/盈亏比/止损模式/单票仓位上限
+    "riskPerTradePct": 1.0,
+    "rrRatio": 2.0,
+    "stopMode": "atr",
+    "positionCapPct": 25,
 }
 
 
@@ -332,6 +337,11 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["monitorEnabled"] = bool(data["monitorEnabled"])
     data["notifyDesktopAlert"] = bool(data["notifyDesktopAlert"])
     data["notifyDesktopSystem"] = bool(data["notifyDesktopSystem"])
+    # 交易辅助 4 键越界回退默认值（同现有 source 校验模式）
+    data["riskPerTradePct"] = max(0.1, min(float(data["riskPerTradePct"]), 5.0))
+    data["rrRatio"] = max(1.0, min(float(data["rrRatio"]), 10.0))
+    data["stopMode"] = data["stopMode"] if data["stopMode"] in {"atr", "ma20"} else "atr"
+    data["positionCapPct"] = max(5.0, min(float(data["positionCapPct"]), 100.0))
     return data
 
 

@@ -41,6 +41,11 @@ class SettingsPut(BaseModel):
     conflictPolicy: str = "server"
     notifyDesktopAlert: bool = True
     notifyDesktopSystem: bool = False
+    # 交易辅助 4 键（与 DEFAULT_WORKSPACE_SETTINGS 对齐，只增不改）
+    riskPerTradePct: float = 1.0
+    rrRatio: float = 2.0
+    stopMode: str = "atr"
+    positionCapPct: float = 25
 
 
 class GridPreviewIn(BaseModel):
