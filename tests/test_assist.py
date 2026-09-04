@@ -22,3 +22,35 @@ def test_closed_bars_keeps_last_limit() -> None:
 
 def test_closed_bars_empty() -> None:
     assert closed_bars([], "2026-09-02", limit=60) == []
+
+
+from backend.assist.limiter import SlidingWindowLimiter  # noqa: E402
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_limiter_allows_burst_then_blocks() -> None:
+    clock = _FakeClock()
+    limiter = SlidingWindowLimiter(max_events=3, window_seconds=60.0, clock=clock)
+    assert limiter.check() == (True, 0.0)
+    assert limiter.check() == (True, 0.0)
+    assert limiter.check() == (True, 0.0)
+    allowed, retry_after = limiter.check()
+    assert not allowed
+    assert 59.0 <= retry_after <= 60.0
+
+
+def test_limiter_window_slides() -> None:
+    clock = _FakeClock()
+    limiter = SlidingWindowLimiter(max_events=2, window_seconds=60.0, clock=clock)
+    limiter.check()
+    limiter.check()
+    clock.now += 61.0
+    allowed, _ = limiter.check()
+    assert allowed
