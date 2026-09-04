@@ -1,4 +1,5 @@
 """草案计算核心测试：closed_bars / 限频 / 纯函数 sizing（Task 1-3 逐段补充）。"""
+
 from __future__ import annotations
 
 from backend.indicators import closed_bars
