@@ -38,6 +38,7 @@
 - **FR-7 Kelly 参考**：对话框内可选展示——用户手输胜率 `W`、盈亏比 `R`，`kelly = W − (1−W)/R`，展示**半凯利**仓位比例；仅参考值，不参与默认仓位。
 - **FR-8 回测联动**：命中行「回测」→ 策略回测视图代码预填，引擎选择留给用户（默认双均线 ma_cross），**不自动运行**（成本意识）。
 - **FR-9 免责声明**：API 响应与对话框固定文案：「算法生成的建议，非投资建议；止损 / 目标 / 仓位均基于公开行情计算，请自行判断」。后端字段 `disclaimer`，前端渲染不可省略。
+- **FR-13 客户端调参重算（零 API）**：服务端一次返回指标原值（atr14/ma20/stopAtr/stopMa20）与设置默认值后，对话框内调整 rrRatio / stopMode / entry 覆盖 / 权益的重算（止损选择、target、shares、positionPct）由**前端纯函数**完成（`frontend/src/modules/assistCalc.ts`，与后端公式逐字段一致），调参不产生任何 API 调用——限频配额仅被「打开草案」消耗，从结构上规避输入风暴（评审提醒的防抖由此不再需要）。
 
 ## 4. API 契约
 
@@ -48,10 +49,11 @@
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | code | str | 必填 | 六位代码，`classify_code` 校验 |
-| entryPrice | float \| null | null | 覆盖实时价（不传则取快照） |
+| entryPrice | float \| null | null | 覆盖实时价（主路径由前端快照携带，**后端不额外调实时接口**） |
+| entryAsOfMs | int \| null | null | 入场价快照时间戳（epoch ms）；用于 stale 判定（§7） |
 | stopMode | "atr" \| "ma20" \| null | null | 不传用设置 |
 | rrRatio | float \| null | null | 1–10，不传用设置 |
-| accountEquity | float \| null | null | >0，不传用设置 |
+| accountEquity | float \| null | null | >0，不传用设置（复用既有 `defaultCapital`） |
 | riskPct | float \| null | null | 0.1–5（%），不传用设置 |
 
 **响应** `PlanDraftOut`（200）：
@@ -70,8 +72,8 @@
 | suggestedShares | int | FR-5/6（0 = 资金不足） |
 | positionPct | float | 建议仓位占权益 %（shares=0 → 0） |
 | referenceDate | str | 指标锚定的已收盘交易日（YYYY-MM-DD） |
-| entryAsOf | int \| null | 入场价快照时间戳（epoch 毫秒，便于追溯；评审决议） |
-| stale | bool | 入场价来自过期快照（cached stale-aside 返回旧值）时为 true |
+| entryAsOf | int \| null | 入场价快照时间戳（epoch 毫秒，请求透传或后端拉取时刻；评审决议） |
+| stale | bool | 入场价快照过旧（age > 60s）或时间未知时为 true（§7） |
 | provider | str | 行情 / 历史源 provider_label |
 | warnings | str[] | 见 §7，非阻断提示 |
 | disclaimer | str | FR-9 固定文案 |
@@ -96,13 +98,12 @@
 
 | 键 | 类型 / 默认 | 约束 |
 |---|---|---|
-| `accountEquity` | float，100000 | >0；用户自报（无券商对接，如实声明） |
 | `riskPerTradePct` | float，1.0 | 0.1–5 |
 | `rrRatio` | float，2.0 | 1–10 |
 | `stopMode` | "atr" \| "ma20"，"atr" | 白名单校验 |
 | `positionCapPct` | float，25 | 5–100 |
 
-`_normalize_workspace_settings` 扩展校验（越界回退默认值，模式同现有 source 校验）；设置页「交易辅助」分区展示。
+账户权益**复用既有 `defaultCapital`**（storage.py 已存在，默认 100000，语义即账户权益；避免两个"资金"设置项）。`_normalize_workspace_settings` 扩展校验（越界回退默认值，模式同现有 source 校验）；设置页「交易辅助」分区展示。
 
 ## 7. 边界与降级（绝不造数纪律的延续）
 
@@ -114,7 +115,7 @@
 | 单票超 positionCapPct | 截断手数 + warning |
 | 涨跌停提示 | `classify_code` 板块涨幅上限（10/20/30%）：target 距 entry 超单日上限 → warning「目标位需多日达成」（不阻断） |
 | T+1 | warning「A 股 T+1：当日买入次交易日方可卖出，止损自次一交易日生效」 |
-| 入场价来自过期快照 | `data_source.cached()` 的 stale-aside 返回旧值时：正常生成草案，但 `stale=true` + warning「入场价为过期快照（HH:MM），请核实现价」（评审加固；**不引入新缓存层**——现有 cached() 已含 stale 兜底，Redis 接管属 P2） |
+| 入场价快照过旧 / 时间未知 | `entryAsOfMs` 距今 > 60s → `stale=true` + warning「入场价为过期快照，请核实现价」；缺失 → `stale=true` + warning「入场价快照时间未知」。**主路径前端带价，后端不调实时接口**（v0.5.0 Router 适配器无 stale-aside 缓存，502 硬失败语义保持诚实；Redis 缓存接管属 P2） |
 
 ## 8. 前端交互（Vue 3 + Pinia）
 
