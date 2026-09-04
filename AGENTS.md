@@ -4,7 +4,7 @@ AI 编码代理在此仓库中工作的指引。
 
 ## 项目简介
 
-**Atlas 交易工作台** — 一个本地单用户的 A 股研究交易工作台 Web 应用。实时行情驱动选股器、交易计划、价格触发盯盘中心和网格策略回测。这是一个**研究工具，非执行系统**：从不连接券商，不发送交易指令。
+**Atlas 交易工作台** — 一个本地单用户的 A 股研究与交易辅助工作台 Web 应用。实时行情驱动选股器、策略选股管道、交易计划、价格触发盯盘中心和网格策略回测。定位是**交易辅助决策工具，非自动执行系统**：生成建议交易指令（计划草案：入场/止损/目标/建议仓位）供用户人工执行；从不连接券商，从不自动下单。
 
 UI 使用中文。除非任务另有说明，新用户可见字符串保持中文。
 
@@ -12,7 +12,7 @@ UI 使用中文。除非任务另有说明，新用户可见字符串保持中�
 
 - **前端：** Vue 3 + TypeScript 5.9 (strict) + Vite 8 + Pinia 4 + vitest 4 + @vue/test-utils + lucide。源码位于 `frontend/src/`（stores/, modules/, views/, types/, api/, app.ts, main.ts, App.vue）。由 Vite 构建，通过 Vite 开发服务器或静态文件提供服务。
 - **后端：** Python / FastAPI + SQLAlchemy 2.0 + Pydantic v2 + Alembic 1.14（迁移脚本在 `backend/migrations/`）+ APScheduler（网格回测调度）+ ruff + mypy + pytest-cov。
-- **数据源：** Tencent 公开行情接口（`qt.gtimg.cn`, `web.ifzq.gtimg.cn`）。当前唯一集成的数据源。
+- **数据源：** 腾讯公开行情（`qt.gtimg.cn`, `web.ifzq.gtimg.cn`）与东方财富（适配器在 `backend/sources/`，`DataSourceRouter` 按能力位路由 + 降级链）；MockUS 美股模拟按 `MOCK_US_ENABLED` 注册。
 - **配置：** `.env`（Git 忽略）基于 `.env.example` 创建。
 
 ## 数据库直连
@@ -161,9 +161,9 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 ## 存储与数据说明
 
 - PostgreSQL 存储自选股、交易计划、提醒、网格策略/回测、行情 K 线和工作区设置。Redis 仅用于 `storage_status()` 的 ping 检测；实际行情缓存是 `data_source.py` 中的内存 `dict`。HTTP 超时/重试/缓存 TTL 由工作区设置通过 `data_source.apply_runtime_config(...)` 驱动（默认：TTL 8s，超时 10s，重试 1 次）。
-- 选股器当前使用约 50 只精选股票池（`data_source.py` 中的 `REAL_UNIVERSE`）。扩展至全 A 股市场是 Phase 2 — 请勿静默扩展。
+- 选股器自 v0.5.0 起为全市场分页排序（`/api/screener/v2` 按 `screenerSource` 选源）+ 策略选股管道（`backend/screener/`）；`REAL_UNIVERSE` 仍用于「精选 50」标签。
 - 数据库迁移使用 **Alembic**（`backend/migrations/`）。基线迁移在 `c1a08e78583e_baseline_schema.py`。新增迁移通过 `alembic revision --autogenerate -m "描述"` 生成，提交前检查生成的脚本。
 
 ## 何时询问
 
-在以下情况应停止并询问，而非猜测：原始测试/验证失败、指令不明确、即将超出当前阶段的非目标（无券商集成、无全市场选股器、无新策略类型、无 UI 重构）、或 git 状态异常。
+在以下情况应停止并询问，而非猜测：原始测试/验证失败、指令不明确、即将超出当前阶段的非目标（无券商集成 / 自动下单、无 UI 重构；完整清单见 `ROADMAP.md` 非目标）、或 git 状态异常。
