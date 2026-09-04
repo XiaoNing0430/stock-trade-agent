@@ -22,6 +22,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import date
 from typing import Any
 
+from backend.indicators import closed_bars
 from backend.screener.factors import FactorLibrary
 from backend.screener.loader import ScreenerStrategyConfig, load_strategy
 
@@ -247,7 +248,7 @@ class ScreenerPipeline:
         bars = history_source.load_history(code, limit=_HISTORY_LIMIT)
         fetch_ms = (time.monotonic() - t0) * 1000
         t1 = time.monotonic()
-        closed = [b for b in bars if str(b.get("date", "")) <= ref_date][-_CLOSED_BARS:]
+        closed = closed_bars(bars, ref_date, _CLOSED_BARS)
         out = dict(row)
         if len(closed) >= 2:
             scored = self._factors.score_candidate(closed, [f.model_dump() for f in cfg.advanced_factors])
