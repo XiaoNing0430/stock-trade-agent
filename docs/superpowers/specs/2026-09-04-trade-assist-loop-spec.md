@@ -70,11 +70,21 @@
 | suggestedShares | int | FR-5/6（0 = 资金不足） |
 | positionPct | float | 建议仓位占权益 %（shares=0 → 0） |
 | referenceDate | str | 指标锚定的已收盘交易日（YYYY-MM-DD） |
+| entryAsOf | int \| null | 入场价快照时间戳（epoch 毫秒，便于追溯；评审决议） |
+| stale | bool | 入场价来自过期快照（cached stale-aside 返回旧值）时为 true |
 | provider | str | 行情 / 历史源 provider_label |
 | warnings | str[] | 见 §7，非阻断提示 |
 | disclaimer | str | FR-9 固定文案 |
 
-**错误**：`422 VALIDATION_ERROR`（代码无法分类 / 停牌股 / 参数越界）；`502 UPSTREAM_UNAVAILABLE`（行情或历史拉取失败，**不返回过期数据造草案**——指令草案对数据新鲜度的要求高于选股展示）。
+**错误**：`422 VALIDATION_ERROR`（代码无法分类 / 停牌股 / 参数越界）；`429 RATE_LIMITED`（限频超限，携带 Retry-After，见 §4.2）；`502 UPSTREAM_UNAVAILABLE`（行情或历史拉取失败且无过期缓存可兜底，**不返回造数草案**——指令草案对数据新鲜度的要求高于选股展示）。
+
+### 4.2 限频护栏（评审加固）
+
+`POST /api/assist/plan-draft` 施加**用户级滑窗限频：30 次/分钟**（单用户本地部署即进程级）。
+理由：草案是交互调参场景（反复改盈亏比重算），10 次/min 会误伤正常使用；30/min 仍将失控
+前端循环压至 0.5 req/s，较数据源底层 ≥10 req/s 的承受能力留 20 倍边际。超限返回
+`429` + `Retry-After`。实现为进程内滑动窗口（与单进程现实一致；Redis 接管属 P2 数据中台项，
+不在本 feature 引入）。
 
 ## 5. 数据需求与无未来函数纪律
 
@@ -104,11 +114,13 @@
 | 单票超 positionCapPct | 截断手数 + warning |
 | 涨跌停提示 | `classify_code` 板块涨幅上限（10/20/30%）：target 距 entry 超单日上限 → warning「目标位需多日达成」（不阻断） |
 | T+1 | warning「A 股 T+1：当日买入次交易日方可卖出，止损自次一交易日生效」 |
+| 入场价来自过期快照 | `data_source.cached()` 的 stale-aside 返回旧值时：正常生成草案，但 `stale=true` + warning「入场价为过期快照（HH:MM），请核实现价」（评审加固；**不引入新缓存层**——现有 cached() 已含 stale 兜底，Redis 接管属 P2） |
 
 ## 8. 前端交互（Vue 3 + Pinia）
 
 - **入口**：① `ViewScreener` 策略 tab 命中行操作列加「草案」「回测」两按钮（现有操作列已含自选星标）；② 个股详情页「生成计划草案」。
-- **草案对话框**：预填 FR-2~6 全部字段（均可编辑）+ warnings 列表 + FR-7 Kelly 折叠参考区 + disclaimer；确认后经 `usePlansStore` 追加计划（走 `PUT /api/workspace`，409 按现有 conflictPolicy 处理）→ toast 确认。
+- **草案对话框**：预填 FR-2~6 全部字段（均可编辑）+ warnings 列表 + FR-7 Kelly 折叠参考区 + disclaimer；确认后经 `usePlansStore` 追加计划（走 `PUT /api/workspace`）→ toast 确认。
+- **提交防抖与 409（评审加固）**：确认按钮提交期间禁用（single-flight，杜绝双击双计划）；409 时**不自动重试**（遵守 AGENTS 修订锁约定）：保留对话框全部已填值，显式 toast「工作区有新变更，请刷新后重试」，由用户手动再次确认。已核实隐患：默认 conflictPolicy=server 下 `adoptServerSnapshot` 会以服务器快照覆盖本地，草案若不保留将静默丢失。
 - **回测联动**：复用现有 `quotes.selectedCode` + 视图切换机制预填，不新增 API。
 - **新 store 状态**：`useAssistStore`（draft、loading、error）或并入 `usePlansStore`——plans 阶段定。
 
@@ -120,16 +132,22 @@
 4. shares×entry 超 cap → 截断 + warning
 5. 停牌股 → 422；bars=10 → stopAtr/stopMa20 均 null 且 target=null
 6. target 距 entry 超 10%（主板）→ warning 含「多日」
-7. 无效 rrRatio=15 → 422；上游行情失败 → 502 且响应无造数
-8. 前端：草案确认后 `workspace.plans` 增加一条 direction=buy 计划且走 PUT（修订锁语义不变）；「回测」跳转后回测表单 code 已预填
+7. 无效 rrRatio=15 → 422；上游行情失败且无过期缓存 → 502 且响应无造数
+8. 限频：61 秒内第 31 次请求 → 429 + Retry-After
+9. stale 快照：fetch 失败 + 缓存存在 → 草案正常返回且 stale=true + warning 含「过期快照」
+10. 前端：草案确认后 `workspace.plans` 增加一条 direction=buy 计划且走 PUT（修订锁语义不变）；双击确认仅产生一条计划；409 后对话框值保留且 toast 提示刷新重试；「回测」跳转后回测表单 code 已预填
 
 ## 10. 测试策略
 
-后端 TDD（计算精度 / 截断 / 边界 / 422/502，mock Router 与行情，模式同 screener-pipeline）；前端 vitest（对话框预填 / 提交走 workspace PUT / 回测跳转预填）；`npm run verify` 全量门禁；观测沿用结构化日志（trace_id + 耗时），一次性计算无需缓存与限频护栏（单票单请求）。
+后端 TDD（计算精度 / 截断 / 边界 / 422/429/502，mock Router 与行情，模式同 screener-pipeline）；前端 vitest（对话框预填 / 提交走 workspace PUT / 双击去重 / 409 保留 / 回测跳转预填）；`npm run verify` 全量门禁；观测沿用结构化日志（trace_id + 耗时），一次性单票计算不设缓存，但设限频护栏（§4.2）。
 
-## 11. 开放问题（请评审时定夺）
+## 11. 评审决议（2026-09-04，已定夺）
 
-1. **entry 默认价**：盘中实时价 vs 收盘价？本 spec 选实时（当下决策），是否认可？
-2. **止损默认模式**：默认 `atr` 是否合适，还是默认更直观的 `ma20`？
-3. **草案不写库**（仅计算，写入走 workspace PUT）是否符合你对"指令"的预期，还是希望后端直接落计划？
-4. 个股详情入口是否纳入本期（J3），还是只做策略 tab（J1/J2）压小范围？
+| 开放问题 | 决议 |
+|---|---|
+| 1. entry 默认价 | **实时快照价**——当下决策用当下信息；快照时间戳 `entryAsOf` 随草案返回，便于追溯 |
+| 2. 止损默认模式 | **默认 ATR**（动态适应波动率，避免 MA20 震荡市反复穿越止损）；MA20 保留为备选可切 |
+| 3. 写入路径 | **草案无状态 + 写入统一走 workspace PUT 修订锁**——绝不开后端直落计划路径（高并发下唯一正确解） |
+| 4. 个股详情入口 | **纳入本期**（J3） |
+
+评审加固项（FR-10 限频 / stale 透传 / FR-12 防抖 409）已并入 §4.2、§7、§8、§9——其中两处经代码核实做了修正：限频取 30 次/min（交互调参场景，10/min 会误伤）；不新增 Redis 快照缓存层（现有 `data_source.cached()` 已含 stale-aside，缺口仅在透传，Redis 接管属 P2）。
