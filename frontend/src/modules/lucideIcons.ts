@@ -58,6 +58,8 @@ import {
   UserRound,
   Wrench,
   X,
+  Layers,
+  Zap,
 } from 'lucide';
 
 export const UI_ICONS = {
@@ -106,4 +108,6 @@ export const UI_ICONS = {
   UserRound,
   Wrench,
   X,
+  Layers,
+  Zap,
 };

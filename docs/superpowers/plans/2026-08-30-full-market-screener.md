@@ -1,5 +1,7 @@
 # 全市场选股器实施计划
 
+> **⚠️ 已完成并归档。** 本计划基于旧架构（frontend/app.js + index.html），已在 Pinia/Vite 重构前实施完毕。多数据源 Router 版本的后续改进见 `2026-09-02-full-market-screener-v2.md`。
+
 > **For agentic workers:** Use superpowers:executing-plans (inline) to implement this plan task-by-task.
 
 **Goal:** 基于腾讯全市场排名接口（`getBoardRankList`），将选股器从 50 只精选扩容为全市场分页排序选股器。

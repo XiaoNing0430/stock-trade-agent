@@ -24,6 +24,17 @@ export const useScreenerStore = defineStore('screener', () => {
   const presetName = ref(saved.presetName || '趋势突破');
   const filters = reactive(Object.assign({}, DEFAULT_FILTERS, saved.filters || {}));
 
+  // ---- 策略选股（混合管道：极速=纯粗筛；深度=API粗筛+本地因子精筛） ----
+  const strategies = ref<any[]>([]);
+  const strategyName = ref('oversold_bounce');
+  const strategyRunMode = ref<'quick' | 'deep'>('quick'); // 默认极速：首屏要快
+  const strategyRows = ref<any[]>([]);
+  const strategyTotal = ref(0);
+  const strategyLoading = ref(false);
+  const strategyCached = ref(false);
+  const strategyStale = ref(false);
+  const strategyReferenceDate = ref('');
+
   if (saved.filters?.market === '沪A') {
     filters.exchange = '上交所';
     filters.market = '全部';
@@ -217,6 +228,63 @@ export const useScreenerStore = defineStore('screener', () => {
     workspace.showToast('筛选结果已导出');
   }
 
+  // ---- 策略选股动作 ----
+
+  async function loadStrategies() {
+    try {
+      const payload = await workspace.requestJson('/api/screener/strategies');
+      strategies.value = payload.strategies || [];
+      if (strategies.value.length && !strategies.value.some((s: any) => s.id === strategyName.value)) {
+        strategyName.value = strategies.value[0].id;
+      }
+    } catch {
+      strategies.value = [];
+    }
+  }
+
+  async function runStrategy() {
+    strategyLoading.value = true;
+    try {
+      const payload = await workspace.requestJson('/api/screener/strategy', {
+        method: 'POST',
+        body: JSON.stringify({
+          strategy: strategyName.value,
+          mode: strategyRunMode.value,
+          refresh: false,
+        }),
+      });
+      strategyRows.value = payload.rows || [];
+      strategyTotal.value = Number(payload.total || 0);
+      strategyCached.value = Boolean(payload.cached);
+      strategyStale.value = Boolean(payload.stale);
+      strategyReferenceDate.value = payload.referenceDate || '';
+      if (payload.stale) {
+        workspace.showToast('数据源暂时不可用，展示的是上次结果（可能滞后）', 'error');
+      } else {
+        workspace.showToast(`策略完成，命中 ${strategyTotal.value} 只${payload.cached ? '（缓存）' : ''}`);
+      }
+    } catch (error: any) {
+      workspace.showToast(error.message || '策略运行失败', 'error');
+      throw error;
+    } finally {
+      strategyLoading.value = false;
+      await nextTick();
+      workspace.renderIcons();
+    }
+  }
+
+  function switchStrategyMode(mode: 'quick' | 'deep') {
+    if (strategyRunMode.value === mode) return;
+    strategyRunMode.value = mode;
+  }
+
+  function strategyFactorTags(row: any): string[] {
+    const factors = row.factors || {};
+    return Object.entries(factors)
+      .filter(([, f]: any) => f.met)
+      .map(([name, f]: any) => `${name} ${String(f.value)}`);
+  }
+
   return {
     screenRows,
     screenTotal,
@@ -247,5 +315,18 @@ export const useScreenerStore = defineStore('screener', () => {
     applyPreset,
     resetFilters,
     exportResults,
+    strategies,
+    strategyName,
+    strategyRunMode,
+    strategyRows,
+    strategyTotal,
+    strategyLoading,
+    strategyCached,
+    strategyStale,
+    strategyReferenceDate,
+    loadStrategies,
+    runStrategy,
+    switchStrategyMode,
+    strategyFactorTags,
   };
 });

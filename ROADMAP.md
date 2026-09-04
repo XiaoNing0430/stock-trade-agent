@@ -2,19 +2,26 @@
 
 ## 已发布版本
 
+- **v0.5.0** — 多数据源架构（DataSource ABC + 能力位 + Router，腾讯/东财/MockUS）+ 全市场选股器双源接入 + 策略选股管道（混合管道、声明式配置、无未来函数、缓存击穿防护、stale 降级、限频、可观测）
 - **v0.4.0** — 全栈工程化改造（ESLint/Prettier/ruff/mypy、Vite 8+TS 5.9、Pinia 8 store、Pydantic+Alembic、vitest+pytest-cov、GitHub Actions CI）
 
 ## 待办（方向 2 — 后续功能开发）
 
 ### 全市场选股器
-- 当前精选约 50 只股票池（`REAL_UNIVERSE`），扩展至全 A 股（~4600 只）
-- 腾讯排名接口已接入（`/api/screener/v2`），需完善分页、排序、缓存
-- 相关设计文档：`docs/superpowers/plans/2026-08-30-full-market-screener.md`
+- [x] 已扩容为全市场分页排序选股器（腾讯排名接口，~4600 只，分页/排序/缓存已完成）
+- [x] 已接入多数据源 Router：`/api/screener/v2` 按 `screenerSource` 设置选源（腾讯排名委托 / 东财 clist 原生分页）
+- [x] 前端「精选 50 / 全市场」双模式 + 表头排序 + 分页器（Vue 3 + Pinia）
+- 相关设计文档：`docs/superpowers/plans/2026-09-02-full-market-screener-v2.md`（旧版已归档）
 
 ### 新策略类型
-- 当前支持：网格、双均线（SMA）、定投（DCA）、MACD 四种
-- 可扩展：均值回归、动量策略、布林带反转等
-- 策略引擎已泛化（`backend/strategy_engines.py`），新增策略只需实现计算函数 + 注册到 `STRATEGY_ENGINES`
+- [x] 当前支持：网格、双均线（SMA）、定投（DCA）、MACD 四种
+- [x] 已扩展：布林带反转、唐奇安突破、动量、多因子（ADX 状态过滤 + 动态切换 + 僵局保护）
+- [x] 策略引擎已泛化（`backend/strategy_engines.py` + `backend/strategy_base.py` + `backend/indicators.py`）
+- [x] 策略选股管道（混合管道：API 粗筛 → 本地因子精筛 → 财务增强；声明式策略配置
+  `backend/screener/configs/*.json`；reference_date 截断杜绝未来函数；缓存击穿互斥锁 +
+  stale 降级兜底；Semaphore→池化限频 ≤10 req/s + 阶段 deadline；trace_id + stage_timings
+  可观测。`GET /api/screener/strategies` + `POST /api/screener/strategy`，前端「策略」标签页）
+  设计文档：`docs/superpowers/plans/2026-09-02-screener-pipeline.md`
 
 ### 多数据源接入
 - 当前仅 Tencent 公开行情接口

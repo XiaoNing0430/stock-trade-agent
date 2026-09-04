@@ -75,4 +75,104 @@ describe('ViewScreener', () => {
     expect(presetButtons[0].text()).toContain('趋势突破');
     expect(wrapper.text()).toContain('低估修复');
   });
+
+  it('策略 tab：默认隐藏，点击后显示策略面板并加载策略列表', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    const fetchSpy = vi.fn().mockResolvedValue({
+      strategies: [
+        { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+        { id: 'trend_breakout', name: '趋势突破', description: '多头排列', topN: 10, deepCap: 200, factorCount: 3 },
+      ],
+    });
+    vi.spyOn(ws, 'requestJson').mockImplementation(fetchSpy);
+
+    const wrapper = mount(ViewScreener);
+    expect(wrapper.text()).not.toContain('策略选股');
+    const tabs = wrapper.findAll('.screener-tab');
+    const strategyTab = tabs.find((t) => t.text() === '策略');
+    expect(strategyTab).toBeTruthy();
+    await strategyTab!.trigger('click');
+    expect(wrapper.text()).toContain('策略选股');
+    expect(fetchSpy).toHaveBeenCalledWith('/api/screener/strategies');
+    expect(wrapper.text()).toContain('超跌反弹');
+  });
+
+  it('策略 tab：默认极速模式，切换深度与运行调用 POST /api/screener/strategy', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        strategies: [{ id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 }],
+      })
+      .mockResolvedValueOnce({
+        strategy: 'oversold_bounce',
+        name: '超跌反弹',
+        mode: 'deep',
+        referenceDate: '2026-08-28',
+        provider: 'Tencent public quote API',
+        rows: [
+          {
+            code: '600001',
+            name: '测试股',
+            price: 10.0,
+            changePct: 1.5,
+            pe: 12.0,
+            pb: 1.5,
+            roe: 15.0,
+            score: 3,
+            factors: { rsi: { value: 25.1, met: true, weight: 2 } },
+          },
+        ],
+        total: 1,
+        cached: false,
+        stale: false,
+        elapsedMs: 123,
+      });
+    vi.spyOn(ws, 'requestJson').mockImplementation(fetchSpy);
+
+    const wrapper = mount(ViewScreener);
+    const tabs = wrapper.findAll('.screener-tab');
+    await tabs.find((t) => t.text() === '策略')!.trigger('click');
+    await wrapper.findAll('.screener-tab').find((t) => t.text() === '深度')!.trigger('click');
+    await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchSpy).toHaveBeenLastCalledWith('/api/screener/strategy', {
+      method: 'POST',
+      body: expect.stringContaining('"mode":"deep"'),
+    });
+    expect(wrapper.text()).toContain('测试股');
+    expect(wrapper.text()).toContain('2026-08-28');
+    expect(wrapper.text()).toContain('rsi 25.1');
+  });
+
+  it('策略 stale 降级显示警告横幅', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ strategies: [{ id: 'oversold_bounce', name: '超跌反弹', description: 'x', topN: 10, deepCap: 200, factorCount: 1 }] })
+      .mockResolvedValueOnce({
+        strategy: 'oversold_bounce',
+        name: '超跌反弹',
+        mode: 'quick',
+        referenceDate: '2026-08-28',
+        provider: 'p',
+        rows: [],
+        total: 0,
+        cached: true,
+        stale: true,
+        elapsedMs: 5,
+      });
+    vi.spyOn(ws, 'requestJson').mockImplementation(fetchSpy);
+
+    const wrapper = mount(ViewScreener);
+    const tabs = wrapper.findAll('.screener-tab');
+    await tabs.find((t) => t.text() === '策略')!.trigger('click');
+    await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(wrapper.text()).toContain('数据可能滞后');
+  });
 });

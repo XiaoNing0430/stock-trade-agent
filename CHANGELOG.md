@@ -2,6 +2,34 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.5.0] - 2026-09-04
+
+### 多数据源架构
+
+- **统一数据源接入层**：`DataSource` ABC + 能力位（realtime / history / screener / paged_screener / fundamental）+ `DataSourceRouter`（按设置选源 + 降级链，最多 3 层回退）。适配器：腾讯公开行情、东方财富实时行情、MockUS 美股模拟（`MOCK_US_ENABLED` 注册）。
+- **正交组件**：`MarketCalendar` / `DataNormalizer` / `AssetMetadata` 三 ABC，各源自带交易日历与归一化实现。
+- **行情来源设置**：`realtimeSource` / `historySource` / `screenerSource` / `fundamentalSource` + `fallbackEnabled`，设置页切换即时生效；`GET /api/sources` 列出各源能力位与可用性。
+
+### 全市场选股器 Phase 2
+
+- `/api/screener/v2` 接入 Router：按 `screenerSource` 选源（腾讯排名委托 / 东财 clist 原生 `pn/pz/fid/po` 分页排序），两源返回 shape 统一 `{total, page, pageSize, rows, provider}`。
+- 前端「精选 50 / 全市场」双模式复用，行情来源切换在页面 provider 标签与来源列表即时体现。
+
+### 策略选股管道（新功能）
+
+- **混合管道**：API 粗筛（screener 能力）→ 本地因子精筛（history 能力，7 因子编排既有 indicators）→ 财务增强（fundamental 能力，top_n 补 ROE/市值/PEG）。
+- **声明式策略**：`backend/screener/configs/*.json`（内置超跌反弹 / 趋势突破），pydantic 校验算子与边界。
+- **生产级韧性**（五轮评审）：`reference_date` 截断 bars 杜绝未来函数（默认上一交易日）；缓存键 strategy×mode×market + 互斥锁双重检查防击穿；全源失败返回过期缓存（`stale: true`）；限频 = 池 max_workers=5 + min-interval 0.1s（≤10 req/s）+ 阶段 deadline 45s 部分结果；trace_id + stage_timings + counts 结构化观测。
+- **API**：`GET /api/screener/strategies` + `POST /api/screener/strategy`（mode 默认 quick，绝不拉 history）。
+- **前端**：选股器第三个标签页「策略」，极速/深度切换（默认极速）、评分表、达标因子标签、基准日期展示、stale 警告横幅。
+- 观测脚本：`python scripts/observe_screener.py`。
+
+### 修复
+
+- 行情来源切换未体现在页面：provider 标签硬编码、`/api/history` provider 硬编码、测试 DB 设置污染三根因修复。
+- 东财 K 线接口缺 `fields1`/`fields2` 返回空 `klines`（选股管道端到端验收时发现，补回归测试）。
+- 测试隔离：8 处路由测试补 `get_workspace_settings` mock，杜绝 DB 设置跨测试污染。
+
 ## [v0.4.1] - 2026-08-30
 
 ### 工程化打磨

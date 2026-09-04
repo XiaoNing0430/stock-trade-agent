@@ -1,0 +1,18 @@
+{
+  "id": "oversold_bounce",
+  "name": "超跌反弹",
+  "description": "RSI 超卖 + 均线走平的反弹候选；基本面约束防踩雷",
+  "quick_filters": {
+    "pe": [0, 25],
+    "pb": [0, 5],
+    "turnoverRate": [0.3, null]
+  },
+  "advanced_factors": [
+    {"name": "rsi", "period": 14, "operator": "<", "threshold": 30, "weight": 2},
+    {"name": "ma_slope", "period": 20, "operator": ">", "threshold": 0, "weight": 1},
+    {"name": "bollinger_pos", "period": 20, "operator": "<", "threshold": 0.2, "weight": 1}
+  ],
+  "sort_by": "changePct",
+  "top_n": 10,
+  "deep_cap": 200
+}
