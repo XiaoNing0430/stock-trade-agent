@@ -1253,6 +1253,13 @@ def test_grid_optimize_history_failure_returns_422(monkeypatch):
         "backend.data_source.load_history",
         lambda code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
     )
+    from backend.sources.eastmoney import EastMoneySource
+
+    monkeypatch.setattr(
+        EastMoneySource,
+        "load_history",
+        lambda self, code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+    )
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519"})
     assert resp.status_code == 422
