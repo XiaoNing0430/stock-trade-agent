@@ -333,3 +333,11 @@ class PlanDraftOut(BaseModel):
     provider: str = ""
     warnings: list[str] = Field(default_factory=list)
     disclaimer: str
+
+
+class PlanDraftResponse(BaseModel):
+    """POST /api/assist/plan-draft 响应包裹：{"data": 草案}（与 /api/settings 的 data 包裹一致）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    data: PlanDraftOut

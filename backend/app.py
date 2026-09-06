@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import math
 import time
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
@@ -12,6 +14,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
+from backend.assist.limiter import SlidingWindowLimiter
+from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
@@ -33,6 +37,9 @@ from backend.schemas import (
     HealthOut,
     HistoryOut,
     MarketOut,
+    PlanDraftIn,
+    PlanDraftOut,
+    PlanDraftResponse,
     ScreenerOut,
     ScreenerStrategyOut,
     ScreenerStrategyRunIn,
@@ -49,7 +56,7 @@ from backend.schemas import (
     WorkspacePut,
     WorkspacePutOut,
 )
-from backend.sources import get_all_sources_info
+from backend.sources import build_router, get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     delete_grid_strategy,
@@ -82,6 +89,9 @@ ERR_WORKSPACE_CONFLICT = "WORKSPACE_CONFLICT"  # 409 工作区版本冲突
 ERR_UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"  # 502 行情/排名上游失败
 ERR_VALIDATION_ERROR = "VALIDATION_ERROR"  # 422 参数/设置/策略类型
 ERR_NOT_FOUND = "NOT_FOUND"  # 404 资源不存在
+ERR_RATE_LIMITED = "RATE_LIMITED"  # 429 草案限频
+
+logger = logging.getLogger("atlas.assist")
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -139,6 +149,9 @@ def create_app() -> FastAPI:
         stop_scheduler()
 
     app = FastAPI(title="Atlas Stock Trade Agent", lifespan=lifespan)
+    # 交易辅助：每实例新建限频器（测试隔离）与数据源路由（与数据源端点同一构建模式，离线安全）
+    app.state.assist_limiter = SlidingWindowLimiter(max_events=30, window_seconds=60.0)
+    app.state.assist_router = build_router()
     # 双轨托管：优先服务构建产物 frontend/dist（Vite），无 dist 时回退源码目录。
     # Vite 产物把静态资源放在 dist/assets/ 下，挂载目录按实际布局选择。
     assets_dir = DIST_DIR / "assets" if DIST_DIR.exists() else FRONTEND_DIR
@@ -365,6 +378,43 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
         return ScreenerStrategyOut(**result)
+
+    @app.post("/api/assist/plan-draft", response_model=PlanDraftResponse)
+    def assist_plan_draft(payload: PlanDraftIn) -> PlanDraftResponse:
+        limiter: SlidingWindowLimiter = app.state.assist_limiter
+        allowed, retry_after = limiter.check()  # 先限频计数（含失败请求），再做任何校验 / IO
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail={"error": "草案请求过于频繁，请稍后再试", "code": ERR_RATE_LIMITED},
+                headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
+            )
+        started = time.monotonic()
+        trace_id = uuid4().hex[:8]
+        try:
+            draft = build_plan_draft(
+                app.state.assist_router, payload.model_dump(), lambda: get_workspace_settings("default")
+            )
+        except ValueError as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+        except UpstreamError as exc:
+            logger.warning(
+                "assist.upstream_error", extra={"trace_id": trace_id, "code": payload.code, "error": str(exc)}
+            )
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream") from exc
+        logger.info(
+            "assist.plan_draft",
+            extra={
+                "trace_id": trace_id,
+                "code": payload.code,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+                "shares": draft["suggestedShares"],
+                "stale": draft["stale"],
+                "fallback_used": draft["fallbackUsed"],
+                "provider": draft["provider"],
+            },
+        )
+        return PlanDraftResponse(data=PlanDraftOut.model_validate(draft))
 
     @app.post("/api/grid/preview")
     def grid_preview(payload: GridPreviewIn) -> GridPreviewOut:
