@@ -3268,6 +3268,152 @@ textarea:focus-visible {
   padding: 8px 10px;
 }
 
+/* ---------- 交易计划草案对话框（PlanDraftDialog） ---------- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dialog-panel {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-large);
+}
+
+.plan-draft-head,
+.plan-draft-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-draft-foot {
+  justify-content: flex-end;
+}
+
+.plan-draft-state {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.plan-draft-error {
+  color: var(--red);
+}
+
+.draft-fallback-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #8a5a00;
+  background: #fff3cd;
+  border: 1px solid #f0d488;
+}
+
+.draft-stale-banner {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--coral);
+  background: var(--coral-soft);
+  color: var(--coral-dark);
+  font-size: 13px;
+}
+
+.draft-warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #8a5a00;
+}
+
+.draft-warnings li {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff8e6;
+  border: 1px solid #f0d488;
+}
+
+.draft-params {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.draft-params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.draft-params label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.draft-params input,
+.draft-params select {
+  width: 100%;
+}
+
+.draft-note {
+  grid-column: 1 / -1;
+}
+
+.draft-metrics,
+.draft-result {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.draft-metrics dt,
+.draft-result dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.draft-metrics dd,
+.draft-result dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+.draft-disclaimer {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.draft-disable-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--red);
+}
+
 .notif-foot {
   display: flex;
   align-items: center;

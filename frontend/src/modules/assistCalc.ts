@@ -75,6 +75,68 @@ export function selectStop(entry: number, atr14: number | null, ma20: number | n
   return { stop, warnings };
 }
 
+/** 单日涨跌幅上限（镜像 backend/data_source.py price_limit_ratio：主板 10% / 创业板·科创板 20% / 北交所 30%）。 */
+export function priceLimitRatio(code: string): 0.1 | 0.2 | 0.3 {
+  const trimmed = code.trim();
+  if (trimmed.startsWith('4') || trimmed.startsWith('8')) return 0.3;
+  if (trimmed.startsWith('68')) return 0.2;
+  if (trimmed.startsWith('30')) return 0.2;
+  return 0.1;
+}
+
+export interface SizingAtStopInput {
+  entry: number;
+  stop: number | null;
+  equity: number;
+  riskPct: number;
+  rrRatio: number;
+  capPct: number;
+  limitRatio: number;
+}
+
+/**
+ * 以调用方已定的止损现算目标 / 风险仓位（手动止损也走同一口径，与 backend sizing() 的
+ * stop 之后分支逐字段一致）；警示不含 selectStop 的候选价警示，由调用方按顺序合并。
+ */
+export function sizePositionAtStop(input: SizingAtStopInput): SizingOutput {
+  const { entry, stop, equity, riskPct, rrRatio, capPct, limitRatio } = input;
+  const warnings: string[] = [];
+  let target: number | null = null;
+  let stopDistance: number | null = null;
+  let shares = 0;
+  let positionPct = 0;
+  if (stop !== null) {
+    const safeDistance = round2(entry - stop);
+    if (safeDistance > 0) {
+      stopDistance = safeDistance;
+      const riskAmount = round2((equity * riskPct) / 100.0);
+      shares = Math.floor(riskAmount / stopDistance / 100.0) * 100;
+      const capShares = Math.floor((equity * capPct) / 100.0 / entry / 100.0) * 100;
+      if (shares <= 0) {
+        warnings.push('权益不足一手，无法按该风险比例建仓');
+      } else if (shares > capShares) {
+        shares = Math.max(capShares, 0);
+        warnings.push('建议仓位已按单票市值上限截断');
+      }
+      target = round2(entry + stopDistance * rrRatio);
+      if ((target - entry) / entry > limitRatio) {
+        warnings.push('目标位距入场价超单日涨幅上限，需多日达成');
+      }
+      if (shares > 0) {
+        positionPct = round2(((shares * entry) / equity) * 100.0);
+      }
+    }
+  }
+  return {
+    stop,
+    target,
+    stopDistance,
+    suggestedShares: Math.max(shares, 0),
+    positionPct,
+    warnings,
+  };
+}
+
 export function sizePosition(input: SizingInput): SizingOutput {
   const { entry, stopMode, atr14, ma20, equity, riskPct, rrRatio, capPct, limitRatio } = input;
   const { stop, warnings } = selectStop(entry, atr14, ma20, stopMode);

@@ -50,3 +50,30 @@ export interface HistoryBar {
   close: number;
   volume: number;
 }
+
+// ---------- 交易辅助（Task 2 契约 PlanDraftOut，字段名逐字保持） ----------
+
+/** POST /api/assist/plan-draft 响应草案（响应包裹 {data: AssistDraft} 由调用方解包）。 */
+export interface AssistDraft {
+  code: string;
+  name: string;
+  direction: string;
+  entry: number;
+  stopAtr: number | null;
+  stopMa20: number | null;
+  stop: number | null;
+  target: number | null;
+  stopDistance: number | null;
+  atr14: number | null;
+  ma20: number | null;
+  riskAmount: number | null;
+  suggestedShares: number;
+  positionPct: number;
+  referenceDate: string;
+  entryAsOf: number | null;
+  stale: boolean;
+  fallbackUsed: boolean;
+  provider: string;
+  warnings: string[];
+  disclaimer: string;
+}

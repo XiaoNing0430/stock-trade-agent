@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import type { Plan } from '@/types/models';
@@ -34,7 +34,7 @@ describe('useWorkspaceStore syncNow', () => {
     const workspace = useWorkspaceStore();
     workspace.workspaceSynced = true;
     workspace.plans = [basePlan];
-    const fetchMock = vi.fn(async () => jsonResponse({ revision: 3 }));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 3 }));
     vi.stubGlobal('fetch', fetchMock);
     const result = await workspace.syncNow();
     expect(result).toEqual({ ok: true });
@@ -50,7 +50,7 @@ describe('useWorkspaceStore syncNow', () => {
   it('409 返回 { ok:false, conflict:true } 且绝不自动重试', async () => {
     const workspace = useWorkspaceStore();
     workspace.workspaceSynced = true;
-    const fetchMock = vi.fn(async () => jsonResponse({ detail: { error: '冲突' } }, false, 409));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ detail: { error: '冲突' } }, false, 409));
     vi.stubGlobal('fetch', fetchMock);
     const result = await workspace.syncNow();
     expect(result).toEqual({ ok: false, conflict: true });
@@ -60,14 +60,14 @@ describe('useWorkspaceStore syncNow', () => {
   it('非 409 失败返回 { ok:false }', async () => {
     const workspace = useWorkspaceStore();
     workspace.workspaceSynced = true;
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: { error: '服务不可用' } }, false, 503)));
+    vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ detail: { error: '服务不可用' } }, false, 503)));
     const result = await workspace.syncNow();
     expect(result).toEqual({ ok: false });
   });
 
   it('workspaceSynced=false 时直接返回 { ok:true }（未初始化不发 PUT）', async () => {
     const workspace = useWorkspaceStore();
-    const fetchMock = vi.fn(async () => jsonResponse({ revision: 1 }));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 1 }));
     vi.stubGlobal('fetch', fetchMock);
     const result = await workspace.syncNow();
     expect(result).toEqual({ ok: true });
