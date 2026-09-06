@@ -41,6 +41,20 @@ describe('selectStop', () => {
     expect(selectStop(10, null, 9.8765, 'ma20').stop).toBe(9.88);
   });
 
+  it('×100 浮点缩放伪平局：2.675 的 double 严格低于十进制 2.675，ma20 候选为 2.67', () => {
+    // 2.675 的 double = 2.6749999999999998224（严格低于），非平局 → Python round 得 2.67；
+    // 旧实现 value*100 的乘积被舍入成精确的 267.5，误判平局（floor 267 为奇 → 进位）得 2.68。
+    expect(selectStop(10, 5, 2.675, 'ma20').stop).toBe(2.67);
+    // 对照：22.7/20 恰为 double 1.135（精确 1.1350000000000000089 ≥ 1.135），
+    // Python round(22.7/20, 2) = 1.14，实现必须同为 1.14 而非 1.13。
+    expect(selectStop(10, 5, 22.7 / 20, 'ma20').stop).toBe(1.14);
+  });
+
+  it('精确平局 dyadic：10.125 半程偶舍为 10.12（toFixed 会给出 10.13）', () => {
+    // 10.125 = 81/8 精确可表示，×100 = 1012.5 恰好半程 → 舍入到偶数 1012 → 10.12
+    expect(selectStop(11, null, 10.125, 'ma20').stop).toBe(10.12);
+  });
+
   it('atr14 为 null 时该候选置空并回退 ma20', () => {
     expect(selectStop(10, null, 9.8, 'atr')).toEqual({ stop: 9.8, warnings: [] });
   });

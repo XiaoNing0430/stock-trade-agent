@@ -4,22 +4,35 @@
  * 历史数据不足的 ATR/MA20 中文提示由调用方（store）负责，本模块仅产出 4 条仓位警示。
  */
 
-/**
- * 四舍五入到 2 位小数——镜像 Python round(x, 2) 语义：
- * 最近值优先，恰好半程（.5）时舍入到偶数（银行家舍入）。
- * 恰好半程的双精度数（如 8.125 = k/8）×100 后仍精确，可正确判平；非平局由浮点真值主导，与 Python 一致。
- */
+/** Python round(x, 2) 的精确等价：按 double 精确二进制值做十进制半程偶舍（BigInt 分解，勿用浮点缩放）。 */
 function round2(value: number): number {
-  const scaled = value * 100;
-  if (!Number.isFinite(scaled)) return value;
-  const floor = Math.floor(scaled);
-  const diff = scaled - floor;
-  let rounded: number;
-  if (diff > 0.5) rounded = floor + 1;
-  else if (diff < 0.5) rounded = floor;
-  else rounded = floor % 2 === 0 ? floor : floor + 1;
-  const result = rounded / 100;
-  return result === 0 ? 0 : result; // 归一 -0，避免 -0 !== 0 的比较问题
+  if (!Number.isFinite(value)) return value;
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  const bits = view.getBigUint64(0);
+  const exp = Number((bits >> 52n) & 0x7ffn);
+  const frac = bits & 0xfffffffffffffn;
+  const sign = value < 0 ? -1n : 1n;
+  let m: bigint;
+  let e: number;
+  if (exp === 0) {
+    m = frac;
+    e = -1074;
+  } else {
+    m = frac | (1n << 52n);
+    e = exp - 1075;
+  }
+  let q: bigint;
+  if (e >= 0) {
+    q = (m << BigInt(e)) * 100n; // 整数值，×100 后无需舍入
+  } else {
+    const num = m * 100n;
+    const den = 1n << BigInt(-e);
+    q = num / den;
+    const twice = (num % den) * 2n;
+    if (twice > den || (twice === den && q % 2n === 1n)) q += 1n;
+  }
+  return Number(sign * q) / 100;
 }
 
 export interface StopCandidate {
