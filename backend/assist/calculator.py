@@ -84,6 +84,19 @@ def sizing(
     shares, position_pct = 0, 0.0
     if stop is not None:
         stop_distance = round(entry - stop, 2)
+        if stop_distance <= 0:
+            # 亚分级价差（如 entry=10.004 / stop=10.00）四舍五入后距离为 0，等效止损不低于入场价
+            # → 按双候选无效同款处置置空，防 risk_amount / stop_distance 除零 500。
+            warnings.append("候选止损价均不低于入场价，已置空止损（强趋势 / 数据不足），请手动设定")
+            return SizingResult(
+                stop=None,
+                target=None,
+                stop_distance=None,
+                risk_amount=round(equity * risk_pct / 100.0, 2),
+                suggested_shares=0,
+                position_pct=0.0,
+                warnings=warnings,
+            )
         risk_amount = round(equity * risk_pct / 100.0, 2)
         shares = int(math.floor(risk_amount / stop_distance / 100.0)) * 100
         cap_shares = int(math.floor(equity * cap_pct / 100.0 / entry / 100.0)) * 100

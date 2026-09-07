@@ -192,4 +192,6 @@ def adx(bars: list[dict[str, Any]], period: int = 14) -> list[float | None]:
 
 def closed_bars(bars: list[dict[str, Any]], ref_date: str, limit: int) -> list[dict[str, Any]]:
     """截断至 ref_date（含）并取最后 limit 根——杜绝未来函数的唯一定义点。"""
+    if limit < 1:
+        raise ValueError("limit must be >= 1")  # [-0:] ≡ [0:] 会静默返回全量，必须显式拒绝
     return [b for b in bars if str(b.get("date", "")) <= ref_date][-limit:]

@@ -24,6 +24,12 @@ def test_closed_bars_empty() -> None:
     assert closed_bars([], "2026-09-02", limit=60) == []
 
 
+def test_closed_bars_rejects_non_positive_limit() -> None:
+    bars = [_bar("2026-09-01", 10.0)]
+    with pytest.raises(ValueError, match="limit must be >= 1"):
+        closed_bars(bars, "2026-09-01", limit=0)
+
+
 from backend.assist.limiter import SlidingWindowLimiter  # noqa: E402
 
 
@@ -138,6 +144,19 @@ def test_sizing_all_stops_invalid() -> None:
     )
     assert r2.stop is None and r2.target is None and r2.suggested_shares == 0
     assert any("止损" in w for w in r2.warnings)
+
+
+def test_sizing_zero_stop_distance_treated_as_invalid() -> None:
+    # 亚分级价差：stop_atr = round(10.004 - 0.002, 2) = 10.0 < entry 严格成立，
+    # 但 stop_distance = round(10.004 - 10.0, 2) = 0.0 → 不得除零，按置空止损处置。
+    levels = IndicatorLevels(reference_date="d", closed_count=60, atr14=0.001, ma20=11.0, last_close=10.004)
+    r = sizing(
+        10.004, levels, stop_mode="atr", equity=100000.0, risk_pct=1.0, rr_ratio=2.0, cap_pct=25.0, limit_ratio=0.10
+    )
+    assert r.stop is None and r.target is None and r.stop_distance is None
+    assert r.suggested_shares == 0 and r.position_pct == 0.0
+    assert r.risk_amount == 1000.0
+    assert any("候选止损价均不低于入场价" in w for w in r.warnings)
 
 
 def test_sizing_multiday_target_warning() -> None:
