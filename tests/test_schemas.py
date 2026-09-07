@@ -40,8 +40,8 @@ def test_plan_draft_in_defaults() -> None:
 
 def test_plan_draft_in_rejects_out_of_range() -> None:
     import pytest
-    from pydantic import ValidationError
     from backend.schemas import PlanDraftIn
+    from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
         PlanDraftIn.model_validate({"code": "600519", "rrRatio": 99})

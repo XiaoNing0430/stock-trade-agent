@@ -228,7 +228,11 @@ class ScreenerPipeline:
             fut.cancel()
             logger.warning(
                 "screener.history_deadline_skipped",
-                extra={"trace_id": trace_id, "code": code_by_future.get(fut, "?"), "deadline_s": cfg.history_deadline_s},
+                extra={
+                    "trace_id": trace_id,
+                    "code": code_by_future.get(fut, "?"),
+                    "deadline_s": cfg.history_deadline_s,
+                },
             )
         if candidates and not results:
             raise RuntimeError("精筛阶段全部失败")
