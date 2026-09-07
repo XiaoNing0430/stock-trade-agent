@@ -90,10 +90,10 @@ def build_plan_draft(
     as_of = payload.get("entryAsOfMs")
     name = str(payload.get("name") or "")
     provider = ""
-    fallback_used = False
+    quote_fallback = False
     try:
         if entry is None:
-            quote_source, rows, _preferred = _load_with_fallback(
+            quote_source, rows, preferred_quote = _load_with_fallback(
                 router,
                 str(settings.get("realtimeSource", "tencent")),
                 "realtime",
@@ -106,6 +106,8 @@ def build_plan_draft(
             entry = float(row["price"])
             as_of = row.get("updatedAt")
             name = name or str(row.get("name") or "")
+            # 实际报价源 ≠ 设置首选报价源（同一性对照；同一注册表内的单例）→ 报价路径降级
+            quote_fallback = quote_source is not preferred_quote
             provider = str(quote_source.provider_label)
         history_source, bars, preferred_history = _load_with_fallback(
             router,
@@ -115,7 +117,8 @@ def build_plan_draft(
             fallback_enabled,
         )
         # fallbackUsed 判定：实际取数源 ≠ 设置首选源（对象同一性；同一注册表内的单例）
-        fallback_used = history_source is not preferred_history
+        # history 恒取（levels 依赖），provider 语义保持 history 源标签不变
+        fallback_used = quote_fallback or history_source is not preferred_history
         ref_date = str(history_source.calendar.previous_trading_day(date.today()).isoformat())
         if not provider:
             provider = str(history_source.provider_label)

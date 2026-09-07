@@ -365,6 +365,35 @@ def test_assist_plan_draft_quote_fetch(monkeypatch) -> None:
     assert data["provider"] == "Tencent public quote API"
 
 
+def test_assist_plan_draft_quote_path_fallback_flag(monkeypatch) -> None:
+    """报价路径降级同样计入 fallbackUsed：tencent 实时失败 → 东财报价成功（history 健康）。"""
+    from backend.sources import eastmoney as em_module
+    from backend.sources import tencent as tx_module
+
+    now_ms = int(time.time() * 1000)
+
+    def _tx_quote_boom(self, codes):
+        raise RuntimeError("tencent realtime down")
+
+    monkeypatch.setattr(tx_module.TencentSource, "load_quotes", _tx_quote_boom)
+    monkeypatch.setattr(
+        em_module.EastMoneySource,
+        "load_quotes",
+        lambda self, codes: [{"code": "600519", "name": "贵州茅台", "price": 10.0, "updatedAt": now_ms}],
+    )
+    monkeypatch.setattr(
+        tx_module.TencentSource, "load_history", lambda self, code, limit, is_index=False: _assist_bars()
+    )
+    monkeypatch.setattr(tx_module.TencentSource, "calendar", property(lambda self: _AssistFakeCalendar()))
+    with _assist_client(monkeypatch) as client:
+        resp = client.post("/api/assist/plan-draft", json={"code": "600519"})
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["fallbackUsed"] is True  # 实际报价源（东财）≠ 首选报价源（腾讯）
+    assert data["provider"] == "东方财富实时行情"  # provider 语义不变：quote 路径展示实际报价源标签
+    assert data["entry"] == 10.0
+
+
 def test_assist_plan_draft_validation_422(monkeypatch) -> None:
     """无法识别代码 → service 语义 422；entryPrice=0 → pydantic 422。"""
     with _assist_client(monkeypatch) as client:
