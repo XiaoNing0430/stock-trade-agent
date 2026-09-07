@@ -1,6 +1,7 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAssistStore } from '@/stores/useAssistStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import type { Plan } from '@/types/models';
 
@@ -325,6 +326,43 @@ describe('useAssistStore', () => {
       assist.submitting = false;
       assist.close();
       expect(assist.visible).toBe(false);
+    });
+  });
+
+  describe('设置接线（settingsDraft 4 键）', () => {
+    it('openFor 前暴露 assistDefaults：settingsDraft 未加载（空对象）→ 回退 1/2/atr/25 且不发起设置请求', () => {
+      const settings = useSettingsStore();
+      const workspace = useWorkspaceStore();
+      const requestSpy = vi.spyOn(workspace, 'requestJson');
+      // settingsDraft 为空对象（未加载）：逐键 Object.assign 覆盖为 undefined
+      Object.assign(settings.settingsDraft, {
+        riskPerTradePct: undefined,
+        rrRatio: undefined,
+        stopMode: undefined,
+        positionCapPct: undefined,
+        defaultCapital: undefined,
+      });
+      const assist = useAssistStore();
+      const defaults = assist.assistDefaults;
+      expect(defaults.riskPct).toBe(1);
+      expect(defaults.rrRatio).toBe(2);
+      expect(defaults.stopMode).toBe('atr');
+      expect(defaults.capPct).toBe(25);
+      expect(defaults.equity).toBe(100000);
+      expect(requestSpy).not.toHaveBeenCalled();
+    });
+
+    it('settingsDraft 已加载 → assistDefaults 逐键镜像（equity 取 defaultCapital）', () => {
+      const settings = useSettingsStore();
+      Object.assign(settings.settingsDraft, {
+        riskPerTradePct: 1.5,
+        rrRatio: 3,
+        stopMode: 'ma20',
+        positionCapPct: 40,
+        defaultCapital: 200000,
+      });
+      const assist = useAssistStore();
+      expect(assist.assistDefaults).toEqual({ riskPct: 1.5, rrRatio: 3, stopMode: 'ma20', capPct: 40, equity: 200000 });
     });
   });
 });

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { formatNumber } from '@/modules/format';
 import { priceLimitRatio, selectStop, sizePositionAtStop } from '@/modules/assistCalc';
@@ -31,6 +32,26 @@ export const useAssistStore = defineStore('assist', () => {
   const error = ref('');
   const draft = ref<AssistDraft | null>(null);
   const suggestion = ref<SizingOutput | null>(null);
+
+  /**
+   * 交易辅助默认参数：镜像设置 4 键（Task 8 的硬编码 1/2/atr/25 由此接线）。
+   * settingsDraft 未加载（键缺失/空对象）时回退 1/2/atr/25、equity 100000——纯本地读取，绝不发请求。
+   */
+  const assistDefaults = computed(() => {
+    const settings = useSettingsStore().settingsDraft as Record<string, any>;
+    const num = (value: unknown, fallback: number): number => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && value !== undefined && value !== null && value !== '' ? parsed : fallback;
+    };
+    const stopMode = settings.stopMode === 'ma20' ? 'ma20' : 'atr';
+    return {
+      riskPct: num(settings.riskPerTradePct, 1),
+      rrRatio: num(settings.rrRatio, 2),
+      stopMode: stopMode as 'atr' | 'ma20',
+      capPct: num(settings.positionCapPct, 25),
+      equity: num(settings.defaultCapital, 100000),
+    };
+  });
 
   /** 草案统一入口：screener 行 / 个股详情快照携带价格与时间戳（null → 后端取实时价）。 */
   async function openFor(payload: { code: string; name?: string; price?: number | null; asOfMs?: number | null }) {
@@ -122,5 +143,5 @@ export const useAssistStore = defineStore('assist', () => {
     }
   }
 
-  return { visible, loading, submitting, error, draft, suggestion, openFor, recalc, close, confirmDraft };
+  return { visible, loading, submitting, error, draft, suggestion, assistDefaults, openFor, recalc, close, confirmDraft };
 });

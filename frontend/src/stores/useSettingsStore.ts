@@ -24,6 +24,11 @@ export const useSettingsStore = defineStore('settings', () => {
     conflictPolicy: 'server',
     notifyDesktopAlert: true,
     notifyDesktopSystem: false,
+    // 交易辅助 4 键（与后端 storage 默认一致，见 backend/storage.py DEFAULT_SETTINGS）
+    riskPerTradePct: 1.0,
+    rrRatio: 2.0,
+    stopMode: 'atr',
+    positionCapPct: 25,
   });
   const dataSources = ref<any[]>([]);
   const settingsLoading = ref(false);

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { useAssistStore } from '@/stores/useAssistStore';
-import { useSettingsStore } from '@/stores/useSettingsStore';
 import { formatNumber } from '@/modules/format';
 import type { Plan } from '@/types/models';
 import type { AssistRecalcInput } from '@/stores/useAssistStore';
 
 const assist = useAssistStore();
-const settings = useSettingsStore();
 
 // 可调参数（本地态；draft 为服务端一次返回的指标原值）
 const params = reactive({
@@ -33,18 +31,20 @@ function collectRecalcInput(): AssistRecalcInput {
   };
 }
 
-// 新草案打开：调参回归默认（FR-13），entry 回显服务端值，权益回显设置默认资金
+// 新草案打开：调参回归设置默认（FR-13；assistDefaults 镜像 settingsDraft 4 键，未加载时回退 1/2/atr/25），
+// entry 回显服务端值，权益回显设置默认资金
 watch(
   () => assist.draft,
   (d) => {
     if (!d) return;
+    const defaults = assist.assistDefaults;
     params.entryInput = d.entry != null ? String(d.entry) : '';
-    params.stopMode = 'atr';
-    params.rrRatio = 2;
-    params.riskPct = 1;
-    params.capPct = 25;
+    params.stopMode = defaults.stopMode;
+    params.rrRatio = defaults.rrRatio;
+    params.riskPct = defaults.riskPct;
+    params.capPct = defaults.capPct;
     params.manualStop = null;
-    params.equity = Number(settings.settingsDraft.defaultCapital) || 100000;
+    params.equity = defaults.equity;
     params.note = '';
     assist.recalc(collectRecalcInput());
   },

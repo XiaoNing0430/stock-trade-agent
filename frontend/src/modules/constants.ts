@@ -132,5 +132,6 @@ export const STRATEGY_SCHEMAS: Record<
 export const SETTINGS_TABS = [
   { id: 'workspace', label: '工作台' },
   { id: 'data', label: '数据获取' },
+  { id: 'assist', label: '交易辅助' },
   { id: 'connection', label: '连接状态' },
 ];

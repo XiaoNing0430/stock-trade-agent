@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
 import { useAssistStore } from '@/stores/useAssistStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import type { Plan } from '@/types/models';
 
@@ -168,5 +169,41 @@ describe('PlanDraftDialog', () => {
     expect(result.text()).toContain('16.3%');
     // 纯展示：计划建议数学仍为 risk-pct 基，target 不受 Kelly 输入影响
     expect(wrapper.find('[data-testid="target"]').text()).toContain('12.00');
+  });
+
+  it('新草案打开：调参参数镜像设置 4 键（stopMode/rr/riskPct/capPct），equity 随 defaultCapital', async () => {
+    const settings = useSettingsStore();
+    Object.assign(settings.settingsDraft, {
+      riskPerTradePct: 1.5,
+      rrRatio: 3,
+      stopMode: 'ma20',
+      positionCapPct: 40,
+      defaultCapital: 200000,
+    });
+    const { wrapper } = await mountDialog();
+    expect((wrapper.find('select[data-testid="stop-mode-select"]').element as HTMLSelectElement).value).toBe('ma20');
+    expect((wrapper.find('input[data-testid="rr-input"]').element as HTMLInputElement).value).toBe('3');
+    expect((wrapper.find('input[data-testid="risk-pct-input"]').element as HTMLInputElement).value).toBe('1.5');
+    expect((wrapper.find('input[data-testid="cap-pct-input"]').element as HTMLInputElement).value).toBe('40');
+    expect((wrapper.find('input[data-testid="equity-input"]').element as HTMLInputElement).value).toBe('200000');
+  });
+
+  it('设置未加载（空 settingsDraft）→ 对话框回显回退默认 atr/2/1/25（不造数、不发设置请求）', async () => {
+    const settings = useSettingsStore();
+    const workspace = useWorkspaceStore();
+    const requestSpy = vi.spyOn(workspace, 'requestJson');
+    Object.assign(settings.settingsDraft, {
+      riskPerTradePct: undefined,
+      rrRatio: undefined,
+      stopMode: undefined,
+      positionCapPct: undefined,
+      defaultCapital: undefined,
+    });
+    const { wrapper } = await mountDialog();
+    expect((wrapper.find('select[data-testid="stop-mode-select"]').element as HTMLSelectElement).value).toBe('atr');
+    expect((wrapper.find('input[data-testid="rr-input"]').element as HTMLInputElement).value).toBe('2');
+    expect((wrapper.find('input[data-testid="risk-pct-input"]').element as HTMLInputElement).value).toBe('1');
+    expect((wrapper.find('input[data-testid="cap-pct-input"]').element as HTMLInputElement).value).toBe('25');
+    expect(requestSpy).not.toHaveBeenCalled();
   });
 });
