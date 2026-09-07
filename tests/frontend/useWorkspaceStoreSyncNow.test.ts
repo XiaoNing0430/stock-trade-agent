@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import type { Plan } from '@/types/models';
@@ -72,5 +72,55 @@ describe('useWorkspaceStore syncNow', () => {
     const result = await workspace.syncNow();
     expect(result).toEqual({ ok: true });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('定时同步回调触发时复查同步锁：syncNow 持锁期间不重复 PUT', async () => {
+    vi.useFakeTimers();
+    try {
+      const workspace = useWorkspaceStore();
+      workspace.workspaceSynced = true;
+      let releaseFirst!: () => void;
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let call = 0;
+      const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) => {
+        call += 1;
+        // 第 1 个 PUT（syncNow 持锁挂起）永不返回；第 2 个（若回归为双 PUT）正常返回
+        return call === 1 ? firstGate.then(() => jsonResponse({ revision: 2 })) : Promise.resolve(jsonResponse({ revision: 3 }));
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      // 先布防 350ms 定时同步，再让 syncNow 同步段持锁挂起 → 定时回调到期时锁仍被持有
+      workspace.scheduleWorkspaceSync();
+      const pending = workspace.syncNow();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // 回调复查锁跳过，无第二次 PUT
+      releaseFirst();
+      await expect(pending).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('syncNow 等待上限 3s：锁始终被持有时返回 { ok:false }（不可让 UI 假死）', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const workspace = useWorkspaceStore();
+      workspace.workspaceSynced = true;
+      // 从不 resolve 的 fetch → 定时同步进入 PUT 后锁永不释放
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((_url: RequestInfo | URL, _init?: RequestInit) => new Promise(() => {}))
+      );
+      workspace.scheduleWorkspaceSync();
+      await vi.advanceTimersByTimeAsync(360); // 350ms 防抖到期 → 定时同步持有锁
+      expect(workspace.workspaceSyncTimer).toBeTruthy();
+      const result = await workspace.syncNow(); // 3s 等待循环在假计时器下瞬时推进
+      expect(result).toEqual({ ok: false });
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });
