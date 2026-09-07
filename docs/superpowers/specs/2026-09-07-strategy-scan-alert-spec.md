@@ -35,6 +35,8 @@
 - **FR-9 点击流**：提醒中的代码片点击 → `useAssistStore.openFor({ code, name })` → PlanDraftDialog 弹出 → 走既有 plan-draft 端点**看时重算**（entry 空 → 实时行情路径）→ 用户确认 → 既有 confirmDraft 落计划。
 - **FR-10 策略实验室 UI**：策略行加「定时扫描」开关（data-testid=`scan-toggle`）+ 模式选择 quick/deep（data-testid=`scan-mode`），随开关持久化到 PUT configs；行内显示上次扫描时间/状态（成功时间或「上次扫描失败」）。
 - **FR-11 观测**：每次扫描记录结构化日志（logger `screener.scan`，extra 含 trace_id/strategy_id/mode/命中数/新增数/elapsed_ms/stale）；GET /hits 与策略实验室展示 lastStatus。
+- **FR-12 扫描历史摘要**：每次扫描结束追加一行到 `screener_scan_history`（仅摘要：策略/时间/状态/命中数/新增数/耗时，**不存命中明细**），全表滚动保留最近 500 行（插入时清理）。此表直接服务 ROADMAP 下一 P1「计划绩效复盘」的轻量运行留痕需求。
+- **FR-13 可靠性护栏**：① Redis 分布式锁（`scan:lock` SET NX PX，TTL 15 分钟）保证多进程部署下同一时刻只有一个 worker 执行扫描（Redis 已直连，不可用时降级为无锁 + 日志告警）；② 单策略扫描失败 → 10 分钟后单次重试（APScheduler date-trigger one-shot，重试本身不再武装重试）；③ `EVENT_JOB_MISSED` 监听 → 结构化日志（错过事件可见，不自动补偿，`POST /scan/now` 为人工补偿路径）；④ 状态/历史写入包 try/except → 日志，DB 故障不炸调度线程；⑤ `update_scan_state` 前置校验 `enabled` 仍为 True，扫描中途被关闭则跳过写入并记日志。
 
 ## 4. 契约
 
@@ -51,7 +53,21 @@
 | last_hits | JSON nullable | `[{"code","name","score","firstSeen"}]`，firstSeen 为 `YYYY-MM-DD` |
 | created_at / updated_at | DateTime | |
 
-Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upsert_scan_config(strategy_id, enabled, mode)` / `update_scan_state(strategy_id, status, hits, run_at)`。JSON 读写容错（坏 JSON 视为空）。
+Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upsert_scan_config(strategy_id, enabled, mode)` / `update_scan_state(strategy_id, status, hits, run_at)`。JSON 读写容错（坏 JSON 视为空）；`last_hits` 结构演进只增不改（新字段可选，旧读取方忽略未知键）。
+
+**`screener_scan_history`**（摘要，FR-12）：
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| id | Integer PK autoincrement | |
+| strategy_id | String(96) index | |
+| run_at | DateTime(timezone=True) index | 扫描结束时间 |
+| status | String(16) | "ok" \| "failed" |
+| hit_count / new_count | Integer | 滞留命中数 / 新进入数 |
+| elapsed_ms | Integer | |
+| trace_id | String(16) | 关联日志 |
+
+助手：`insert_scan_history(...)` + 插入后 `DELETE WHERE id NOT IN (取最近 500)` 滚动清理。
 
 ### 4.2 API 契约
 
@@ -96,9 +112,13 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 | 周末补扫无新数据 | 管道缓存/最新收盘命中不变 → diff 空 → 只更新 last_run_at，无提醒 |
 | 命中列表为空 | last_hits=[]；原滞留码全部自然"跌出"；无提醒 |
 | 命中为 stale 缓存 | 透传 stale（管道返回），日志记录；提醒不标注 stale（看时重算保证新数据） |
-| 深夜/节假日 misfire | grace 3600s 内补跑；超出则跳过等下个触发点（APScheduler 默认） |
-| 多 worker 部署重复扫描 | 已知近似，与回测调度一致；ROADMAP 注明 |
-| PUT 与扫描并发 | 状态更新行级原子（upsert），无跨表事务 |
+| 深夜/节假日 misfire | grace 3600s 内补跑；超出则跳过等下个触发点（APScheduler 默认）；EVENT_JOB_MISSED 记日志（FR-13③） |
+| 上游偶发故障 | 失败 10 分钟后单次重试（FR-13②）；仍失败等下个触发点 |
+| 多 worker 部署重复扫描 | Redis 分布式锁互斥（FR-13①）；锁不可用降级无锁 + 告警日志 |
+| 扫描中途用户关闭开关 | update_scan_state 前置校验 enabled，跳过写入 + 日志（FR-13⑤） |
+| DB 不可达 | 状态/历史写入失败仅日志（FR-13④）；调度器存活；下次扫描重试写入 |
+| PUT 与扫描并发 | 状态更新行级原子（upsert）+ enabled 复核（FR-13⑤） |
+| 单策略扫描耗时 | 管道内部已有界：history_deadline_s=45s（配置上限 300s）+ 阶段 deadline + HTTP 10s×2 重试；扫描不叠加额外硬超时（避免比管道自身 deadline 更紧造成误杀） |
 | 扫描 while 用户在跑同一策略 | 管道缓存击穿互斥锁 + 限频已处理（复用） |
 
 ## 7. 前端交互
@@ -115,7 +135,8 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 2. run_all_scans：顺序执行、单策略失败隔离、状态更新、trace 日志字段。
 3. 端点：configs 列表/PUT 校验（422 分支）/scan-now（mock pipeline）/hits 形状；last_hits 坏 JSON 容错。
 4. 调度注册：两个 job、cron 表达式正确、幂等重注册。
-5. 迁移：upgrade/downgrade 往返。
+5. 迁移：两张新表 upgrade/downgrade 往返。
+6. FR-13 护栏：锁获取/降级（Redis 不可用继续扫描 + 告警日志）；失败重试 job 创建且 one-shot；misfire 监听日志；enabled 复核跳过；DB 写失败仅日志不炸线程；history 滚动清理（>500 行）。
 
 前端（vitest）：开关切换 PUT spy + 失败回滚；scanAlerts 合成 + 未读计数 + seen 打点；代码片点击 openFor spy；scan-now 按钮态。
 
@@ -130,11 +151,17 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 
 - Webhook / 邮件推送（ROADMAP「提醒方式扩展」独立落点）
 - 扫描时间可配置（固定 15:40 / 周末 10:00，要改是 P3 一行 cron 参数）
-- 扫描运行历史留痕表（归 P1 计划绩效复盘）
+- 命中明细归档（摘要表 FR-12 只存计数；逐码明细留给绩效复盘 spec 设计）
 - 自动把命中写入 plans（红线）
 - 分钟级/盘中扫描；多策略回测对比
+- 调度独立为 celery beat / k8s cronjob（本地单用户工具，非目标含 K8s 编排；P3 再议）
+- Prometheus 指标与告警（本地无监控基础设施；结构化日志已含耗时/计数字段）
+- 失败指数退避多级重试（单次 10 分钟重试足够，避免上游过载放大）
+- 多用户/权限隔离（非目标红线：多租户 SaaS；全仓库统一 workspace_id="default" 惯例）
 
 ## 10. 评审决议
+
+### 第一轮（设计澄清）
 
 | # | 决议点 | 结论 |
 |---|---|---|
@@ -143,3 +170,21 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 | 3 | 重复抑制 | 跌出再报（first_seen 机制） |
 | 4 | 调度 | 工作日 15:40 + 周末 10:00 补扫 |
 | 5 | 提醒通道 | 方案 A：独立端点 + 前端合成（不动 workspace 同步语义） |
+
+### 第二轮（风险评审）
+
+| # | 建议 | 裁定 | 依据 |
+|---|---|---|---|
+| 6 | Redis 分布式锁 | ✅ 采纳 | Redis 已直连，~10 行；不可用降级无锁 + 告警（FR-13①）；celery/k8s 长期方案进非目标 |
+| 7 | 用户/workspace 隔离 | ❌ 驳回 | 多租户是非目标红线；全仓库统一 workspace_id="default"（plans/alerts/策略同惯例），扫描端点不特殊化 |
+| 8 | scan_history 摘要表 | ✅ 采纳（缩小版） | 只存摘要不存明细（FR-12）；直接服务下一 P1 绩效复盘的"轻量运行留痕"；500 行滚动清理 |
+| 9 | 每策略 30s 硬超时 | ❌ 驳回（数值） | 管道自有 history_deadline_s=45s（默认）+ HTTP 10s×2 有界，30s 比内部 deadline 更紧会截断合法扫描误记 failed；elapsed_ms 观测已在 FR-11 |
+| 10 | 轮询实时性 | ❌ 驳回 | 评审自认可接受；/hits 挂现有 refreshAll 节奏；scan-now 后 UI 即时刷新 |
+| 11 | enabled 并发复核 | ✅ 采纳 | update_scan_state 前置校验（FR-13⑤） |
+| 12 | 失败自动重试 | ✅ 采纳（缩小版） | 单次 10 分钟 one-shot 重试；拒绝指数退避×3（上游过载放大，YAGNI） |
+| 13 | misfire 错过标记 | ✅ 采纳（缩小版） | EVENT_JOB_MISSED 监听记日志；不自动补偿（scan-now 人工兜底） |
+| 14 | 配置写审计 | ✅ 采纳（日志行） | PUT 变更记结构化日志（strategyId/enabled/mode）；本地单用户无"谁"维度，审计表 YAGNI |
+| 15 | 评分脱敏 | ❌ 驳回 | 本地单用户、数据不出机器；多租户是非目标 |
+| 16 | Prometheus 告警 | ❌ 驳回 | 无监控基础设施（K8s 编排在非目标）；日志已含指标字段，P3 再议 |
+| 17 | DB 失败降级 | ✅ 采纳 | 状态/历史写入 try/except 仅日志（FR-13④） |
+| 18 | last_hits JSON 演进 | ✅ 已覆盖 | 坏 JSON 容错已在 §4.1；字段只增注记已加 |
