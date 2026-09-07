@@ -14,6 +14,8 @@ class SlidingWindowLimiter:
     ) -> None:
         if max_events < 1:
             raise ValueError("max_events must be >= 1")
+        if window_seconds <= 0:
+            raise ValueError("window_seconds must be > 0")
         self._max = max_events
         self._window = window_seconds
         self._clock = clock

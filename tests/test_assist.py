@@ -52,6 +52,14 @@ def test_limiter_allows_burst_then_blocks() -> None:
     assert 59.0 <= retry_after <= 60.0
 
 
+def test_limiter_rejects_non_positive_window() -> None:
+    """window_seconds <= 0 会使 prune 逐次清空全部事件 → 无限放行，构造时必须拒绝。"""
+    with pytest.raises(ValueError, match="window_seconds must be > 0"):
+        SlidingWindowLimiter(max_events=3, window_seconds=0, clock=_FakeClock())
+    with pytest.raises(ValueError, match="window_seconds must be > 0"):
+        SlidingWindowLimiter(max_events=3, window_seconds=-1.0, clock=_FakeClock())
+
+
 def test_limiter_window_slides() -> None:
     clock = _FakeClock()
     limiter = SlidingWindowLimiter(max_events=2, window_seconds=60.0, clock=clock)
