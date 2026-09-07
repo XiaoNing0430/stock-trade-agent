@@ -36,7 +36,7 @@
 - **FR-10 策略实验室 UI**：策略行加「定时扫描」开关（data-testid=`scan-toggle`）+ 模式选择 quick/deep（data-testid=`scan-mode`），随开关持久化到 PUT configs；行内显示上次扫描时间/状态（成功时间或「上次扫描失败」）。
 - **FR-11 观测**：每次扫描记录结构化日志（logger `screener.scan`，extra 含 trace_id/strategy_id/mode/命中数/新增数/elapsed_ms/stale）；GET /hits 与策略实验室展示 lastStatus。
 - **FR-12 扫描历史摘要**：每次扫描结束追加一行到 `screener_scan_history`（仅摘要：策略/时间/状态/命中数/新增数/耗时，**不存命中明细**），全表滚动保留最近 500 行（插入时清理）。此表直接服务 ROADMAP 下一 P1「计划绩效复盘」的轻量运行留痕需求。
-- **FR-13 可靠性护栏**：① Redis 分布式锁（`scan:lock` SET NX PX，TTL 15 分钟）保证多进程部署下同一时刻只有一个 worker 执行扫描（Redis 已直连，不可用时降级为无锁 + 日志告警）；② 单策略扫描失败 → 10 分钟后单次重试（APScheduler date-trigger one-shot，重试本身不再武装重试）；③ `EVENT_JOB_MISSED` 监听 → 结构化日志（错过事件可见，不自动补偿，`POST /scan/now` 为人工补偿路径）；④ 状态/历史写入包 try/except → 日志，DB 故障不炸调度线程；⑤ `update_scan_state` 前置校验 `enabled` 仍为 True，扫描中途被关闭则跳过写入并记日志。
+- **FR-13 可靠性护栏**：① Redis 分布式锁（`scan:lock` SET NX PX，TTL 15 分钟，value 为进程唯一 token）保证多进程部署下同一时刻只有一个 worker 执行扫描；**扫描结束 finally 中主动释放**（Lua 比对 value 防误删他人锁），不干等 TTL 到期；Redis 不可用时降级为无锁 + 日志告警；② 单策略扫描失败 → 为**每个**失败策略独立创建 10 分钟后单次重试（APScheduler date-trigger one-shot，job id `scan:retry:{strategyId}`，replace_existing；重试触发时先校验该策略仍 enabled，已关闭则直接跳过不跑管道；重试本身不再武装重试）；③ `EVENT_JOB_MISSED` 监听 → 结构化日志（错过事件可见，不自动补偿，`POST /scan/now` 为人工补偿路径）；④ 状态/历史写入包 try/except → 日志，DB 故障不炸调度线程；⑤ `update_scan_state` 前置校验 `enabled` 仍为 True，扫描中途被关闭则跳过写入并记日志（重试路径天然复用此校验）。
 
 ## 4. 契约
 
@@ -188,3 +188,11 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 | 16 | Prometheus 告警 | ❌ 驳回 | 无监控基础设施（K8s 编排在非目标）；日志已含指标字段，P3 再议 |
 | 17 | DB 失败降级 | ✅ 采纳 | 状态/历史写入 try/except 仅日志（FR-13④） |
 | 18 | last_hits JSON 演进 | ✅ 已覆盖 | 坏 JSON 容错已在 §4.1；字段只增注记已加 |
+
+### 第三轮（细微修订）
+
+| # | 建议 | 裁定 | 依据 |
+|---|---|---|---|
+| 19 | scan-now 区分 500/502 | ❌ 保持 502 | 既有姊妹端点 /api/screener/strategy 对非 ValueError 一律 502 ERR_UPSTREAM_UNAVAILABLE（app.py:378-379）；单独给 scan-now 引入区分会不一致，统一区分需全仓异常分类学（P3 一并做） |
+| 20 | Redis 锁主动释放 | ✅ 采纳 | FR-13① 补"finally 主动释放（Lua 校验 value）"，实现者契约化而非口头提醒；测试补提前释放用例 |
+| 21 | 重试范围与 enabled 前置校验 | ✅ 采纳 | FR-13② 明确逐策略独立 job（scan:retry:{strategyId}）+ 触发时先校验 enabled 再跑管道 |
