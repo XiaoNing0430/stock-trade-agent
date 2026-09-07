@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useAssistStore } from '@/stores/useAssistStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { formatNumber } from '@/modules/format';
@@ -67,6 +67,23 @@ const mergedWarnings = computed(() => [
 ]);
 
 const equityLabel = computed(() => `${formatNumber(params.equity)} 元`);
+
+// Kelly 折叠参考（纯展示，不参与建议/建议股数计算）：半凯利 = (胜率 − (1−胜率)/盈亏比) × 0.5
+const kellyWinRate = ref<number | ''>('');
+const kellyPayoff = ref<number | ''>('');
+const halfKellyPct = computed<number | null>(() => {
+  if (kellyWinRate.value === '' || kellyPayoff.value === '') return null; // 空输入不造数
+  const w = Number(kellyWinRate.value);
+  const p = Number(kellyPayoff.value);
+  if (!Number.isFinite(w) || !Number.isFinite(p) || p <= 0) return null;
+  const half = (w / 100 - (1 - w / 100) / p) * 0.5;
+  return Number.isFinite(half) ? half * 100 : null;
+});
+const halfKellyDisplay = computed(() => {
+  if (halfKellyPct.value == null) return '--';
+  if (halfKellyPct.value <= 0) return '半凯利 ≤ 0，该赔率下不建议加仓';
+  return `${halfKellyPct.value.toFixed(1)}%`;
+});
 
 async function onConfirm() {
   const d = assist.draft;
@@ -251,6 +268,41 @@ async function onConfirm() {
             </label>
           </div>
         </fieldset>
+
+        <details
+          class="draft-kelly"
+          data-testid="kelly-ref"
+        >
+          <summary>凯利公式参考（可选，不影响建议）</summary>
+          <div class="draft-params-grid">
+            <label>胜率（%）
+              <input
+                v-model.number="kellyWinRate"
+                type="number"
+                step="1"
+                min="0"
+                max="100"
+                placeholder="选填"
+                data-testid="kelly-winrate"
+                aria-label="胜率"
+              >
+            </label>
+            <label>盈亏比
+              <input
+                v-model.number="kellyPayoff"
+                type="number"
+                step="0.1"
+                min="0"
+                placeholder="选填"
+                data-testid="kelly-payoff"
+                aria-label="盈亏比"
+              >
+            </label>
+            <label>半凯利参考
+              <output data-testid="kelly-result">{{ halfKellyDisplay }}</output>
+            </label>
+          </div>
+        </details>
 
         <dl class="draft-result">
           <div><dt>止损价</dt><dd>{{ formatNumber(assist.suggestion?.stop ?? null) }}</dd></div>

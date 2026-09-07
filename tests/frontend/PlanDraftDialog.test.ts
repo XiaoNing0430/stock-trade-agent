@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
@@ -153,5 +153,20 @@ describe('PlanDraftDialog', () => {
     assist.submitting = true;
     await wrapper.vm.$nextTick();
     expect(wrapper.find('button[data-testid="confirm"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('Kelly 折叠参考：默认折叠，空输入显示 --，填 55/2 显示半凯利 16.3%（纯展示不影响建议）', async () => {
+    const { wrapper } = await mountDialog();
+    const kelly = wrapper.find('details[data-testid="kelly-ref"]');
+    expect(kelly.exists()).toBe(true);
+    expect(kelly.attributes('open')).toBeUndefined(); // 默认折叠
+    const result = kelly.find('[data-testid="kelly-result"]');
+    expect(result.text()).toContain('--'); // 空输入绝不造数
+    await kelly.find('input[data-testid="kelly-winrate"]').setValue('55');
+    await kelly.find('input[data-testid="kelly-payoff"]').setValue('2');
+    // (0.55 - 0.45/2) × 0.5 = 0.1625 → 16.25% → toFixed(1) → 16.3%
+    expect(result.text()).toContain('16.3%');
+    // 纯展示：计划建议数学仍为 risk-pct 基，target 不受 Kelly 输入影响
+    expect(wrapper.find('[data-testid="target"]').text()).toContain('12.00');
   });
 });
