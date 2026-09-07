@@ -227,6 +227,8 @@
       </div>
     </main>
 
+    <plan-draft-dialog></plan-draft-dialog>
+
     <nav class="bottom-nav" aria-label="手机端主导航">
       <button type="button" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')">
         <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
@@ -254,6 +256,7 @@ import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
 import { NAV_ITEMS } from '@/modules/constants';
+import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';

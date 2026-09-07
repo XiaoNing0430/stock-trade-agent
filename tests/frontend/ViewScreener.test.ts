@@ -3,6 +3,9 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
+import { useAssistStore } from '@/stores/useAssistStore';
+import { useStrategyStore } from '@/stores/useStrategyStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
@@ -174,5 +177,48 @@ describe('ViewScreener', () => {
     await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.text()).toContain('数据可能滞后');
+  });
+
+  it('策略命中行：草案按钮 → openFor 携带代码/名称/快照价（无 updatedAt 传 null）', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategyRows = [
+      { code: '600519', name: '贵州茅台', price: 1700, changePct: 2.5, pe: 30, pb: 8, roe: 30, score: 3, factors: {} },
+    ];
+    const assist = useAssistStore();
+    const spy = vi.spyOn(assist, 'openFor').mockResolvedValue(undefined);
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('button[data-testid="draft-600519"]').trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ code: '600519', name: '贵州茅台', price: 1700, asOfMs: null })
+    );
+  });
+
+  it('策略命中行：行价缺失时 openFor 携带 null（绝不造数）', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategyRows = [
+      { code: '000001', name: '平安银行', price: null, changePct: 1.2, pe: 6, pb: 0.6, roe: 11, score: 2, factors: {} },
+    ];
+    const assist = useAssistStore();
+    const spy = vi.spyOn(assist, 'openFor').mockResolvedValue(undefined);
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('button[data-testid="draft-000001"]').trigger('click');
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ code: '000001', name: '平安银行', price: null }));
+  });
+
+  it('策略命中行：回测按钮 → 预填代码并切到策略实验室', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategyRows = [
+      { code: '600519', name: '贵州茅台', price: 1700, changePct: 2.5, pe: 30, pb: 8, roe: 30, score: 3, factors: {} },
+    ];
+    const strategy = useStrategyStore();
+    const quotes = useQuotesStore();
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('button[data-testid="backtest-600519"]').trigger('click');
+    expect(strategy.strategyDraft.code).toBe('600519');
+    expect(quotes.view).toBe('grid');
   });
 });

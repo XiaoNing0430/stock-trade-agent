@@ -42,3 +42,4 @@ Thumbs.db
 downloads/
 exports/
 *.csv
+.superpowers/

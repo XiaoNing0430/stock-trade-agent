@@ -175,6 +175,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }, 350);
   }
 
+  /** 立即执行一次工作区 PUT（对话框确认等需要确定性结果的动作用）；绝不自动重试 409。 */
+  async function syncNow(): Promise<{ ok: boolean; conflict?: boolean }> {
+    if (!workspaceSynced.value) return { ok: true };
+    let waited = 0;
+    // 等待上限 3s：定时同步卡死时不可让 UI 假死（二轮评审）
+    while (workspaceSyncInFlight && waited < 3000) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      waited += 120;
+    }
+    if (workspaceSyncInFlight) return { ok: false };
+    workspaceSyncInFlight = true;
+    try {
+      await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
+        method: 'PUT',
+        body: JSON.stringify(workspacePayload()),
+      });
+      return { ok: true };
+    } catch (error: any) {
+      if (error.status === 409) return { ok: false, conflict: true };
+      return { ok: false };
+    } finally {
+      workspaceSyncInFlight = false;
+    }
+  }
+
   function showConflictBanner(snapshot: any) {
     conflictSnapshot.value = snapshot;
     conflictVisible.value = true;
@@ -357,6 +382,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     persist,
     workspacePayload,
     scheduleWorkspaceSync,
+    syncNow,
     showConflictBanner,
     adoptServerSnapshot,
     adoptServerWorkspace,
