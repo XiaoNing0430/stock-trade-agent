@@ -128,6 +128,7 @@
 - **提交防抖与 409（评审加固）**：确认按钮提交期间禁用（single-flight，杜绝双击双计划）；409 时**不自动重试**（遵守 AGENTS 修订锁约定）：保留对话框全部已填值，显式 toast「工作区有新变更，请刷新后重试」，由用户手动再次确认。已核实隐患：默认 conflictPolicy=server 下 `adoptServerSnapshot` 会以服务器快照覆盖本地，草案若不保留将静默丢失。
 - **回测联动**：复用现有 `quotes.selectedCode` + 视图切换机制预填，不新增 API。
 - **新 store 状态**：`useAssistStore`（draft、loading、error）或并入 `usePlansStore`——plans 阶段定。
+- **已知自愈行为**：409 回滚后，本地 persist 会以旧 baseRevision 重臂定时同步，可能触发第二次 409，由 conflictPolicy 正常吸收（默认 server 采用服务器快照）；草案确认时自动加入自选的动作不随计划回滚撤销。
 
 ## 9. 验收标准（节选，全部可自动化）
 
