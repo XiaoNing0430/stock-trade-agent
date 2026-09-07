@@ -109,7 +109,7 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 |---|---|
 | 上游不可达，pipeline.run 抛错 | 该策略 last_status="failed"、日志 trace，继续其余策略；不产生提醒 |
 | 策略配置文件在升级中消失 | 跳过 + 日志；configs 列表 strategyName="（策略已不存在）"；PUT 422 |
-| 周末补扫无新数据 | 管道缓存/最新收盘命中不变 → diff 空 → 只更新 last_run_at，无提醒 |
+| 周末补扫无新数据 | ref_date=previous_trading_day(今天)（管道 line 127 现成推导，周六/周日 → 周五），bars 截断到上一交易日；管道缓存 TTL 仅 30 分钟故会重新拉取，但非交易日行情源返回上一交易日收盘 → 结果与周五一致 → diff 空 → 只更新 last_run_at，无提醒。正确性依赖 **MarketCalendar 推导**（非缓存持久性） |
 | 命中列表为空 | last_hits=[]；原滞留码全部自然"跌出"；无提醒 |
 | 命中为 stale 缓存 | 透传 stale（管道返回），日志记录；提醒不标注 stale（看时重算保证新数据） |
 | 深夜/节假日 misfire | grace 3600s 内补跑；超出则跳过等下个触发点（APScheduler 默认）；EVENT_JOB_MISSED 记日志（FR-13③） |
@@ -196,3 +196,4 @@ Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upser
 | 19 | scan-now 区分 500/502 | ❌ 保持 502 | 既有姊妹端点 /api/screener/strategy 对非 ValueError 一律 502 ERR_UPSTREAM_UNAVAILABLE（app.py:378-379）；单独给 scan-now 引入区分会不一致，统一区分需全仓异常分类学（P3 一并做） |
 | 20 | Redis 锁主动释放 | ✅ 采纳 | FR-13① 补"finally 主动释放（Lua 校验 value）"，实现者契约化而非口头提醒；测试补提前释放用例 |
 | 21 | 重试范围与 enabled 前置校验 | ✅ 采纳 | FR-13② 明确逐策略独立 job（scan:retry:{strategyId}）+ 触发时先校验 enabled 再跑管道 |
+| 22 | 周末补扫缓存 TTL 依赖 | ✅ 修正前提后落稿 | 实测缓存 TTL=30min（非 ≥48h）；正确性实际依赖 reference_date=previous_trading_day 推导（pipeline.py:127）+ 非交易日源返回上一交易日收盘；§6 边界表改写为真实依赖，实现时注释指向该行 |
