@@ -7,6 +7,7 @@
         <p class="heading-note">{{ selectedStock ? (selectedStock.code + ' · ' + selectedStock.exchange + ' · ' + selectedStock.board) : '选择一只股票' }}</p>
       </div>
       <div class="view-heading-actions">
+        <button class="button button-secondary" type="button" data-testid="generate-draft" @click="openDraft"><i data-lucide="file-pen-line" aria-hidden="true"></i>生成草案</button>
         <button class="button button-secondary" type="button" @click="backFromDetail"><i data-lucide="arrow-left" aria-hidden="true"></i>返回</button>
       </div>
     </div>
@@ -46,17 +47,30 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useGridStore } from '@/stores/useGridStore';
 import { usePlansStore } from '@/stores/usePlansStore';
+import { useAssistStore } from '@/stores/useAssistStore';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const grid = useGridStore();
 const plans = usePlansStore();
+const assist = useAssistStore();
 
 const { selectedStock, selectedCode, selectedHistory, chartDataSource } = storeToRefs(quotes);
 const { backFromDetail, toggleWatch, isWatched } = quotes;
 const { openGridStrategy } = grid;
 const { createPlan } = plans;
 const { renderIcons } = workspace;
+
+/** 个股详情 → 草案：携带当前报价快照（无报价传 null 交由后端取实时价，绝不造数）。 */
+async function openDraft() {
+  const stock = selectedStock.value as any;
+  await assist.openFor({
+    code: selectedCode.value,
+    name: stock?.name,
+    price: stock?.price ?? null,
+    asOfMs: stock?.updatedAt ?? null,
+  });
+}
 
 onMounted(() => renderIcons());
 </script>

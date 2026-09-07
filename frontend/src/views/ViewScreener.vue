@@ -87,7 +87,11 @@
                 <td class="text-end">{{ formatNullable(stock.pe, 1) }}</td>
                 <td class="text-end">{{ formatNullable(stock.pb, 2) }}</td>
                 <td class="text-end">{{ stock.roe != null ? stock.roe.toFixed(1) + '%' : '--' }}</td>
-                <td class="text-end"><button class="table-action" type="button" :aria-label="isWatched(stock.code) ? '移出自选' : '加入自选'" :data-tooltip="isWatched(stock.code) ? '移出自选' : '加入自选'" @click.stop="toggleWatch(stock.code)"><i :data-lucide="isWatched(stock.code) ? 'star-off' : 'star'" aria-hidden="true"></i></button></td>
+                <td class="text-end">
+                  <button class="text-button" type="button" :data-testid="'draft-' + stock.code" @click.stop="openDraft(stock)">草案</button>
+                  <button class="text-button" type="button" :data-testid="'backtest-' + stock.code" @click.stop="openBacktest(stock)">回测</button>
+                  <button class="table-action" type="button" :aria-label="isWatched(stock.code) ? '移出自选' : '加入自选'" :data-tooltip="isWatched(stock.code) ? '移出自选' : '加入自选'" @click.stop="toggleWatch(stock.code)"><i :data-lucide="isWatched(stock.code) ? 'star-off' : 'star'" aria-hidden="true"></i></button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -236,11 +240,14 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useScreenerStore } from '@/stores/useScreenerStore';
 import { usePlansStore } from '@/stores/usePlansStore';
+import { useAssistStore } from '@/stores/useAssistStore';
+import { useStrategyStore } from '@/stores/useStrategyStore';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const screener = useScreenerStore();
 const plans = usePlansStore();
+const assist = useAssistStore();
 
 const {
   screenerUpdatedLabel, screenerMode, presets, presetName, filters, filteredRows, screenTotal,
@@ -266,6 +273,17 @@ function openStrategyTab() {
   if (screenerMode.value === 'strategy') return;
   screenerMode.value = 'strategy';
   if (!strategies.value.length) loadStrategies();
+}
+
+/** 策略命中行 → 草案：快照携带价格与时间戳（screener 行无 updatedAt 传 null，stale 警告兜底）。 */
+async function openDraft(row: any) {
+  await assist.openFor({ code: row.code, name: row.name, price: row.price ?? null, asOfMs: row.updatedAt ?? null });
+}
+
+/** 策略命中行 → 回测：预填代码并切到策略实验室。 */
+function openBacktest(row: any) {
+  useStrategyStore().strategyDraft.code = row.code;
+  quotes.switchView('grid');
 }
 
 onMounted(() => renderIcons());
