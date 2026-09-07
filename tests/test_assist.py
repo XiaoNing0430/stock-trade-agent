@@ -183,7 +183,9 @@ def test_sizing_cap_truncates_to_zero_shares() -> None:
 def test_sizing_stop_equal_to_entry_is_invalid() -> None:
     """stop == entry 等值：ma20 恰等于入场价（严格 < 判无效）且无 ATR 候选 → 置空止损 + 手动设定警示。"""
     levels = IndicatorLevels(reference_date="d", closed_count=60, atr14=None, ma20=10.0, last_close=10.0)
-    r = sizing(10.0, levels, stop_mode="ma20", equity=100000.0, risk_pct=1.0, rr_ratio=2.0, cap_pct=25.0, limit_ratio=0.10)
+    r = sizing(
+        10.0, levels, stop_mode="ma20", equity=100000.0, risk_pct=1.0, rr_ratio=2.0, cap_pct=25.0, limit_ratio=0.10
+    )
     assert r.stop is None and r.target is None and r.stop_distance is None
     assert r.suggested_shares == 0 and r.position_pct == 0.0
     assert r.risk_amount is None  # 双候选无效路径不设 risk_amount（区别于零距离早退路径）
