@@ -327,7 +327,7 @@ async function onConfirm() {
           class="draft-disable-hint"
           data-testid="confirm-hint"
         >
-          资金不足以按该风险比例建仓，请调高风险比例或降低入场价
+          {{ assist.suggestion.stop == null ? '暂无有效止损，请调整参数或手动设定止损' : '资金不足以按该风险比例建仓，请调高风险比例或降低入场价' }}
         </p>
 
         <footer class="plan-draft-foot">
