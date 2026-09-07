@@ -110,6 +110,17 @@ describe('PlanDraftDialog', () => {
     expect(wrapper.text()).toContain('资金不足以按该风险比例建仓，请调高风险比例或降低入场价');
   });
 
+  it('stop=null（候选止损均无效）时确认置灰并显示无有效止损提示（非资金不足文案）', async () => {
+    const { wrapper, assist } = await mountDialog();
+    // 后端数据不足透传 null 候选（atr14/ma20 均 null）→ recalc 后 suggestion.stop == null
+    assist.draft = { ...structuredClone(DRAFT), atr14: null, ma20: null };
+    await wrapper.vm.$nextTick();
+    const btn = wrapper.find('button[data-testid="confirm"]');
+    expect(btn.attributes('disabled')).toBeDefined();
+    expect(wrapper.text()).toContain('暂无有效止损，请调整参数或手动设定止损');
+    expect(wrapper.text()).not.toContain('资金不足以按该风险比例建仓');
+  });
+
   it('确认触发 confirmDraft：构建 savePlan 同形计划（status 执行中 / triggered:{}）', async () => {
     const { wrapper } = await mountDialog();
     const assist = useAssistStore();

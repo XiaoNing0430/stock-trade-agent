@@ -248,6 +248,7 @@ const quotes = useQuotesStore();
 const screener = useScreenerStore();
 const plans = usePlansStore();
 const assist = useAssistStore();
+const strategyStore = useStrategyStore();
 
 const {
   screenerUpdatedLabel, screenerMode, presets, presetName, filters, filteredRows, screenTotal,
@@ -282,7 +283,7 @@ async function openDraft(row: any) {
 
 /** 策略命中行 → 回测：预填代码并切到策略实验室。 */
 function openBacktest(row: any) {
-  useStrategyStore().strategyDraft.code = row.code;
+  strategyStore.strategyDraft.code = row.code;
   quotes.switchView('grid');
 }
 

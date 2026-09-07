@@ -142,6 +142,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     clearTimeout(workspaceSyncTimer.value);
     workspaceSyncTimer.value = setTimeout(async () => {
+      // 触发时复查同步锁：syncNow 正在 PUT 时不抢跑（防 ~350ms 窗口内同载荷双重 PUT）
+      if (workspaceSyncInFlight) return;
       workspaceSyncInFlight = true;
       try {
         await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {

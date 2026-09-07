@@ -8,6 +8,9 @@ from typing import Any
 
 from backend.indicators import atr, closed_bars, ma
 
+# 双候选无效与零止损距离共用的置空止损警示（保持逐字一致，勿改动文案）
+_MANUAL_STOP_WARNING = "候选止损价均不低于入场价，已置空止损（强趋势 / 数据不足），请手动设定"
+
 
 @dataclass(frozen=True)
 class IndicatorLevels:
@@ -77,7 +80,7 @@ def sizing(
     preferred, alternate = (stop_atr, stop_ma20) if stop_mode == "atr" else (stop_ma20, stop_atr)
     stop = next((c for c in (preferred, alternate) if c is not None and c < entry), None)
     if stop is None and (preferred is not None or alternate is not None):
-        warnings.append("候选止损价均不低于入场价，已置空止损（强趋势 / 数据不足），请手动设定")
+        warnings.append(_MANUAL_STOP_WARNING)
     target: float | None = None
     stop_distance: float | None = None
     risk_amount: float | None = None
@@ -87,7 +90,7 @@ def sizing(
         if stop_distance <= 0:
             # 亚分级价差（如 entry=10.004 / stop=10.00）四舍五入后距离为 0，等效止损不低于入场价
             # → 按双候选无效同款处置置空，防 risk_amount / stop_distance 除零 500。
-            warnings.append("候选止损价均不低于入场价，已置空止损（强趋势 / 数据不足），请手动设定")
+            warnings.append(_MANUAL_STOP_WARNING)
             return SizingResult(
                 stop=None,
                 target=None,

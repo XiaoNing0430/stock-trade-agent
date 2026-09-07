@@ -52,6 +52,14 @@ def test_limiter_allows_burst_then_blocks() -> None:
     assert 59.0 <= retry_after <= 60.0
 
 
+def test_limiter_rejects_non_positive_window() -> None:
+    """window_seconds <= 0 会使 prune 逐次清空全部事件 → 无限放行，构造时必须拒绝。"""
+    with pytest.raises(ValueError, match="window_seconds must be > 0"):
+        SlidingWindowLimiter(max_events=3, window_seconds=0, clock=_FakeClock())
+    with pytest.raises(ValueError, match="window_seconds must be > 0"):
+        SlidingWindowLimiter(max_events=3, window_seconds=-1.0, clock=_FakeClock())
+
+
 def test_limiter_window_slides() -> None:
     clock = _FakeClock()
     limiter = SlidingWindowLimiter(max_events=2, window_seconds=60.0, clock=clock)
@@ -127,7 +135,7 @@ def test_sizing_ma20_mode_and_fallback() -> None:
     assert r.stop == 9.8  # ma20 优先且有效
 
 
-def test_sizing_invalid_stop_falls_back_to_none() -> None:
+def test_sizing_invalid_ma20_falls_back_to_atr() -> None:
     levels = IndicatorLevels(reference_date="d", closed_count=60, atr14=0.5, ma20=10.5, last_close=10.0)
     r = sizing(
         10.0, levels, stop_mode="ma20", equity=100000.0, risk_pct=1.0, rr_ratio=2.0, cap_pct=25.0, limit_ratio=0.10
@@ -156,6 +164,29 @@ def test_sizing_zero_stop_distance_treated_as_invalid() -> None:
     assert r.stop is None and r.target is None and r.stop_distance is None
     assert r.suggested_shares == 0 and r.position_pct == 0.0
     assert r.risk_amount == 1000.0
+    assert any("候选止损价均不低于入场价" in w for w in r.warnings)
+
+
+def test_sizing_cap_truncates_to_zero_shares() -> None:
+    """cap_shares=0 分支：原始股数 > 0 但市值上限不足一手 → 截断为 0 股（仅上限截断警示，不叠加不足一手）。
+
+    equity=5000、risk_pct=5% → 风险额 250 元、止损距 1 元 → 原始 200 股；
+    cap_pct=10% → cap_shares = floor(5000×0.10/10/100)×100 = 0 → max(cap_shares, 0) = 0。
+    """
+    r = sizing(10.0, LEVELS, stop_mode="atr", equity=5000.0, risk_pct=5.0, rr_ratio=2.0, cap_pct=10.0, limit_ratio=0.10)
+    assert r.suggested_shares == 0 and r.position_pct == 0.0
+    assert any("建议仓位已按单票市值上限截断" in w for w in r.warnings)
+    # 实际配对：上限截断单独出现，不与「权益不足一手」同发（原始股数 > 0 时才可能走截断分支）
+    assert not any("不足一手" in w for w in r.warnings)
+
+
+def test_sizing_stop_equal_to_entry_is_invalid() -> None:
+    """stop == entry 等值：ma20 恰等于入场价（严格 < 判无效）且无 ATR 候选 → 置空止损 + 手动设定警示。"""
+    levels = IndicatorLevels(reference_date="d", closed_count=60, atr14=None, ma20=10.0, last_close=10.0)
+    r = sizing(10.0, levels, stop_mode="ma20", equity=100000.0, risk_pct=1.0, rr_ratio=2.0, cap_pct=25.0, limit_ratio=0.10)
+    assert r.stop is None and r.target is None and r.stop_distance is None
+    assert r.suggested_shares == 0 and r.position_pct == 0.0
+    assert r.risk_amount is None  # 双候选无效路径不设 risk_amount（区别于零距离早退路径）
     assert any("候选止损价均不低于入场价" in w for w in r.warnings)
 
 
@@ -355,6 +386,55 @@ def test_assist_plan_draft_quote_fetch(monkeypatch) -> None:
     assert data["name"] == "贵州茅台"
     assert data["stale"] is False and data["fallbackUsed"] is False
     assert data["provider"] == "Tencent public quote API"
+
+
+def test_assist_plan_draft_empty_bars_contract(monkeypatch) -> None:
+    """空 bars 契约：上游成功但 0 根日线 → 200 + 指标全空、股数 0、两条数据不足警示（绝不 502 / 绝不造数）。"""
+    from backend.sources import tencent as tx_module
+
+    monkeypatch.setattr(tx_module.TencentSource, "load_history", lambda self, code, limit, is_index=False: [])
+    monkeypatch.setattr(tx_module.TencentSource, "calendar", property(lambda self: _AssistFakeCalendar()))
+    with _assist_client(monkeypatch) as client:
+        resp = client.post("/api/assist/plan-draft", json={"code": "600519", "entryPrice": 10.0})
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["stop"] is None and data["stopAtr"] is None and data["stopMa20"] is None
+    assert data["target"] is None and data["stopDistance"] is None and data["riskAmount"] is None
+    assert data["suggestedShares"] == 0 and data["positionPct"] == 0.0
+    assert data["ma20"] is None and data["atr14"] is None
+    warnings = data["warnings"]
+    assert any("无法计算 ATR 止损" in w for w in warnings)
+    assert any("无法计算 MA20 止损" in w for w in warnings)
+    assert "provider" in data and "fallbackUsed" in data
+
+
+def test_assist_plan_draft_quote_path_fallback_flag(monkeypatch) -> None:
+    """报价路径降级同样计入 fallbackUsed：tencent 实时失败 → 东财报价成功（history 健康）。"""
+    from backend.sources import eastmoney as em_module
+    from backend.sources import tencent as tx_module
+
+    now_ms = int(time.time() * 1000)
+
+    def _tx_quote_boom(self, codes):
+        raise RuntimeError("tencent realtime down")
+
+    monkeypatch.setattr(tx_module.TencentSource, "load_quotes", _tx_quote_boom)
+    monkeypatch.setattr(
+        em_module.EastMoneySource,
+        "load_quotes",
+        lambda self, codes: [{"code": "600519", "name": "贵州茅台", "price": 10.0, "updatedAt": now_ms}],
+    )
+    monkeypatch.setattr(
+        tx_module.TencentSource, "load_history", lambda self, code, limit, is_index=False: _assist_bars()
+    )
+    monkeypatch.setattr(tx_module.TencentSource, "calendar", property(lambda self: _AssistFakeCalendar()))
+    with _assist_client(monkeypatch) as client:
+        resp = client.post("/api/assist/plan-draft", json={"code": "600519"})
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["fallbackUsed"] is True  # 实际报价源（东财）≠ 首选报价源（腾讯）
+    assert data["provider"] == "东方财富实时行情"  # provider 语义不变：quote 路径展示实际报价源标签
+    assert data["entry"] == 10.0
 
 
 def test_assist_plan_draft_validation_422(monkeypatch) -> None:
