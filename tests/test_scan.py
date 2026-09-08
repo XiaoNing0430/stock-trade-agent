@@ -508,3 +508,32 @@ def test_scan_hits_only_enabled(monkeypatch: Any) -> None:
     hits = resp.json()["hits"]
     assert len(hits) == 1 and hits[0]["strategyId"] == "trend_breakout"
     assert hits[0]["codes"][0]["firstSeen"] == "2026-09-05" and hits[0]["scannedAt"]
+
+
+def test_scan_now_unconfigured_strategy_422_not_500(monkeypatch: Any) -> None:
+    """评审一轮 #1：未配置扫描的策略 POST now → 422（曾为 KeyError→500）。"""
+    _cleanup_scan_tables()
+    client = _scan_client(monkeypatch)
+    from backend.screener import scan as scan_module
+
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
+    monkeypatch.setattr(scan_module, "redis_client", lambda: _FakeRedis())
+    resp = client.post("/api/screener/scan/now", json={"strategyId": "trend_breakout"})  # 无 scan-config 行
+    assert resp.status_code == 422
+    assert "尚未配置" in resp.json()["detail"]["error"]
+
+
+def test_scan_now_disabled_config_422(monkeypatch: Any) -> None:
+    """评审一轮 #1：已禁用配置 POST now → 422（曾为 200 且谎报未落库的 alerted）。"""
+    _cleanup_scan_tables()
+    from backend.storage import upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=False, mode="quick")
+    client = _scan_client(monkeypatch)
+    from backend.screener import scan as scan_module
+
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
+    monkeypatch.setattr(scan_module, "redis_client", lambda: _FakeRedis())
+    resp = client.post("/api/screener/scan/now", json={"strategyId": "trend_breakout"})
+    assert resp.status_code == 422
+    assert "已禁用" in resp.json()["detail"]["error"]

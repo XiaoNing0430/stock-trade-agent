@@ -439,7 +439,15 @@ def create_app() -> FastAPI:
         result = run_scan(strategy_id)
         if result["status"] == "failed":
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "扫描失败（上游不可用），稍后可重试")
-        cfg = get_scan_config(strategy_id) or {}
+        if result["status"] == "skipped":
+            # 评审一轮 #1：skipped = 未落库（无配置行 / 配置已禁用），如实回 422 而非 500/谎报 200
+            cfg = get_scan_config(strategy_id)
+            if cfg is None:
+                raise api_error(422, ERR_VALIDATION_ERROR, "该策略尚未配置定时扫描，请先在策略实验室开启开关")
+            raise api_error(422, ERR_VALIDATION_ERROR, "该策略已禁用定时扫描，请先开启开关")
+        cfg = get_scan_config(strategy_id)
+        if cfg is None:  # status 为 ok/skipped 之外时配置行必然存在（run_scan 刚写过状态）；防御分支
+            raise api_error(422, ERR_VALIDATION_ERROR, "该策略尚未配置定时扫描，请先在策略实验室开启开关")
         return {"config": _scan_config_out(cfg), "alerted": int(result["newCount"])}
 
     @app.get("/api/screener/scan/hits")
