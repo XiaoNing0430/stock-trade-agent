@@ -87,3 +87,42 @@ def test_insert_scan_history_rolling_cleanup() -> None:
         insert_scan_history("trend_breakout", "ok", hit_count=10 + i, new_count=i, elapsed_ms=100 * i, trace_id=f"t{i}")
     rows = list_scan_history("trend_breakout")
     assert len(rows) == 7 and rows[0]["newCount"] == 6  # 按 run_at 降序，最新在前
+
+
+def test_merge_hits_three_states() -> None:
+    from backend.screener.scan import merge_hits
+
+    prev = [
+        {"code": "600519", "name": "贵州茅台", "score": 82.5, "firstSeen": "2026-09-04"},
+        {"code": "300750", "name": "宁德时代", "score": 77.0, "firstSeen": "2026-09-04"},
+    ]
+    rows = [
+        {"code": "600519", "name": "贵州茅台", "score": 83.0},
+        {"code": "510300", "name": "沪深300ETF", "score": 71.2},
+    ]
+    newly, state = merge_hits(prev, rows, today="2026-09-07")
+    # 新进入：510300（600519 滞留保持 firstSeen，300750 跌出）
+    assert newly == [{"code": "510300", "name": "沪深300ETF", "score": 71.2, "firstSeen": "2026-09-07"}]
+    assert state == [
+        {"code": "600519", "name": "贵州茅台", "score": 83.0, "firstSeen": "2026-09-04"},
+        {"code": "510300", "name": "沪深300ETF", "score": 71.2, "firstSeen": "2026-09-07"},
+    ]
+
+
+def test_merge_hits_empty_prev_and_empty_rows() -> None:
+    from backend.screener.scan import merge_hits
+
+    # 首扫：全部为新
+    newly, state = merge_hits([], [{"code": "600519", "name": "贵州茅台"}], today="2026-09-07")
+    assert newly == [{"code": "600519", "name": "贵州茅台", "score": None, "firstSeen": "2026-09-07"}]
+    # 全部跌出：newly 空，state 空
+    prev = [{"code": "600519", "name": "贵州茅台", "score": 82.5, "firstSeen": "2026-09-04"}]
+    newly2, state2 = merge_hits(prev, [], today="2026-09-07")
+    assert newly2 == [] and state2 == []
+
+
+def test_merge_hits_ignores_malformed_rows() -> None:
+    from backend.screener.scan import merge_hits
+
+    newly, state = merge_hits([], [{"name": "无代码行"}, {"code": "600519", "name": "贵州茅台"}], today="2026-09-07")
+    assert len(newly) == 1 and newly[0]["code"] == "600519"
