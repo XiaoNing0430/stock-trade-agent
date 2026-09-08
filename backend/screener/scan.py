@@ -137,11 +137,28 @@ def run_scan(
             "traceId": trace_id,
             "stale": False,
         }
-    prev_hits = (get_scan_config(strategy_id) or {}).get("lastHits") or []
-    newly, new_state = merge_hits(prev_hits, rows, today=today)
-    elapsed = int((time.monotonic() - started) * 1000)
-    written = update_scan_state(strategy_id, "ok", new_state, now, new_count=len(newly))
-    insert_scan_history(strategy_id, "ok", len(new_state), len(newly), elapsed, trace_id)
+    try:
+        prev_hits = (get_scan_config(strategy_id) or {}).get("lastHits") or []
+        newly, new_state = merge_hits(prev_hits, rows, today=today)
+        elapsed = int((time.monotonic() - started) * 1000)
+        written = update_scan_state(strategy_id, "ok", new_state, now, new_count=len(newly))
+        insert_scan_history(strategy_id, "ok", len(new_state), len(newly), elapsed, trace_id)
+    except Exception as exc:
+        # FR-13④：状态/历史写入失败仅日志（DB 故障不炸批量/调度线程）；结果未落库 → 如实报 failed
+        elapsed = int((time.monotonic() - started) * 1000)
+        logger.error(
+            "screener.scan_state_write_failed",
+            extra={"trace_id": trace_id, "strategy_id": strategy_id, "mode": mode, "error": str(exc)[:200]},
+        )
+        return {
+            "strategyId": strategy_id,
+            "status": "failed",
+            "hitCount": 0,
+            "newCount": 0,
+            "elapsedMs": elapsed,
+            "traceId": trace_id,
+            "stale": stale,
+        }
     if not written:
         # 扫描中途被关闭（FR-13⑤）：状态不覆盖，结果仅入历史
         return {
@@ -207,10 +224,18 @@ def run_all_scans() -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for cfg in list_enabled_scan_configs():
             strategy_id = cfg["strategyId"]
-            result = run_scan(strategy_id, mode=str(cfg.get("mode") or "quick"))
-            results.append(result)
-            if result["status"] == "failed":
-                _schedule_retry(strategy_id)
+            try:
+                result = run_scan(strategy_id, mode=str(cfg.get("mode") or "quick"))
+                results.append(result)
+                if result["status"] == "failed":
+                    _schedule_retry(strategy_id)
+            except Exception as exc:
+                # FR-13④ 失败隔离：单策略异常（含重试武装失败）仅日志，继续下一策略，不炸调度线程
+                logger.error(
+                    "screener.scan_batch_item_failed",
+                    extra={"strategy_id": strategy_id, "error": str(exc)[:200]},
+                )
+                continue
         return results
     finally:
         _release_lock(client)

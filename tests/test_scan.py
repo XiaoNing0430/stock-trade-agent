@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -301,6 +302,92 @@ def test_run_all_scans_degrades_without_redis(monkeypatch: Any) -> None:
     monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
     results = scan_module.run_all_scans()
     assert len(results) == 1 and results[0]["status"] == "ok"  # 降级无锁继续
+
+
+def test_run_scan_storage_write_failure_isolated_and_logged(monkeypatch: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """FR-13④：存储写失败仅日志 + 返回 failed，不向调用方抛异常。"""
+    _setup_one_enabled(monkeypatch)
+    from backend.screener import scan as scan_module
+
+    monkeypatch.setattr(scan_module, "redis_client", lambda: _FakeRedis())
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
+
+    def boom_update(*args: Any, **kwargs: Any) -> bool:
+        raise RuntimeError("db write down")
+
+    monkeypatch.setattr(scan_module, "update_scan_state", boom_update)
+    with caplog.at_level(logging.ERROR, logger="screener.scan"):
+        result = scan_module.run_scan("trend_breakout")
+    assert result["status"] == "failed" and result["hitCount"] == 0 and result["newCount"] == 0
+    assert any("screener.scan_state_write_failed" in r.message for r in caplog.records)
+
+
+def test_run_all_scans_write_failure_does_not_abort_batch(monkeypatch: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """FR-13④ 失败隔离：单策略存储写失败只记日志，批内后续策略继续执行。"""
+    _cleanup_scan_tables()
+    from backend.storage import upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=True, mode="quick")
+    upsert_scan_config("oversold_bounce", enabled=True, mode="quick")
+    from backend.screener import scan as scan_module
+
+    monkeypatch.setattr(scan_module, "redis_client", lambda: _FakeRedis())
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
+
+    real_update = scan_module.update_scan_state
+
+    def flaky_update(strategy_id: str, *args: Any, **kwargs: Any) -> bool:
+        if strategy_id == "trend_breakout":
+            raise RuntimeError("db write down")
+        return real_update(strategy_id, *args, **kwargs)
+
+    monkeypatch.setattr(scan_module, "update_scan_state", flaky_update)
+    monkeypatch.setattr(scan_module, "_schedule_retry", lambda strategy_id: None)  # 失败路径不触真调度器
+    with caplog.at_level(logging.ERROR, logger="screener.scan"):
+        results = scan_module.run_all_scans()
+    # 两个策略都有结果：trend_breakout 写失败 → failed；oversold_bounce 正常完成
+    assert {r["strategyId"]: r["status"] for r in results} == {
+        "trend_breakout": "failed",
+        "oversold_bounce": "ok",
+    }
+    # 失败被记录为日志而非异常逃逸（由“调用未抛异常 + 日志存在”共同证明）
+    assert any("screener.scan_state_write_failed" in r.message for r in caplog.records)
+
+
+def test_run_all_scans_pipeline_failure_with_write_failure_does_not_abort_batch(
+    monkeypatch: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FR-13④：管道失败路径的写失败逃逸 run_scan 时，批量循环兜底（仅日志，继续下一策略）。"""
+    _cleanup_scan_tables()
+    from backend.storage import upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=True, mode="quick")
+    upsert_scan_config("oversold_bounce", enabled=True, mode="quick")
+    from backend.screener import scan as scan_module
+
+    monkeypatch.setattr(scan_module, "redis_client", lambda: _FakeRedis())
+
+    real_update = scan_module.update_scan_state
+
+    def flaky_update(strategy_id: str, *args: Any, **kwargs: Any) -> bool:
+        if strategy_id == "trend_breakout":
+            raise RuntimeError("db write down")
+        return real_update(strategy_id, *args, **kwargs)
+
+    monkeypatch.setattr(scan_module, "update_scan_state", flaky_update)
+
+    def fake_run(strategy_id: str, mode: str = "quick", **kwargs: Any) -> dict[str, Any]:
+        if strategy_id == "trend_breakout":
+            raise RuntimeError("upstream down")  # 管道炸 + 写路径也炸 → 异常逃出 run_scan
+        return _FakePipeline(rows=_ROWS_TWO).run(strategy_id, mode)
+
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: type("P", (), {"run": staticmethod(fake_run)})())
+    monkeypatch.setattr(scan_module, "_schedule_retry", lambda strategy_id: None)  # 失败路径不触真调度器
+    with caplog.at_level(logging.ERROR, logger="screener.scan"):
+        results = scan_module.run_all_scans()
+    # trend_breakout 异常被批量兜底（无结果条目、仅日志），oversold_bounce 照常完成
+    assert {r["strategyId"]: r["status"] for r in results} == {"oversold_bounce": "ok"}
+    assert any("screener.scan_batch_item_failed" in r.message for r in caplog.records)
 
 
 def test_register_scan_jobs_registers_two_crons_and_misfire_listener(monkeypatch: Any) -> None:
