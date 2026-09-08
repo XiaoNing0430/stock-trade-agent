@@ -33,7 +33,7 @@
 - **FR-7 手动立即扫描**：`POST /api/screener/scan/now {strategyId}` 同步执行单策略扫描（与请求内运行策略管道同一超时包络；命中更新状态并反映到 /hits），供用户不等到 15:40 试跑。
 - **FR-8 前端提醒合成**：提醒中心把 `GET /scan/hits` 的结果合成为提醒项（**不写入 workspace.alerts、不进 workspace 同步**——服务端插入 alerts 表会被客户端下次 PUT 的全量替换语义清除，故走独立端点）。id = `scan:{strategyId}:{code}:{firstSeen}` 天然去重；已读/看过状态存 localStorage（键 `atlas.scan.seen.{strategyId}` = 毫秒时间戳，本地单用户够用）。未读计数并入提醒中心徽标。
 - **FR-9 点击流**：提醒中的代码片点击 → `useAssistStore.openFor({ code, name })` → PlanDraftDialog 弹出 → 走既有 plan-draft 端点**看时重算**（entry 空 → 实时行情路径）→ 用户确认 → 既有 confirmDraft 落计划。
-- **FR-10 策略实验室 UI**：策略行加「定时扫描」开关（data-testid=`scan-toggle`）+ 模式选择 quick/deep（data-testid=`scan-mode`），随开关持久化到 PUT configs；行内显示上次扫描时间/状态（成功时间或「上次扫描失败」）。
+- **FR-10 策略实验室 UI**：策略配置区（当前选中策略作用域——实验室是 `strategyName` 下拉选择器非列表行，切换策略时开关区反映该策略配置）加「定时扫描」开关（data-testid=`scan-toggle`）+ 模式选择 quick/deep（data-testid=`scan-mode`，开关关闭时置灰）+「立即扫描」按钮（data-testid=`scan-now`）+ 上次扫描状态/时间显示（成功时间或「上次扫描失败」）。前端扫描动作函数命名 `runScanNow`（`scanNow` 名已被选股手动刷新占用）。
 - **FR-11 观测**：每次扫描记录结构化日志（logger `screener.scan`，extra 含 trace_id/strategy_id/mode/命中数/新增数/elapsed_ms/stale）；GET /hits 与策略实验室展示 lastStatus。
 - **FR-12 扫描历史摘要**：每次扫描结束追加一行到 `screener_scan_history`（仅摘要：策略/时间/状态/命中数/新增数/耗时，**不存命中明细**），全表滚动保留最近 500 行（插入时清理）。此表直接服务 ROADMAP 下一 P1「计划绩效复盘」的轻量运行留痕需求。
 - **FR-13 可靠性护栏**：① Redis 分布式锁（`scan:lock` SET NX PX，TTL 15 分钟，value 为进程唯一 token）保证多进程部署下同一时刻只有一个 worker 执行扫描；**扫描结束 finally 中主动释放**（Lua 比对 value 防误删他人锁），不干等 TTL 到期；Redis 不可用时降级为无锁 + 日志告警；② 单策略扫描失败 → 为**每个**失败策略独立创建 10 分钟后单次重试（APScheduler date-trigger one-shot，job id `scan:retry:{strategyId}`，replace_existing；重试触发时先校验该策略仍 enabled，已关闭则直接跳过不跑管道；重试本身不再武装重试）；③ `EVENT_JOB_MISSED` 监听 → 结构化日志（错过事件可见，不自动补偿，`POST /scan/now` 为人工补偿路径）；④ 状态/历史写入包 try/except → 日志，DB 故障不炸调度线程；⑤ `update_scan_state` 前置校验 `enabled` 仍为 True，扫描中途被关闭则跳过写入并记日志（重试路径天然复用此校验）。
@@ -51,6 +51,7 @@
 | last_run_at | DateTime(timezone=True) nullable | 最近一次**成功**扫描时间 |
 | last_status | String(16) nullable | "ok" \| "failed"（nullable = 从未扫描） |
 | last_hits | JSON nullable | `[{"code","name","score","firstSeen"}]`，firstSeen 为 `YYYY-MM-DD` |
+| last_new_count | Integer default 0 | 最近一次成功扫描的新进入命中数（供 configs 展示 newCount） |
 | created_at / updated_at | DateTime | |
 
 Storage 助手：`list_scan_configs()` / `get_scan_config(strategy_id)` / `upsert_scan_config(strategy_id, enabled, mode)` / `update_scan_state(strategy_id, status, hits, run_at)`。JSON 读写容错（坏 JSON 视为空）；`last_hits` 结构演进只增不改（新字段可选，旧读取方忽略未知键）。
