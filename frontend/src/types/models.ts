@@ -40,6 +40,10 @@ export interface Alert {
   count?: number;
   /** 显示用便捷时间串（HH:MM），仅前端 UX 状态，不入库 */
   time?: string;
+  /** 扫描合成项（useScanStore ScanAlertItem）透传字段：仅扫描命中提醒存在（useAlertsStore allAlerts 合成） */
+  code?: string;
+  strategyId?: string;
+  firstSeen?: string;
 }
 
 export interface HistoryBar {

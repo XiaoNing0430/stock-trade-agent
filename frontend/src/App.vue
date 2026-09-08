@@ -143,7 +143,7 @@
                   v-for="alert in recentNotifs"
                   :key="alert.id"
                   class="alert-item"
-                  :class="{ unread: !alert.read }"
+                  :class="{ unread: isItemUnread(alert) }"
                 >
                   <div
                     :class="['alert-icon', alert.kind === 'success' ? 'success' : alert.kind === 'info' || alert.kind === 'system' ? 'info' : '']"
@@ -155,9 +155,24 @@
                   </div>
                   <div class="alert-copy">
                     <strong>{{ alert.title }}</strong><span>{{ alert.message }}</span>
+                    <button
+                      v-if="alert.code && alert.strategyId"
+                      class="text-button"
+                      type="button"
+                      data-testid="alert-code-chip"
+                      @click="openScanDraft(alert)"
+                    >
+                      {{ alert.code }} 生成草案
+                    </button>
                     <div class="alert-meta">
-                      <span>{{ alert.time }}</span
-                      ><button v-if="!alert.read" class="text-button" type="button" @click="markAlertRead(alert.id)">
+                      <span>{{ alert.time || formatTime(alert.createdAtMs) }}</span
+                      ><!-- 扫描项已读走 markScanSeen（面板打开即批量标记），workspace.alerts.find 必然落空 → 隐藏失效按钮 -->
+                      <button
+                        v-if="!alert.read && !(alert.code && alert.strategyId)"
+                        class="text-button"
+                        type="button"
+                        @click="markAlertRead(alert.id)"
+                      >
                         标记已读
                       </button>
                     </div>
@@ -252,14 +267,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
 import { NAV_ITEMS } from '@/modules/constants';
+import { formatTime } from '@/modules/format';
+import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
+import { useAssistStore } from '@/stores/useAssistStore';
+import { useScanStore, type ScanAlertItem } from '@/stores/useScanStore';
 
 // 安装跨 store 协调逻辑（watch / 生命周期），返回值为空
 appOptions.setup();
@@ -267,6 +286,8 @@ appOptions.setup();
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const alerts = useAlertsStore();
+const assist = useAssistStore();
+const scan = useScanStore();
 
 const { conflictVisible, adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
 const {
@@ -276,9 +297,28 @@ const {
 } = storeToRefs(quotes);
 const { switchView, searchSymbol } = quotes;
 const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);
-const { toggleNotifCenter, clearReadAlerts, markAlertRead, goAlertCenter, requestNotifications } = alerts;
+const { toggleNotifCenter, clearReadAlerts, markAlertRead, markScanSeen, goAlertCenter, requestNotifications } = alerts;
 
 const navItems = NAV_ITEMS;
+
+/** 面板行未读态：工作区提醒看 read 标志；扫描项 read 恒 false（静态占位），已读语义走 scan 的 seen 时间戳。 */
+function isItemUnread(item: Alert): boolean {
+  return item.code && item.strategyId ? scan.isUnseen(item as ScanAlertItem) : !item.read;
+}
+
+/** 扫描命中项代码片：名称从 message 提取不可靠 → 只传 code，让对话框走实时行情路径拿全量（spec FR-9）。 */
+function openScanDraft(item: Alert): void {
+  if (!item.code) return;
+  // openFor 自吞错误（内部 catch + toast），此处无需 await
+  assist.openFor({ code: item.code });
+  markScanSeen(item.strategyId || '');
+}
+
+// 打开通知面板即批量标记可见扫描策略已读（拉取新命中后打开面板 → 徽标归零）
+watch(notifOpen, (open) => {
+  if (!open) return;
+  scan.hits.forEach((hit) => markScanSeen(hit.strategyId));
+});
 
 onMounted(() => renderIcons());
 </script>
