@@ -156,6 +156,40 @@ class MarketBar(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class ScreenerScanConfig(Base):
+    """策略定时扫描配置（策略本体是包内 JSON，用户状态落库）。"""
+
+    __tablename__ = "screener_scan_configs"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    enabled: Mapped[bool] = mapped_column(default=False)
+    mode: Mapped[str] = mapped_column(String(8), default="quick")
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_hits: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    last_new_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
+class ScreenerScanHistory(Base):
+    """扫描运行摘要（FR-12）：仅计数不存明细，全表滚动 500 行。"""
+
+    __tablename__ = "screener_scan_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(96), index=True)
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    status: Mapped[str] = mapped_column(String(16))
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    new_count: Mapped[int] = mapped_column(Integer, default=0)
+    elapsed_ms: Mapped[int] = mapped_column(Integer, default=0)
+    trace_id: Mapped[str] = mapped_column(String(16), default="")
+
+
 class WorkspaceSettings(Base):
     __tablename__ = "workspace_settings"
 
@@ -731,3 +765,125 @@ def save_strategy_backtest(
         if strategy:
             strategy.last_backtest_at = datetime.now(UTC)
             strategy.latest_metrics = result["metrics"]
+
+
+def _scan_config_dict(cfg: ScreenerScanConfig) -> dict[str, Any]:
+    return {
+        "strategyId": cfg.id,
+        "workspaceId": cfg.workspace_id,
+        "enabled": bool(cfg.enabled),
+        "mode": cfg.mode,
+        "lastRunAt": cfg.last_run_at,
+        "lastStatus": cfg.last_status,
+        "lastHits": cfg.last_hits,
+        "lastNewCount": int(cfg.last_new_count or 0),
+    }
+
+
+def _parse_scan_hits(raw: Any) -> list[dict[str, Any]] | None:
+    """last_hits JSON 容错：坏 JSON / 异形结构 → None（视为从未扫描）。"""
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict) and item.get("code")]
+    return None
+
+
+def list_scan_configs() -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(select(ScreenerScanConfig).order_by(ScreenerScanConfig.id)).all()
+        return [_scan_config_dict(c) for c in rows]
+
+
+def get_scan_config(strategy_id: str) -> dict[str, Any] | None:
+    with SessionLocal() as session:
+        cfg = session.get(ScreenerScanConfig, strategy_id)
+        if cfg is None:
+            return None
+        d = _scan_config_dict(cfg)
+        d["lastHits"] = _parse_scan_hits(cfg.last_hits)
+        return d
+
+
+def list_enabled_scan_configs() -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(ScreenerScanConfig).where(ScreenerScanConfig.enabled.is_(True)).order_by(ScreenerScanConfig.id)
+        ).all()
+        return [_scan_config_dict(c) for c in rows]
+
+
+def upsert_scan_config(strategy_id: str, enabled: bool, mode: str, workspace_id: str = "default") -> dict[str, Any]:
+    with SessionLocal.begin() as session:
+        cfg = session.get(ScreenerScanConfig, strategy_id)
+        if cfg is None:
+            cfg = ScreenerScanConfig(id=strategy_id, workspace_id=workspace_id)
+            session.add(cfg)
+        cfg.enabled = bool(enabled)
+        cfg.mode = mode
+        cfg.workspace_id = workspace_id
+    return get_scan_config(strategy_id)  # type: ignore[return-value]
+
+
+def update_scan_state(
+    strategy_id: str,
+    status: str,
+    hits: list[dict[str, Any]],
+    run_at: datetime,
+    new_count: int = 0,
+    require_enabled: bool = True,
+) -> bool:
+    with SessionLocal.begin() as session:
+        cfg = session.get(ScreenerScanConfig, strategy_id)
+        if cfg is None:
+            return False
+        if require_enabled and not cfg.enabled:
+            return False
+        cfg.last_status = status
+        cfg.last_hits = hits
+        cfg.last_run_at = run_at
+        cfg.last_new_count = int(new_count)
+        return True
+
+
+def insert_scan_history(
+    strategy_id: str, status: str, hit_count: int, new_count: int, elapsed_ms: int, trace_id: str
+) -> None:
+    with SessionLocal.begin() as session:
+        session.add(
+            ScreenerScanHistory(
+                strategy_id=strategy_id,
+                status=status,
+                hit_count=hit_count,
+                new_count=new_count,
+                elapsed_ms=elapsed_ms,
+                trace_id=trace_id,
+            )
+        )
+        # FR-12 全表滚动 500 行：裁剪历史，仅保留最新 500 条。
+        session.execute(
+            text(
+                "DELETE FROM screener_scan_history WHERE id NOT IN "
+                "(SELECT id FROM screener_scan_history ORDER BY id DESC LIMIT 500)"
+            )
+        )
+
+
+def list_scan_history(strategy_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        stmt = select(ScreenerScanHistory).order_by(ScreenerScanHistory.id.desc()).limit(limit)
+        if strategy_id is not None:
+            stmt = stmt.where(ScreenerScanHistory.strategy_id == strategy_id)
+        return [
+            {
+                "id": r.id,
+                "strategyId": r.strategy_id,
+                "runAt": r.run_at,
+                "status": r.status,
+                "hitCount": r.hit_count,
+                "newCount": r.new_count,
+                "elapsedMs": r.elapsed_ms,
+                "traceId": r.trace_id,
+            }
+            for r in session.scalars(stmt).all()
+        ]
