@@ -61,12 +61,15 @@ from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     delete_grid_strategy,
     get_grid_strategy,
+    get_scan_config,
     get_strategy,
     get_workspace,
     get_workspace_revision,
     get_workspace_settings,
     initialize_storage,
+    list_enabled_scan_configs,
     list_grid_strategies,
+    list_scan_configs,
     list_strategies,
     load_market_bars,
     save_grid_backtest,
@@ -77,6 +80,7 @@ from backend.storage import (
     save_workspace,
     save_workspace_settings,
     storage_status,
+    upsert_scan_config,
 )
 from backend.storage import (
     delete_strategy as delete_generic_strategy,
@@ -378,6 +382,90 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
         return ScreenerStrategyOut(**result)
+
+    def _scan_config_out(cfg: dict[str, Any]) -> dict[str, Any]:
+        from backend.screener.loader import load_strategy
+
+        try:
+            name = str(load_strategy(cfg["strategyId"]).name)
+        except ValueError:
+            name = "（策略已不存在）"
+        return {
+            "strategyId": cfg["strategyId"],
+            "strategyName": name,
+            "enabled": cfg["enabled"],
+            "mode": cfg["mode"],
+            "lastRunAt": cfg["lastRunAt"].isoformat() if cfg["lastRunAt"] else None,
+            "lastStatus": cfg["lastStatus"],
+            "hitCount": len(cfg["lastHits"] or []),
+            "newCount": int(cfg["lastNewCount"] or 0),
+        }
+
+    @app.get("/api/screener/scan/configs")
+    def scan_configs_list() -> dict[str, Any]:
+        return {"configs": [_scan_config_out(c) for c in list_scan_configs()]}
+
+    @app.put("/api/screener/scan/configs")
+    def scan_configs_put(payload: dict[str, Any]) -> dict[str, Any]:
+        strategy_id = str(payload.get("strategyId") or "")
+        mode = str(payload.get("mode") or "quick")
+        if not isinstance(payload.get("enabled"), bool) or mode not in ("quick", "deep"):
+            raise api_error(422, ERR_VALIDATION_ERROR, "enabled 必须为 bool，mode 须为 quick|deep")
+        try:
+            from backend.screener.loader import load_strategy
+
+            load_strategy(strategy_id)
+        except ValueError as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc))
+        cfg = upsert_scan_config(strategy_id, bool(payload["enabled"]), mode)
+        # 审计日志（二轮决议 14）：本地单用户，记录变更本身
+        logger.info(
+            "screener.scan_config_changed",
+            extra={"strategy_id": strategy_id, "enabled": bool(payload["enabled"]), "mode": mode},
+        )
+        return {"config": _scan_config_out(cfg)}
+
+    @app.post("/api/screener/scan/now")
+    def scan_now(payload: dict[str, Any]) -> dict[str, Any]:
+        strategy_id = str(payload.get("strategyId") or "")
+        try:
+            from backend.screener.loader import load_strategy
+
+            load_strategy(strategy_id)
+        except ValueError as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc))
+        from backend.screener.scan import run_scan
+
+        result = run_scan(strategy_id)
+        if result["status"] == "failed":
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "扫描失败（上游不可用），稍后可重试")
+        cfg = get_scan_config(strategy_id) or {}
+        return {"config": _scan_config_out(cfg), "alerted": int(result["newCount"])}
+
+    @app.get("/api/screener/scan/hits")
+    def scan_hits() -> dict[str, Any]:
+        from backend.screener.loader import load_strategy
+
+        hits: list[dict[str, Any]] = []
+        for cfg in list_enabled_scan_configs():
+            try:
+                name = str(load_strategy(cfg["strategyId"]).name)
+            except ValueError:
+                continue  # 策略已不存在 → 不进 hits
+            codes = [
+                {"code": h.get("code"), "name": h.get("name"), "score": h.get("score"), "firstSeen": h.get("firstSeen")}
+                for h in (cfg["lastHits"] or [])
+            ]
+            hits.append(
+                {
+                    "strategyId": cfg["strategyId"],
+                    "strategyName": name,
+                    "scannedAt": cfg["lastRunAt"].isoformat() if cfg["lastRunAt"] else None,
+                    "status": cfg["lastStatus"],
+                    "codes": codes,
+                }
+            )
+        return {"hits": hits}
 
     @app.post("/api/assist/plan-draft", response_model=PlanDraftResponse)
     def assist_plan_draft(payload: PlanDraftIn) -> PlanDraftResponse:

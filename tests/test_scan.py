@@ -423,3 +423,88 @@ def test_register_scan_jobs_registers_two_crons_and_misfire_listener(monkeypatch
     assert "15" in weekday[1] and "40" in weekday[1] and "Asia/Shanghai" in weekday[1]
     weekend = next(a for a in added if a[0] == "scan:weekend")
     assert "10" in weekend[1] and "Asia/Shanghai" in weekend[1]
+
+
+# ---- API 端点（Task 4）：configs / hits / now ----
+
+
+def _scan_client(monkeypatch: Any) -> Any:
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app_module, "get_workspace_settings", lambda *_a, **_k: {"defaultCapital": 100000})
+    return TestClient(app_module.create_app())
+
+
+def test_scan_configs_lists_with_names(monkeypatch: Any) -> None:
+    _cleanup_scan_tables()
+    from backend.storage import upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=True, mode="quick")
+    client = _scan_client(monkeypatch)
+    resp = client.get("/api/screener/scan/configs")
+    assert resp.status_code == 200
+    cfg = resp.json()["configs"][0]
+    assert cfg["strategyId"] == "trend_breakout"
+    assert cfg["strategyName"] and cfg["strategyName"] != "（策略已不存在）"
+    assert cfg["hitCount"] == 0 and cfg["newCount"] == 0
+
+
+def test_scan_put_validates(monkeypatch: Any) -> None:
+    _cleanup_scan_tables()
+    client = _scan_client(monkeypatch)
+    assert (
+        client.put(
+            "/api/screener/scan/configs", json={"strategyId": "no_such_strategy", "enabled": True, "mode": "quick"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            "/api/screener/scan/configs", json={"strategyId": "trend_breakout", "enabled": True, "mode": "macd"}
+        ).status_code
+        == 422
+    )
+    ok = client.put(
+        "/api/screener/scan/configs", json={"strategyId": "trend_breakout", "enabled": True, "mode": "deep"}
+    )
+    assert ok.status_code == 200 and ok.json()["config"]["mode"] == "deep" and ok.json()["config"]["enabled"] is True
+
+
+def test_scan_now_runs_and_returns(monkeypatch: Any) -> None:
+    _cleanup_scan_tables()
+    client = _scan_client(monkeypatch)
+    from backend.screener import scan as scan_module
+
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
+    monkeypatch.setattr(scan_module, "redis_client", lambda: _FakeRedis())
+    # PUT 走真实路径（写 DB），POST now 被 monkeypatch 的 pipeline 驱动
+    client.put("/api/screener/scan/configs", json={"strategyId": "trend_breakout", "enabled": True, "mode": "quick"})
+    resp = client.post("/api/screener/scan/now", json={"strategyId": "trend_breakout"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["alerted"] == 2 and body["config"]["hitCount"] == 2
+    # 失败路径 → 502
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(error=RuntimeError("down")))
+    assert client.post("/api/screener/scan/now", json={"strategyId": "trend_breakout"}).status_code == 502
+
+
+def test_scan_hits_only_enabled(monkeypatch: Any) -> None:
+    _cleanup_scan_tables()
+    from datetime import UTC, datetime
+
+    from backend.storage import update_scan_state, upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=True, mode="quick")
+    upsert_scan_config("oversold_bounce", enabled=False, mode="quick")
+    update_scan_state(
+        "trend_breakout",
+        "ok",
+        _ROWS_TWO_FIRSTSEEN := [{"code": "600519", "name": "贵州茅台", "score": 82.5, "firstSeen": "2026-09-05"}],
+        datetime(2026, 9, 5, 7, 40, tzinfo=UTC),
+    )
+    client = _scan_client(monkeypatch)
+    resp = client.get("/api/screener/scan/hits")
+    hits = resp.json()["hits"]
+    assert len(hits) == 1 and hits[0]["strategyId"] == "trend_breakout"
+    assert hits[0]["codes"][0]["firstSeen"] == "2026-09-05" and hits[0]["scannedAt"]
