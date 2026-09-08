@@ -458,6 +458,7 @@ git commit -m "feat: 扫描跌出再报去重引擎（纯函数）" --no-verify
   - `run_all_scans() -> list[dict]`（顺序执行所有 enabled）
   - `run_scan_retry(strategy_id: str) -> dict | None`（重试入口，enabled 前置校验）
   - `register_scan_jobs() -> None`（幂等；在 `grid_scheduler.start_scheduler()` 末尾被调用——本任务同时改 grid_scheduler.py 一行）
+  - `_get_scheduler() -> Any`：函数内惰性导入 scheduler 实例（评审决议：从源头杜绝循环导入；scan.py 顶层只导入 TIMEZONE 常量，不导入 scheduler）
 
 - [ ] **Step 1: 写失败测试**（追加；Redis 用 FakeRedis 替身、管道用 FakePipeline，**不起真调度器**——register 的单测只断言 job 注册调用参数）
 
@@ -559,6 +560,7 @@ def test_run_all_scans_sequential_and_failure_isolation(monkeypatch: Any) -> Non
             raise RuntimeError("boom")
         return _FakePipeline(rows=_ROWS_TWO).run(strategy_id, mode)
     monkeypatch.setattr(scan_module, "_get_pipeline", lambda: type("P", (), {"run": staticmethod(fake_run)})())
+    monkeypatch.setattr(scan_module, "_schedule_retry", lambda strategy_id: None)  # 失败路径不触真调度器
     results = scan_module.run_all_scans()
     assert len(results) == 2
     assert {r["strategyId"]: r["status"] for r in results} == {
@@ -635,7 +637,7 @@ def test_register_scan_jobs_registers_two_crons_and_misfire_listener(monkeypatch
             added.append(("listener", str(mask), ""))
 
     fake_sched = _FakeScheduler()
-    monkeypatch.setattr(scan_module, "_scheduler", fake_sched)
+    monkeypatch.setattr(scan_module, "_get_scheduler", lambda: fake_sched)
     scan_module.register_scan_jobs()
     ids = [a[0] for a in added]
     assert "scan:weekday" in ids and "scan:weekend" in ids and any(i == "listener" for i in ids)
@@ -662,7 +664,14 @@ import threading
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
-from backend.grid_scheduler import TIMEZONE, scheduler as _scheduler
+from backend.grid_scheduler import TIMEZONE
+
+
+def _get_scheduler() -> Any:
+    """惰性获取调度器实例：从源头杜绝 grid_scheduler ↔ scan 循环导入（评审决议）。"""
+    from backend.grid_scheduler import scheduler
+
+    return scheduler
 from backend.storage import (
     get_scan_config,
     insert_scan_history,
@@ -761,7 +770,7 @@ def run_scan(
 def _schedule_retry(strategy_id: str) -> None:
     from datetime import timedelta
 
-    _scheduler.add_job(
+    _get_scheduler().add_job(
         run_scan_retry,
         DateTrigger(run_date=datetime.now(TIMEZONE) + timedelta(minutes=10)),
         args=[strategy_id],
@@ -804,14 +813,14 @@ def _on_job_missed(event: Any) -> None:
 
 def register_scan_jobs() -> None:
     """两个 cron（FR-2）+ misfire 监听（FR-13③）；幂等（replace_existing）。"""
-    _scheduler.add_job(
+    _get_scheduler().add_job(
         run_all_scans,
         CronTrigger(day_of_week="mon-fri", hour=15, minute=40, timezone=TIMEZONE),
         id="scan:weekday",
         replace_existing=True,
         misfire_grace_time=3600,
     )
-    _scheduler.add_job(
+    _get_scheduler().add_job(
         run_all_scans,
         CronTrigger(day_of_week="sat,sun", hour=10, minute=0, timezone=TIMEZONE),
         id="scan:weekend",
@@ -820,7 +829,7 @@ def register_scan_jobs() -> None:
     )
     from apscheduler.events import EVENT_JOB_MISSED
 
-    _scheduler.add_listener(_on_job_missed, EVENT_JOB_MISSED)
+    _get_scheduler().add_listener(_on_job_missed, EVENT_JOB_MISSED)
 ```
 
 grid_scheduler.py 改动（唯一一行）：
@@ -838,7 +847,7 @@ def start_scheduler() -> None:
     register_scan_jobs()
 ```
 
-注意循环导入风险：scan.py 顶部 `from backend.grid_scheduler import ...` 与 grid_scheduler 函数体内 `from backend.screener.scan import ...`——函数内本地导入打破环（上面已如此写）。若实测仍有环，改 scan.py 顶部为函数内惰性获取（报告注明）。
+循环导入：已按评审决议从源头杜绝——scan.py 顶层只导入 TIMEZONE 常量，scheduler 实例一律经 `_get_scheduler()` 函数内惰性获取；grid_scheduler 侧保持函数体内导入 register_scan_jobs。测试对调度器的替换点：`monkeypatch.setattr(scan_module, "_get_scheduler", lambda: fake_sched)`；失败路径测试 monkeypatch `_schedule_retry` 避免触真调度器。
 
 - [ ] **Step 4: 跑测试确认通过**
 
