@@ -6,9 +6,14 @@ import { useScreenerStore } from '@/stores/useScreenerStore';
 import { useAssistStore } from '@/stores/useAssistStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
+import { requestJson } from '@/api/client';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>();
+  return { ...actual, requestJson: vi.fn() };
+});
 
 const makeRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
   code: '600519',
@@ -220,5 +225,69 @@ describe('ViewScreener', () => {
     await wrapper.find('button[data-testid="backtest-600519"]').trigger('click');
     expect(strategy.strategyDraft.code).toBe('600519');
     expect(quotes.view).toBe('grid');
+  });
+
+  it('定时扫描开关保存失败时回滚并提示', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    vi.spyOn(ws, 'requestJson').mockResolvedValue({
+      strategies: [
+        { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+      ],
+    });
+    const toastSpy = vi.spyOn(ws, 'showToast');
+    vi.mocked(requestJson)
+      .mockResolvedValueOnce({
+        configs: [
+          { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: false, mode: 'quick', lastRunAt: null, lastStatus: null, hitCount: 0, newCount: 0 },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('save failed'));
+
+    const wrapper = mount(ViewScreener);
+    const tabs = wrapper.findAll('.screener-tab');
+    await tabs.find((t) => t.text() === '策略')!.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await wrapper.find('[data-testid="scan-toggle"]').setValue(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((wrapper.find('[data-testid="scan-toggle"]').element as HTMLInputElement).checked).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith('扫描配置保存失败，稍后重试', 'error');
+  });
+
+  it('立即扫描调用扫描端点并显示命中', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    const fetchSpy = vi.fn().mockResolvedValue({
+      strategies: [
+        { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+      ],
+    });
+    vi.spyOn(ws, 'requestJson').mockImplementation(fetchSpy);
+    vi.mocked(requestJson)
+      .mockResolvedValueOnce({
+        configs: [
+          { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: false, mode: 'quick', lastRunAt: null, lastStatus: null, hitCount: 0, newCount: 0 },
+        ],
+      })
+      .mockResolvedValueOnce({ config: { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: true, mode: 'quick' }, alerted: 2 })
+      .mockResolvedValueOnce({ hits: [] })
+      .mockResolvedValueOnce({
+        configs: [
+          { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: true, mode: 'quick', lastRunAt: '2026-09-07T07:40:00+00:00', lastStatus: 'ok', hitCount: 3, newCount: 2 },
+        ],
+      });
+
+    const wrapper = mount(ViewScreener);
+    const tabs = wrapper.findAll('.screener-tab');
+    await tabs.find((t) => t.text() === '策略')!.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await wrapper.find('[data-testid="scan-now"]').trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
+    expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
   });
 });

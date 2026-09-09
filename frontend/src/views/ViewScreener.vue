@@ -44,6 +44,22 @@
               <button :class="['screener-tab', { 'is-active': strategyRunMode === 'deep' }]" type="button" @click="switchStrategyMode('deep')">深度</button>
             </div>
           </div>
+          <label class="field">
+            <span>定时扫描</span>
+            <input ref="scanToggleEl" type="checkbox" data-testid="scan-toggle" :checked="scanState?.enabled ?? false" @change="onScanToggle(($event.target as HTMLInputElement).checked)" />
+          </label>
+          <label class="field">
+            <span>扫描模式</span>
+            <select v-model="scanModeDraft" class="input" data-testid="scan-mode" :disabled="!scanState?.enabled" @change="onScanModeChange()">
+              <option value="quick">quick（快扫）</option>
+              <option value="deep">deep（深扫）</option>
+            </select>
+          </label>
+          <div class="field">
+            <span>立即扫描</span>
+            <button class="button" type="button" data-testid="scan-now" :disabled="scanRunning" @click="onScanNow">{{ scanRunning ? '扫描中…' : '立即扫描' }}</button>
+            <span v-if="scanState" class="heading-note" data-testid="scan-status">{{ scanStatusText }}</span>
+          </div>
         </div>
         <p class="heading-note">{{ strategyDescription }}{{ strategyRunMode === 'deep' ? '（深度模式需逐票拉取历史数据，预计 10–30 秒）' : '' }}</p>
         <div class="filter-divider"></div>
@@ -233,7 +249,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
@@ -242,6 +258,8 @@ import { useScreenerStore } from '@/stores/useScreenerStore';
 import { usePlansStore } from '@/stores/usePlansStore';
 import { useAssistStore } from '@/stores/useAssistStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
+import { useScanStore } from '@/stores/useScanStore';
+import type { ScanConfig } from '@/stores/useScanStore';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
@@ -249,6 +267,7 @@ const screener = useScreenerStore();
 const plans = usePlansStore();
 const assist = useAssistStore();
 const strategyStore = useStrategyStore();
+const scan = useScanStore();
 
 const {
   screenerUpdatedLabel, screenerMode, presets, presetName, filters, filteredRows, screenTotal,
@@ -288,4 +307,52 @@ function openBacktest(row: any) {
 }
 
 onMounted(() => renderIcons());
+
+// —— 定时扫描开关区（Task 7）：checkbox 用 :checked + @change 受控模式，saveConfig 失败时 UI 由 scanState 还原 ——
+const scanState = ref<ScanConfig | null>(null);
+const scanToggleEl = ref<HTMLInputElement | null>(null);
+const scanModeDraft = ref('quick');
+const scanRunning = ref(false);
+const scanStatusText = computed(() => {
+  if (!scanState.value) return '';
+  if (scanState.value.lastStatus === 'failed') return '上次扫描失败，稍后自动重试';
+  if (!scanState.value.lastRunAt) return '尚未扫描';
+  const t = new Date(scanState.value.lastRunAt);
+  return `上次扫描 ${t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 命中 ${scanState.value.hitCount} · 新增 ${scanState.value.newCount}`;
+});
+watch(strategyName, loadScanState, { immediate: true });
+async function loadScanState(): Promise<void> {
+  scanState.value = await scan.loadConfig(String(strategyName.value));
+  scanModeDraft.value = scanState.value?.mode ?? 'quick';
+}
+async function onScanToggle(checked: boolean): Promise<void> {
+  const ok = await scan.saveConfig(String(strategyName.value), checked, scanModeDraft.value);
+  if (ok) {
+    scanState.value = {
+      ...(scanState.value ?? { strategyId: String(strategyName.value), strategyName: '', lastRunAt: null, lastStatus: null, hitCount: 0, newCount: 0 }),
+      enabled: checked,
+      mode: scanModeDraft.value,
+    };
+  } else {
+    scanState.value = scanState.value ? { ...scanState.value } : null; // 失败回滚：重赋值触发 UI 还原
+    // :checked 值未变（false→false）时 Vue 不会重写 DOM checked，须显式还原（brief Step 3 注记的显式还原写法）
+    if (scanToggleEl.value) scanToggleEl.value.checked = Boolean(scanState.value?.enabled ?? false);
+  }
+}
+async function onScanModeChange(): Promise<void> {
+  await onScanToggle(Boolean(scanState.value?.enabled));
+}
+async function onScanNow(): Promise<void> {
+  scanRunning.value = true;
+  try {
+    const result = await scan.runScanNow(String(strategyName.value));
+    if (result) {
+      workspace.showToast(`扫描完成：命中 ${scanState.value?.hitCount ?? 0}，新增 ${result.alerted}`);
+      await loadScanState();
+    }
+  } finally {
+    scanRunning.value = false;
+  }
+}
+
 </script>

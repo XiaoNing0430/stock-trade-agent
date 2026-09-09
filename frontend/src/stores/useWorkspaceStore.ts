@@ -9,6 +9,7 @@ import { useScreenerStore } from './useScreenerStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useAlertsStore } from './useAlertsStore';
 import { usePlansStore } from './usePlansStore';
+import { useScanStore } from './useScanStore';
 
 /**
  * 工作区 store：自选列表 / 计划 / 提醒 / 服务端同步 / 409 冲突策略 / 本地持久化，
@@ -285,6 +286,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const quotes = useQuotesStore();
     const screener = useScreenerStore();
     const plans = usePlansStore();
+    const scan = useScanStore();
     if (refreshInFlight) {
       // 已有刷新进行中：定时轮询直接跳过，避免慢网络下请求堆积。
       if (silent) return;
@@ -293,7 +295,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     refreshInFlight = true;
     try {
       quotes.errorMessage = '';
-      const tasks = [quotes.fetchMarket(), screener.fetchScreener()];
+      // scan.fetchHits 自吞错误（内部 catch），不影响 Promise.allSettled 的失败归因语义。
+      const tasks = [quotes.fetchMarket(), screener.fetchScreener(), scan.fetchHits()];
       const now = Date.now();
       if (!quotes.indexHistory.length || now - quotes.indexHistoryFetchedAt > 60000) {
         tasks.push(quotes.fetchHistory('000001', 'index'));

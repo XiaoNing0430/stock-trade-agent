@@ -35,7 +35,7 @@ backend/
   grid_strategy.py        网格策略计算：build_grid, suggest_grid, backtest_grid, optimize_grid（含基准/风险指标）
   grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）
   schemas.py              24 个 Pydantic 请求/响应模型（+ 1 个别名）
-  storage.py              SQLAlchemy 模型 + 持久化助手（10 张表）
+  storage.py              SQLAlchemy 模型 + 持久化助手（12 张表）
   strategy_engines.py     通用策略引擎（网格, SMA, DCA, MACD）
   settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN）
   migrations/             Alembic 迁移脚本（基线 + 前向迁移）
@@ -50,10 +50,11 @@ frontend/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
     api/
       client.ts           类似 Axios 的 fetch 封装
-    stores/               9 个 Pinia 状态仓库
+    stores/               10 个 Pinia 状态仓库
       useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
       useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
       useAlertsStore.ts / useSettingsStore.ts / useAssistStore.ts
+      useScanStore.ts
     modules/              纯逻辑模块
       constants.ts / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
@@ -69,8 +70,9 @@ tests/
   test_settings_api.py    设置 API + 默认设置断言
   test_schemas.py         Pydantic 模型验证测试
   test_storage_coverage.py
+  test_scan.py            策略扫描去重引擎 + 编排护栏 + 扫描 API
   test_strategy_engines.py
-  frontend/               10 个 vitest 测试文件（共 66 项测试）
+  frontend/               17 个 vitest 测试文件（共 139 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -109,8 +111,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（66 项，10 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（139 项，快速离线 monkeypatch 模式）
+npx vitest run                        # 前端单元测试（139 项，17 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（340 项，快速离线 monkeypatch 模式）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -119,7 +121,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 
 注意：
 
-- 后端 pytest 运行覆盖率（≥80% 门禁，当前 97.8%）。
+- 后端 pytest 运行覆盖率（≥80% 门禁，当前 96.0%）。
 - Pre-commit 钩子（`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`）在 `git commit` 时自动执行。
 - `npm run build` 也会在 Vite 打包前执行 `vue-tsc --noEmit` 作为类型检查门禁。
 
