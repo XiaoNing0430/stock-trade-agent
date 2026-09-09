@@ -436,7 +436,11 @@ def create_app() -> FastAPI:
             raise api_error(422, ERR_VALIDATION_ERROR, str(exc))
         from backend.screener.scan import run_scan
 
-        result = run_scan(strategy_id)
+        # 透传配置 mode（Finding 1）：立即扫描也须按用户配置的 quick/deep 执行；
+        # cfg 为 None（无配置行）保持默认 quick——run 照跑，随后 skipped→422 分支如实映射
+        cfg = get_scan_config(strategy_id)
+        mode = str(cfg.get("mode") or "quick") if cfg is not None else "quick"
+        result = run_scan(strategy_id, mode=mode)
         if result["status"] == "failed":
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "扫描失败（上游不可用），稍后可重试")
         if result["status"] == "skipped":

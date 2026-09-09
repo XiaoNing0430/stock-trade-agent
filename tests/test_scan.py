@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from backend import storage as storage_module
+from backend.grid_scheduler import TIMEZONE
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -158,6 +159,9 @@ class _FakeRedis:
 class _FakePipeline:
     """run() 返回预设 rows；可注入异常。"""
 
+    #: 全实例共享的 (strategyId → [mode, ...]) 调用记录：透传断言用（ Finding 2 RED 证据载体）
+    mode_calls: dict[str, list[str]] = {}
+
     def __init__(self, rows: list[dict[str, Any]] | None = None, error: Exception | None = None) -> None:
         self.rows = rows or []
         self.error = error
@@ -169,6 +173,7 @@ class _FakePipeline:
         if self.error:
             raise self.error
         self.calls.append((strategy_id, mode))
+        _FakePipeline.mode_calls.setdefault(strategy_id, []).append(mode)
         return {
             "strategy": strategy_id,
             "name": strategy_id,
@@ -188,12 +193,16 @@ _ROWS_TWO = [
     {"code": "300750", "name": "宁德时代", "score": 77.0},
 ]
 
+# _FakePipeline.run 的 (strategyId → [mode, ...]) 视图别名（断言用）；每个用例开头 reset
+_pipeline_mode_calls = _FakePipeline.mode_calls
+
 
 def _setup_one_enabled(monkeypatch: Any, strategy_id: str = "trend_breakout") -> None:
     _cleanup_scan_tables()
     from backend.storage import upsert_scan_config
 
     upsert_scan_config(strategy_id, enabled=True, mode="quick")
+    _FakePipeline.mode_calls.clear()
 
 
 def test_run_scan_first_scan_creates_state(monkeypatch: Any) -> None:
@@ -423,6 +432,85 @@ def test_register_scan_jobs_registers_two_crons_and_misfire_listener(monkeypatch
     assert "15" in weekday[1] and "40" in weekday[1] and "Asia/Shanghai" in weekday[1]
     weekend = next(a for a in added if a[0] == "scan:weekend")
     assert "10" in weekend[1] and "Asia/Shanghai" in weekend[1]
+    # §8.6：两个 cron 的 misfire_grace_time 均为 3600（错过的任务 1 小时内仍补跑）
+    assert weekday[2] == "3600" and weekend[2] == "3600"
+
+
+# ---- §8.6 重试机制：DateTrigger 注册 / enabled 前置校验 / misfire 窗口 ----
+
+
+def test_schedule_retry_registers_datetrigger_job(monkeypatch: Any) -> None:
+    """§8.6：_schedule_retry 注册 scan:retry:{id}（DateTrigger + replace_existing）。"""
+    from datetime import timedelta
+
+    from apscheduler.triggers.date import DateTrigger
+    from backend.screener import scan as scan_module
+
+    calls: list[dict[str, Any]] = []
+
+    class _FakeScheduler:
+        def add_job(self, func: Any, trigger: Any, args: Any = None, id: str = "", **kwargs: Any) -> None:
+            calls.append({"func": func, "trigger": trigger, "args": args, "id": id, **kwargs})
+
+    monkeypatch.setattr(scan_module, "_get_scheduler", lambda: _FakeScheduler())
+    scan_module._schedule_retry("trend_breakout")
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["id"] == "scan:retry:trend_breakout"
+    assert isinstance(call["trigger"], DateTrigger)
+    # run_date ≈ now + 10min（重试窗口；单进程同刻注册，误差容忍 30s）
+    assert abs((call["trigger"].run_date - datetime.now(TIMEZONE)) - timedelta(minutes=10)) <= timedelta(seconds=30)
+    assert call["args"] == ["trend_breakout"]
+    assert call["replace_existing"] is True
+
+
+def test_run_scan_retry_skips_pipeline_when_disabled_or_missing(
+    monkeypatch: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """§8.6 FR-13②：config 缺失/已禁用 → 返回 None 且绝不触碰管道（无 DB 行时也不建）。"""
+    _cleanup_scan_tables()
+    from backend.screener import scan as scan_module
+
+    pipeline = _FakePipeline(rows=_ROWS_TWO)
+    calls: list[Any] = []
+
+    def _spy_pipeline() -> Any:
+        calls.append("built")
+        return pipeline
+
+    monkeypatch.setattr(scan_module, "_get_pipeline", _spy_pipeline)
+
+    # 配置行不存在 → None，管道零调用
+    assert scan_module.run_scan_retry("trend_breakout") is None
+    assert calls == []
+
+    # 配置行存在但已禁用 → None，管道零调用
+    from backend.storage import upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=False, mode="quick")
+    with caplog.at_level(logging.INFO, logger="screener.scan"):
+        assert scan_module.run_scan_retry("trend_breakout") is None
+    assert calls == []
+    assert any("screener.scan_retry_skipped" in r.message for r in caplog.records)
+
+
+def test_run_scan_retry_passes_configured_mode(monkeypatch: Any) -> None:
+    """§8.6 + Finding 1：run_scan_retry 必须透传配置 mode——deep 配置重试 quick 会用窄命中集
+    覆盖 last_hits，破坏 FR-4 跌出再报去重状态。"""
+    _setup_one_enabled(monkeypatch)
+    from backend.storage import upsert_scan_config
+
+    upsert_scan_config("trend_breakout", enabled=True, mode="deep")
+    from backend.screener import scan as scan_module
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(scan_module, "redis_client", lambda: fake)
+    monkeypatch.setattr(scan_module, "_get_pipeline", lambda: _FakePipeline(rows=_ROWS_TWO))
+    result = scan_module.run_scan_retry("trend_breakout")
+    assert result is not None and result["status"] == "ok"
+    # RED 证据（旧代码）：管道被以 mode='quick' 调用，而非配置的 'deep'
+    assert _pipeline_mode_calls == {"trend_breakout": ["deep"]}
 
 
 # ---- API 端点（Task 4）：configs / hits / now ----

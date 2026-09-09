@@ -211,7 +211,8 @@ def run_scan_retry(strategy_id: str) -> dict[str, Any] | None:
     if cfg is None or not cfg["enabled"]:
         logger.info("screener.scan_retry_skipped", extra={"strategy_id": strategy_id, "reason": "已关闭"})
         return None
-    return run_scan(strategy_id)
+    # 透传配置 mode（Finding 1）：deep 策略重试 quick 会用窄命中集覆盖 last_hits，破坏 FR-4 跌出再报去重
+    return run_scan(strategy_id, mode=str(cfg.get("mode") or "quick"))
 
 
 def run_all_scans() -> list[dict[str, Any]]:
