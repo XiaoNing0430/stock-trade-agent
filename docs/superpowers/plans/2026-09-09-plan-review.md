@@ -278,7 +278,7 @@ git commit -m "feat: load_history 全链路支持 adjustment 参数（bfq 原始
 - Produces（Task 4/5 依赖，签名冻结）:
   - `SHANGHAI: timezone`
   - `shanghai_date_str(ms: int) -> str`
-  - `validity_expiry_date(created_ms: int, validity: str) -> str`（本月内=创建月月末；本周内=ISO 周日；其他=创建当日）
+  - `validity_expiry_date(created_ms: int, validity: str) -> str`（本月内=创建月月末；本周内=ISO 周日；长期/空=哨兵 "9999-12-31"（经 min(expiry, today) 收口为今天，spec 边界表）；其他未知=创建当日）
   - `slice_window(bars: list[dict], created_ms: int, validity: str, today: str | None = None) -> tuple[list[dict], dict | None, bool]` → (窗口 bars（已收盘）, 窗口前一根 bar（供 prevClose，可 None）, 窗口是否已闭合)
   - `replay_plan(plan: dict, bars: list[dict], fee_rate: float, today: str | None = None) -> dict`（items 行形状，outcome ∈ win|loss|flat|notEntered|open|invalid）
   - `InvalidOutcome` 常量 `"invalid"` 等（直接用字符串字面量即可）
@@ -393,6 +393,20 @@ def test_unclosed_today_bar_excluded():
                       ("2026-09-15", 11.5, 11.6, 11.7, 11.0, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today="2026-09-15")
     assert rec["outcome"] == "open"
+
+def test_sell_empty_closed_window_is_invalid():
+    # sell 已持仓平仓单：窗口空（bars 全在创建日前）且已闭合 → invalid（评审 B1；无末收盘价可平出，绝不算 notEntered）
+    bars = make_bars([("2026-09-01", 10, 10, 10, 10, 1000.0)])
+    rec = replay_plan(make_plan(direction="sell"), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "invalid"
+
+def test_validity_long_term_and_empty_sentinel():
+    # 长期/空 → 哨兵 9999-12-31，slice_window 收口为"终点=今天"（spec 边界表；评审非 Blocker ①）
+    assert validity_expiry_date(1_789_084_800_000, "长期") == "9999-12-31"
+    assert validity_expiry_date(1_789_084_800_000, "") == "9999-12-31"
+    bars = make_bars([("2026-09-14", 10.5, 10.6, 10.8, 10.4, 1000.0)])
+    rec = replay_plan(make_plan(validity="长期"), bars, 0.0015, today="2026-09-16")
+    assert rec["outcome"] == "open"   # 窗口未闭合 → 进行中（非 notEntered）
 ```
 
 窗口终点语义用例（slice_window 直测，数值已按 createdAt=09-11 钉死）：
@@ -444,13 +458,19 @@ def shanghai_date_str(ms: int) -> str:
 
 
 def validity_expiry_date(created_ms: int, validity: str) -> str:
-    """镜像 frontend planUtils.validityExpiry：本月内=创建月月末；本周内=ISO 周日；其他=创建当日。"""
+    """镜像前端 planUtils.validityExpiry：本月内=创建月月末；本周内=ISO 周日；其他未知=创建当日。
+
+    例外（有意分歧，以 spec 边界表为准）：长期/空 → "9999-12-31" 哨兵，
+    经 slice_window 的 min(expiry, today) 收口为"窗口终点=今天"（评审非 Blocker ①）。
+    """
     base = datetime.fromtimestamp(created_ms / 1000, SHANGHAI)
     if validity == "本月内":
         nxt = base.replace(year=base.year + 1, month=1, day=1) if base.month == 12 else base.replace(month=base.month + 1, day=1)
         end = nxt - timedelta(days=1)
     elif validity == "本周内":
         end = base + timedelta(days=(6 - base.weekday()) % 7)  # Monday=0 → 周日差 (6-wd)
+    elif validity in ("长期", ""):
+        return "9999-12-31"
     else:
         end = base
     return end.strftime("%Y-%m-%d")
@@ -518,11 +538,14 @@ def replay_plan(plan: dict[str, Any], bars: list[dict[str, Any]], fee_rate: floa
         if hit_stop:
             rec.update(outcome="loss", rValue=-1.0, exitDate=bar["date"])
             return _finalize(rec)
-    # 窗口走完未决：未闭合 → 进行中（无论是否入场，计划仍在有效期）；已闭合 → 入场过=平出，未入场=notEntered
+    # 窗口走完未决：未闭合 → 进行中；已闭合 → 入场过=平出；未入场（仅 buy）→ notEntered；
+    # sell 无未入场概念，窗口空且已闭合 → invalid（无末收盘价可平出，评审 B1）
     if not closed:
         rec["outcome"] = "open"
     elif entered and window:
         rec.update(outcome="flat", rValue=r_of(float(window[-1]["close"])), exitDate=window[-1]["date"])
+    elif direction == "sell":
+        rec["outcome"] = "invalid"
     else:
         rec["outcome"] = "notEntered"
     return _finalize(rec)
@@ -665,8 +688,9 @@ replay_plan 循环改造（完整替换 Task 3 的 for 循环体）：
         exit_target = open_ if open_ > target else target
         if (hit_stop or hit_target) and (exit_stop != stop or exit_target != target):
             rec["gapFill"] = True
-        if hit_stop and hit_target:                     # 双触保守记败
-            rec.update(outcome="loss", rValue=-1.0, exitDate=bar["date"], ambiguous=True)
+        if hit_stop and hit_target:                     # 双触保守记败（决议 3）——跳空模型同样适用（评审 B2）
+            exit_price = open_ if open_ < stop else stop
+            rec.update(outcome="loss", rValue=r_of(exit_price), exitDate=bar["date"], ambiguous=True)
             return _finalize(rec)
         if hit_target:
             if limit_down_day:                          # 跌停一字板：卖出离场不可成交 → 顺延
@@ -684,7 +708,19 @@ replay_plan 循环改造（完整替换 Task 3 的 for 循环体）：
             return _finalize(rec)
 ```
 
-（注意：循环开头需 `close = float(bar["close"])`；loss 不再用 `-1.0` 字面量而用 `r_of(exit_stop)`——无跳空时 `exit_stop == stop` → R=−1 数值不变，双触分支同理改为 `r_of(min(stop, open_))` 若 open<stop；实现时保持三条路径一致并在注释里写明。窗口闭合兜底 flat 的 exit=末收盘不变。）
+（注意：循环开头需 `close = float(bar["close"])`；**三条 loss 路径（双触/单 stop）统一走 `r_of(exit_price)`**——无跳空时 `exit_price == stop` → R=−1 数值不变，跳空时 exit=open（更劣），Task 3 的 `-1.0` 字面量在 Task 4 全部消除；窗口闭合兜底 flat 的 exit=末收盘不变。）
+
+补充测试（加进 Step 1 的微结构段）：
+
+```python
+def test_double_touch_with_gap_down_uses_open_exit():
+    # 双触 + 跳空低开：open 9.2 < stop 9.5 → exit=9.2，R=(9.2-10)/0.5=-1.6（非 -1），ambiguous+gapFill
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),   # 入场日
+                      ("2026-09-15", 9.2, 9.3, 11.2, 9.0, 1000.0)])    # open<stop 且 low≤stop、high≥target
+    rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "loss" and rec["ambiguous"] is True and rec["gapFill"] is True
+    assert rec["rValue"] == -1.6
+```
 
 - [ ] **Step 4: 跑全量回放测试（Task 3 用例不得回归）**
 
@@ -745,6 +781,14 @@ def test_groups_small_sample_flag():
     out = aggregate(recs)
     g = next(row for row in out["groups"]["source"] if row["key"] == "manual")
     assert g["smallSample"] is True and g["decided"] + g["flatCount"] < 5
+
+def test_aggregate_excludes_null_netr_defensively():
+    # 评审 B3：settled 记录 netR 为 None（回放异常）→ 显式剔除均值，绝不静默归零；计数仍按 outcome
+    recs = [{**_rec("win", 2.0, 0.03)}, {**_rec("win", None, None)}, {**_rec("loss", -1.0, 0.03)}]
+    k = aggregate(recs)["kpis"]
+    assert k["decided"] == 2 and k["winRate"] == 1.0          # 计数按结局：2 胜 0 败
+    assert k["avgWinR"] == 1.97                               # netR None 的 win 剔除后均值（非 (2.0+0)/2）
+    assert k["expectancyR"] == round((1.97 - 1.03) / 2, 3)    # 0.47
 
 def test_review_plans_days_filter_and_flow():
     plans = [make_plan(id="old", createdAtMs=1_700_000_000_000),   # 2023-11
@@ -810,6 +854,8 @@ def fetch_all_bars(codes: list[str], router) -> dict[str, list[dict[str, Any]]]:
     from backend import storage  # 局部导入避免环
 
     today = shanghai_date_str(int(datetime.now(SHANGHAI).timestamp() * 1000))
+    # stale 阈值 7 天是"缓存够新"的粗判：即使计划窗口截止日较早（不需要最新 bar），也统一重取——
+    # 简单优先；窗口截断由 slice_window 负责，多取无害（评审非 Blocker ②，注释为证）。
     stale_before = (datetime.now(SHANGHAI) - timedelta(days=_STALE_DAYS)).strftime("%Y-%m-%d")
     out: dict[str, list[dict[str, Any]]] = {}
     failed: list[str] = []
@@ -843,18 +889,19 @@ def aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
     opens = [r for r in records if r["outcome"] == "open"]
     invalids = [r for r in records if r["outcome"] == "invalid"]
 
-    def net(r: dict[str, Any]) -> float:
-        return float(r["netR"] or 0.0)
+    def _nets(rows: list[dict[str, Any]]) -> list[float]:
+        # None 显式剔除（评审 B3）——绝不静默归零污染均值；计数仍按 outcome（winRate 与 netR 有无无关）
+        return [float(r["netR"]) for r in rows if r.get("netR") is not None]
 
-    avg_win = _mean([net(r) for r in wins])
-    avg_loss = _mean([net(r) for r in losses])
+    avg_win = _mean(_nets(wins))
+    avg_loss = _mean(_nets(losses))
     payoff = round(avg_win / abs(avg_loss), 3) if (avg_win is not None and avg_loss) else None
     denom_ne = len(decided) + len(flats) + len(not_entered)
     kpis = {
         "total": len(records), "decided": len(decided), "flatCount": len(flats),
         "winRate": round(len(wins) / len(decided), 3) if decided else None,
         "avgWinR": avg_win, "avgLossR": avg_loss, "payoffRatio": payoff,
-        "expectancyR": _mean([net(r) for r in settled]),
+        "expectancyR": _mean(_nets(settled)),
         "notEnteredRate": round(len(not_entered) / denom_ne, 3) if denom_ne else None,
         "openCount": len(opens), "invalidCount": len(invalids),
     }
@@ -891,12 +938,13 @@ def aggregate_min(records: list[dict[str, Any]]) -> dict[str, Any]:
     flats = [r for r in records if r["outcome"] == "flat"]
     decided = wins + losses
     settled = decided + flats
-    avg_loss = _mean([float(r["netR"] or 0.0) for r in losses])
-    avg_win = _mean([float(r["netR"] or 0.0) for r in wins])
+    nets = lambda rows: [float(r["netR"]) for r in rows if r.get("netR") is not None]  # None 剔除（评审 B3）
+    avg_loss = _mean(nets(losses))
+    avg_win = _mean(nets(wins))
     return {
         "decided": len(decided), "flatCount": len(flats), "wins": len(wins),
         "winRate": round(len(wins) / len(decided), 3) if decided else None,
-        "expectancyR": _mean([float(r["netR"] or 0.0) for r in settled]),
+        "expectancyR": _mean(nets(settled)),
         "payoffRatio": None,  # 分组行不含 payoff（YAGNI；明细看 kpis）
         "smallSample": (len(decided) + len(flats)) < 5,
     }
@@ -1053,7 +1101,7 @@ def _scan_history_out(row: dict[str, Any]) -> dict[str, Any]:
 - import 方式：app.py 头部 `from backend import plan_review` + `logger = logging.getLogger("atlas.review")`（app.py 已有 logging 惯例，grep `logging.getLogger` 对齐格式；extra 键名遵循 scan 的 `screener.scan` 风格）。
 - `router` 为 app.py 既有 DataSourceRouter 实例（grep `router = ` 确认变量名，替换示例中的 `router`）。
 - `storage.list_scan_history` 返回行形状以 storage.py:872 实际字段为准（可能是 dict 或含 snake_case 键；`_scan_history_out` 按实际字段改写映射，保持 camelCase 出参）。
-- `get_workspace()` 的 plans 行即 `_plan_dict` 输出（含 source/createdAtMs）——若缺 `createdAtMs` 之外的回放必需键，在 endpoint 内补齐而不是改 storage。
+- `get_workspace()` 的 plans 行即 `_plan_dict` 输出，**`createdAtMs` 已含**（storage.py:288 `int(plan.created_at.timestamp() * 1000)`，探现场时已核验——评审 B4 关闭，无需补齐；source 由 Task 1 加入后同样经此输出）。
 - 422 detail 结构与 scan 端点既有 `ERR_VALIDATION_ERROR` 用法保持同构（grep `ERR_VALIDATION_ERROR` app.py）。
 
 - [ ] **Step 4: 跑测试确认通过 + 后端全量回归**
@@ -1117,7 +1165,8 @@ Expected: FAIL（source 未传）
 - [ ] **Step 3: 实现**
 
 1. `useAssistStore.ts`：openFor 输入类型加 `source?: string`；openFor 存入组件可见的 draft 状态（与 code/name 同路：grep `openFor` 函数体，把 source 写进 dialog 输入对象）；`confirmDraft`/落计划调用处把 source 透传给计划创建函数。
-2. `PlanDraftDialog.vue`：props/注入接收 source（跟随 code 的传递方式，grep `code` prop 流转）；确认回调把 source 带入计划对象；模板加提示行（放入场输入框附近）：
+2. `PlanDraftDialog.vue`：**source 与 code 走完全相同的通路**（评审 B6）——先 grep 该文件中 `code` 的到达路径（`grep -n "code" frontend/src/components/PlanDraftDialog.vue | head -30`）：若经 `useAssistStore()` 的 draft/recalc 状态读取，则在该状态对象加 `source?: string`，openFor 写入、对话框同源读取；若经 props 传入，则加同名可选 prop。**禁止旁路**（不允许 source 独立于 code 的第二通道）。确认回调把 source 带入计划对象（构造点统一兜底 `|| 'manual'`）。模板加口径提示行（放入场输入框附近）：
+
 ```html
 <p class="field-hint" data-testid="draft-price-scope-note">计划价格以原始实时价为准；K 线图为前复权价，请勿直接照抄图表价位。</p>
 ```
@@ -1153,7 +1202,7 @@ git commit -m "feat: 计划来源归因前端链路——openFor/草案对话框
 
 **Interfaces:**
 - Consumes: Task 6 端点形状（`{kpis, groups, items}`；`GET /api/plans/review?days=`）；`requestJson`（`@/api/client` named export）。
-- Produces: `useReviewStore()` → `{ review, loading, days, activeGroup, expanded, fetchReview(days?), toggle(), setGroup(key), setDays(d) }`；testids：`review-toggle`/`review-kpis`/`review-group-tab`/`review-items`/`review-trace`/`review-disclaimer`/`review-fee-note`。
+- Produces: `useReviewStore()` → `{ review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading, fetchReview(days?), toggle(), setGroup(key), setDays(d), toggleSort(key), fetchTrace(strategyId), formatRatio(v), formatR(v) }`（评审 B5：trace 状态与方法进 store；明细排序状态 `sortKey: 'netR'|'outcome'|null` + `sortDir`）；testids：`review-toggle`/`review-kpis`/`review-group-tab`/`review-items`/`review-trace`/`review-disclaimer`/`review-fee-note`。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1197,6 +1246,27 @@ describe('useReviewStore', () => {
     const s = useReviewStore();
     await s.fetchReview(90);
     expect(s.formatRatio(s.review?.kpis.payoffRatio)).toBe('--');
+  });
+
+  it('来源分组含 scan: 行时自动拉取留痕（评审 B5）', async () => {
+    const withScan = { ...payload,
+      groups: { ...payload.groups,
+        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 1, flatCount: 0,
+                   wins: 1, winRate: 1, expectancyR: 1.97, smallSample: true }] } };
+    requestJson.mockImplementation((url: string) => {
+      if (String(url).includes('/api/plans/review')) return Promise.resolve(withScan);
+      if (String(url).includes('/api/screener/scan/history')) {
+        return Promise.resolve({ history: [{ strategyId: 'trend_breakout', runAtMs: 1_789_000_000_000,
+          status: 'ok', hitCount: 3, newCount: 1, elapsedMs: 1200, traceId: 't1', mode: 'quick' }] });
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    });
+    const s = useReviewStore();
+    await s.fetchReview(90);
+    expect(s.trace?.[0]?.hitCount).toBe(3);        // fetchReview → syncTrace → fetchTrace 自动触发
+    expect(requestJson.mock.calls.some((c) => String(c[0]).includes('/api/screener/scan/history?strategyId=trend_breakout'))).toBe(true);
+    await s.setGroup('direction');                  // 切走 → trace 清空
+    expect(s.trace).toBeNull();
   });
 });
 ```
@@ -1259,6 +1329,11 @@ export interface ReviewPayload {
   items: ReviewItem[];
 }
 
+export interface ScanTraceRow {
+  strategyId: string; runAtMs: number; status: string; hitCount: number;
+  newCount: number; elapsedMs: number; traceId: string; mode: string;
+}
+
 export const useReviewStore = defineStore('review', () => {
   const review = ref<ReviewPayload | null>(null);
   const loading = ref(false);
@@ -1266,6 +1341,10 @@ export const useReviewStore = defineStore('review', () => {
   const activeGroup = ref<'source' | 'direction' | 'validity' | 'createdMonth'>('source');
   const expanded = ref(false);
   const fetchedOnce = ref(false);
+  const sortKey = ref<'netR' | 'outcome' | null>(null);
+  const sortDir = ref<'asc' | 'desc'>('desc');
+  const trace = ref<ScanTraceRow[] | null>(null);
+  const traceLoading = ref(false);
 
   async function fetchReview(d?: 0 | 30 | 90) {
     if (d !== undefined) days.value = d;
@@ -1273,6 +1352,7 @@ export const useReviewStore = defineStore('review', () => {
     try {
       review.value = await requestJson(`/api/plans/review?days=${days.value}`, { method: 'GET' });
       fetchedOnce.value = true;
+      void syncTrace();
     } finally {
       loading.value = false;
     }
@@ -1281,13 +1361,39 @@ export const useReviewStore = defineStore('review', () => {
     expanded.value = !expanded.value;
     if (expanded.value && !fetchedOnce.value) await fetchReview();
   }
+  function toggleSort(key: 'netR' | 'outcome') {
+    if (sortKey.value === key) sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc';
+    else { sortKey.value = key; sortDir.value = 'desc'; }
+  }
+  async function fetchTrace(strategyId: string) {
+    traceLoading.value = true;
+    try {
+      const res = await requestJson<{ history: ScanTraceRow[] }>(
+        `/api/screener/scan/history?strategyId=${encodeURIComponent(strategyId)}&limit=30`, { method: 'GET' });
+      trace.value = res.history;
+    } finally {
+      traceLoading.value = false;
+    }
+  }
+  function syncTrace() {
+    // 来源分组下存在 scan:{strategyId} 行时自动拉取该策略近 30 天留痕（评审 B5）
+    if (activeGroup.value !== 'source') { trace.value = null; return; }
+    const row = (review.value?.groups.source ?? []).find((r) => r.key.startsWith('scan:'));
+    if (row) void fetchTrace(row.key.slice(5));
+    else trace.value = null;
+  }
+  function setGroup(k: typeof activeGroup.value) {
+    activeGroup.value = k;
+    syncTrace();
+  }
   function formatRatio(v: number | null | undefined): string {
     return v === null || v === undefined ? '--' : `${(v * 100).toFixed(1)}%`;
   }
   function formatR(v: number | null | undefined): string {
     return v === null || v === undefined ? '--' : v.toFixed(2);
   }
-  return { review, loading, days, activeGroup, expanded, fetchReview, toggle, setGroup: (k: typeof activeGroup.value) => { activeGroup.value = k; }, setDays: fetchReview, formatRatio, formatR };
+  return { review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading,
+           fetchReview, toggle, setGroup, setDays: fetchReview, toggleSort, fetchTrace, formatRatio, formatR };
 });
 ```
 
@@ -1334,9 +1440,9 @@ export const useReviewStore = defineStore('review', () => {
       </tbody>
     </table>
     <table class="review-table" data-testid="review-items-detail">
-      <thead><tr><th>代码</th><th>来源</th><th>结局</th><th>净 R</th><th>入场日</th><th>离场日</th></tr></thead>
+      <thead><tr><th>代码</th><th>来源</th><th><button type="button" @click="review.toggleSort('outcome')">结局</button></th><th><button type="button" @click="review.toggleSort('netR')">净 R</button></th><th>入场日</th><th>离场日</th></tr></thead>
       <tbody>
-        <tr v-for="item in review.review?.items ?? []" :key="item.planId">
+        <tr v-for="item in sortedDetail" :key="item.planId">
           <td>{{ item.code }}</td><td>{{ sourceLabel(item.source) }}</td>
           <td>{{ outcomeLabel(item) }}<span v-if="item.ambiguous" class="badge-muted">保守裁定</span><span v-if="item.gapFill" class="badge-muted">跳空</span><span v-if="item.limitDeferred" class="badge-muted">顺延</span></td>
           <td>{{ review.formatR(item.netR) }}</td><td>{{ item.entryDate ?? '--' }}</td><td>{{ item.exitDate ?? '--' }}</td>
@@ -1352,7 +1458,7 @@ export const useReviewStore = defineStore('review', () => {
 </section>
 ```
 
-script 侧：`const review = useReviewStore();`；`GROUPS` 常量四维；`activeRows` computed = `review.review?.groups[review.activeGroup] ?? []`；`reviewSummary` computed（「近 90 天 N 份已了结计划，胜率 X%」/ 空态「暂无已了结计划」）；`outcomeLabel`（win=胜/loss=败/flat=平出/notEntered=未入场/open=进行中/invalid=参数无效）；`sourceLabel`（legacy=早期计划/manual=手动新建/screener=策略命中/monitor=盯盘信号/scan:x=扫描·{策略}）；明细排序：本地 `sortKey` ref（outcome/netR）+ 表头点击（可后置为静态——排序为 spec FR-5 要求，保留：按 netR 降序/升序 toggle）；scan 留痕：`activeGroup==='source'` 且行 key 以 `scan:` 开头时 `requestJson('/api/screener/scan/history?strategyId=' + key.slice(5))` 取近 30 天（store 加 `trace` 状态 + `fetchTrace(strategyId)`；runAt 用 formatTime(runAtMs)）。
+script 侧：`const review = useReviewStore();`；`GROUPS` 常量四维；`activeRows` computed = `review.review?.groups[review.activeGroup] ?? []`；`reviewSummary` computed（「近 90 天 N 份已了结计划，胜率 X%」/ 空态「暂无已了结计划」）；`outcomeLabel`（win=胜/loss=败/flat=平出/notEntered=未入场/open=进行中/invalid=参数无效）；`sourceLabel`（legacy=早期计划/manual=手动新建/screener=策略命中/monitor=盯盘信号/scan:x=扫描·{策略}）；`sortedDetail` computed（按 `review.sortKey`/`sortDir` 排序 `review.review?.items`：outcome 按 localeCompare、netR 按数值 `?? -Infinity`，未选排序键 → 原序 createdAtMs 降序）；`activeScanTrace` computed = `review.trace ?? []`；`traceSummary` computed = `近 30 天运行 ${activeScanTrace.value.length} 次 · 平均命中 ${avg(hitCount)}`（空 → 「近 30 天无扫描运行」）；scan 留痕由 store 的 `syncTrace()` 自动触发（fetchReview/setGroup 后），组件无额外 watch。
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -1384,7 +1490,7 @@ git commit -m "feat: ViewPlans 绩效复盘面板（KPI/四维分组/明细角�
 npx vitest run                                    # 前端全量（139+ 新增）
 npx vue-tsc --noEmit                              # 类型 0 error
 npx eslint frontend/src --ext .ts,.vue            # 0 error
-python -m pytest tests/ -q                        # 后端全量 + 覆盖率 ≥80%
+python -m pytest tests/ -q                        # 后端全量 + 覆盖率（评审非 Blocker ⑥：≥80% 门禁由 pyproject 现有 --cov 配置执行——AGENTS 记载现状 96.0%，确认输出 coverage 摘要 ≥80% 即可，无需新增配置）
 python -m ruff format --check backend tests server.py
 python -m ruff check backend tests server.py
 python -m mypy backend
