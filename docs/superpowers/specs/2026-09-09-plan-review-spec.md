@@ -42,7 +42,7 @@ r3 → r3.1（批准附带）：①窗口终点措辞消歧（"当日或之前"�
   - `kpis`（**命名统一 r3 B3**）：`{total, decided, flatCount, winRate, avgWinR, avgLossR, payoffRatio, expectancyR, notEnteredRate, openCount, invalidCount}`：
     - `decided = 胜 + 败`（winRate 分母）；`winRate = 胜 / decided`（胜 = 触及 target，决议 11）；
     - `flatCount` = 平出数（原 breakevenCount 更名——平出 R 非零，不叫 breakeven）；已了结全体 = decided + flatCount；
-    - `avgWinR = mean(netR | 胜)`、`avgLossR = mean(netR | 败)`（**均为净 R**）；`payoffRatio = avgWinR / |avgLossR|`（平出不计入两侧）；
+    - `avgWinR = mean(netR | 胜)`、`avgLossR = mean(netR | 败)`（**均为净 R**）；`payoffRatio = avgWinR / |avgLossR|`（平出不计入两侧）；**空样本/除零兜底（评审遗留观察）**：败样本为空或 |avgLossR| = 0 → `payoffRatio = null`（前端显示 `--`）；胜/败样本为空 → 对应 avg 为 `null`；任何比率在分母为 0 时一律 `null` 占位，绝不造数；
     - `expectancyR = mean(netR | decided + flatCount)`（公式显式）；
     - `notEnteredRate = notEntered / (decided + flatCount + notEntered)`（分母 = 已产生入场判定资格的计划全体，r3 B3）；
     - 进行中/invalid 剔除一切比率但计数展示。
@@ -121,6 +121,7 @@ r3 → r3.1（批准附带）：①窗口终点措辞消歧（"当日或之前"�
 - 回放结果落库/缓存端点结果（bars 已有 DB 缓存，聚合每次现算）
 - 自动改写/终止计划；基于绩效的自动策略调参
 - 多租户/鉴权/SLA/合规体系（ROADMAP 非目标红线，决议 13）
+- "已收盘后包含当日 bar"开关（评审遗留观察：盘后当日仍不参与回放，结果盘中/盘后一致稳定；如需当日收盘即看 → P2 设置项）
 
 ## 9. 决议表
 
