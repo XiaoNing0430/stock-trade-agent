@@ -1542,3 +1542,11 @@ T2 bfq 链路 ──────────────────────
 ```
 
 T7 只依赖 T1（类型），可与 T2-T6 并行；T8 依赖 T6（端点形状）+ T7（source 字面量已在数据里）。
+
+## 实施时现场确认清单（评审收尾备注，派发时逐条传达）
+
+1. **T4**：循环开头补 `close = float(bar["close"])`（代码块注释已提醒，实施者按注释落实）。
+2. **T6**：`logger = logging.getLogger("atlas.review")` 命名与 app.py 既有 logger 惯例对齐（grep `logging.getLogger`）；`router` 实例变量名以 app.py 实际为准（grep `router = `）。
+3. **T6**：`list_scan_history`（storage.py:872）返回行真实键名以现场为准，`_scan_history_out` 按实际字段映射（fake 行的 snake_case 是假设）。
+4. **T8**：`sortedDetail`/`traceSummary` computed 按计划描述补全，注意响应式（走 store refs）与空值兜底（items/trace 为 null/空数组时不渲染行）。
+5. **T8**：模板 `@click="review.setDays(d)"` 传参 → `fetchReview(d)` 可选参数签名，已兼容，无需适配层。
