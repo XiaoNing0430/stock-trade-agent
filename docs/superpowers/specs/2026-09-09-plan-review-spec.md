@@ -1,8 +1,9 @@
-# P1 计划绩效复盘 — Spec（评审稿 r3）
+# P1 计划绩效复盘 — Spec（评审稿 r3.1，已批准）
 
-日期：2026-09-09 ｜ 状态：待评审（r3，内部 P1 定位，r2 有条件通过后的 blocker 修订）｜ 上游：`ROADMAP.md` 辅助交易主线 P1（P1 定时扫描已交付）
+日期：2026-09-09 ｜ 状态：**已批准（内部单用户 P1「设计口径复盘」）**，r3.1 为批准附带的两条开发前明确化 + 非 blocker 建议落实 ｜ 上游：`ROADMAP.md` 辅助交易主线 P1（P1 定时扫描已交付）
 评审记录：r1 → r2 修订 10 项（复权 bfq 全链路、反前视起点、跳空/涨跌停停牌、统计 v2、成本、sell 澄清、版本披露、列宽、免责；驳回 2 项见决议 10/13，决议 14 为接受+加宽）。
 r2 → r3 修订 6 blocker（评审"有条件通过"清单全部闭环）：B1 计划价口径确认 + UI 提示；B2 未收盘 bar 排除；B3 统计口径命名统一（decided/flatCount/notEnteredRate 分母）；B4 成本按止损距离归一（feeRate 公式）；B5 涨跌停价按前收盘计算 + ST/新股限制披露；B6 补充测试 6 项。
+r3 → r3.1（批准附带）：①窗口终点措辞消歧（"当日或之前"，过期日已收盘 bar 参与，决议 9 不冲突）；②一字板顺延后触发价语义（恒为原 entry，不取开盘价成交）——顺带修正入场触及式为 `low ≤ entry`（原 `low ≤ entry ≤ high` 在整日低于 entry 的跳空 bar 上会误判未入场）；③feeRate UI 参考范围文案；④prevClose bar 须已收盘（显式）；⑤502 日志记失败 code；⑥smallSample 文案「仅供参考」。
 
 ## 1. 背景 / 目标
 
@@ -25,15 +26,15 @@ r2 → r3 修订 6 blocker（评审"有条件通过"清单全部闭环）：B1 �
 
 - **FR-1 来源归因**：`trade_plans` 加可空列 `source VARCHAR(64)`（`scan:{strategyId}` 防截断，决议 14）；`Plan` 类型加可选 `source?: string`。取值：`scan:{strategyId}`（提醒中心代码片）/ `screener`（策略命中行草案按钮）/ `monitor`（盯盘信号入口）/ `manual`（计划页手动新建）；存量计划读取时归为 `legacy`。链路：`openFor` 签名加可选 `source?: string` → PlanDraftDialog 透传 → 确认时写入计划 → workspace PUT 同步携带（只增不改）。字段缺失/空 → `legacy`，前端展示「早期计划」。
   - **计划价口径（r3，B1）**：计划的 entry/stop/target 统一为**原始实时价**（不复权）——草案默认预填即该口径（`openFor`/assist recalc 均取实时报价现价）。PlanDraftDialog 增加一行提示：「计划价格以原始实时价为准；K 线图为前复权价，请勿直接照抄图表价位」。回放按同口径原始价序列（FR-2a），两端对齐。
-- **FR-2 回放引擎（后端纯函数 + 数据面）**：对每份计划，回放窗 = **创建日（Asia/Shanghai）之后的第一个可交易 bar** → `validity` 过期日（或今天）**之前最近一个已收盘交易日**（决议 9 + r3 B2）：
+- **FR-2 回放引擎（后端纯函数 + 数据面）**：对每份计划，回放窗 = **创建日（Asia/Shanghai）之后的第一个可交易 bar** → `validity` 过期日（或今天）**当日或之前**最近一个已收盘交易日（r3.1 消歧：过期日当日的已收盘 bar **参与**回放且为最后回放 bar，与决议 9 一致；决议 9 + r3 B2）：
   - 创建当日 bar 一律不参与（无论盘中/收盘后创建，统一保守，杜绝前视偏差）；非交易日自然跳过（bars 按交易日索引）。
   - **未收盘 bar 排除（r3，B2）**：回放只用 `barDate < 今天的 Asia/Shanghai 日期` 的 bars——当日盘中未收盘 OHLC 不完整，不参与判定（`validity=长期` 时窗口终点 = 最近已收盘交易日；结果盘中稳定，不随当日价格抖动）。
   - bars 为**不复权原始价序列**（决议 8，FR-2a）：
   - **FR-2a 复权口径**：`load_history` 全链路增加 `adjustment` 参数——data_source 腾讯 K 线 param 尾字段 `qfq` → 可传空串返回原始价 `day` 行（现有 `or symbol_data.get("day")` 兜底已兼容；`sources/base.py` + 腾讯/东财/MockUS 适配器 + Router 透传；storage `market_bars.adjustment=""` 列现成）。回放**只用原始价**。理由：计划的 entry/stop/target 是原始实时价（原始价格指令），触及判定必须用原始序列——除权跳空击穿 stop 是真实订单行为，如实判定为触及；R 公式三价同源（原始价）内部一致。已知限制：R 不含分红补偿（除权缺口按原始价触发判定）。**默认参数兼容（r3 B6）**：`adjustment="qfq"` 为缺省值，现有全部调用方行为不变。
-  - buy：先判入场——日内触及 `entry`（low ≤ entry ≤ high，且该日可成交，FR-2c）后开始计结局；随后先到 `target` 记**胜**、先到 `stop` 记**败**、**同日双触保守记败**（决议 3，AGENTS 回测保守纪律）；入场未触（窗内全日 low > entry）记**未入场**。
+  - buy：先判入场——日内触及 `entry`（**触及判定 = `low ≤ entry`，r3.1 修正**：不要求 `high ≥ entry`——整日低于 entry 的跳空 bar 上限价买入单实际会在开盘成交，误判未入场会漏掉真实亏损路径；**成交价恒记计划 entry**，设计口径不取开盘优惠价，r3.1）后开始计结局；随后先到 `target` 记**胜**、先到 `stop` 记**败**、**同日双触保守记败**（决议 3，AGENTS 回测保守纪律）；入场未触（窗内全日 low > entry）记**未入场**。
   - **sell 语义澄清（决议 10）**：本仓库 `direction='sell'` = **已持仓平仓单，非做空**（AGENTS.md 关键约定：sell 计划 `price >= target` 止盈卖出、`price <= stop` 止损卖出；`usePlansStore.checkPlanTriggers` 两方向同一阈值）。几何恒为 `stop < entry < target`（与 buy 相同；entry 为卖出参考价）。回放规则 = buy 但**无未入场判定**（已持仓）：先到 target 记胜、先到 stop 记败、同日双触保守记败。**R 公式双向统一、不翻向**：`R = (exit − entry) / (entry − stop)`——胜 exit=target（R>0）、败 exit=stop（R=−1）、平出 exit=窗口末（最近已收盘）收盘价。评审建议的 `direction×(exit−entry)/|entry−stop|`（sell=−1）与本仓库语义冲突，驳回。
   - **跳空成交模型**：离场触发日的实际成交价——stop 触发且 `bar.open < stop`（向下跳空）→ `exit = open`（更劣，如实）；target 触发且 `bar.open > target`（向上跳空）→ `exit = open`（更优，如实）；无跳空则 exit = 触发位。触发行带 `gapFill` 标记。
-  - **涨跌停/停牌（FR-2c）**：复用 AGENTS 网格回测规则——停牌（`volume ≤ 0`）当日跳过（无成交可能）；**一字板（`high == low`，`volume > 0`）判定按前收盘价计算的涨跌停价（r3，B5）**：`limitUp = round(prevClose × (1 + pct), 2)`、`limitDown = round(prevClose × (1 − pct), 2)`，pct 按 `classify_code()` 板块（北交所 30%、创业板/科创板 20%、其他 10%）；prevClose 取窗口首根 bar 的前一根（多取一根）收盘价，不可得时该 bar 跳过一字板判定（披露）。**买入方向不可成交**于涨停一字板日、**卖出方向不可成交**于跌停一字板日——受影响事件（入场/离场）**顺延到下一可成交 bar**；窗口闭合仍未成交入场 → 未入场；已入场但无法离场且窗口闭合 → 平出（exit = 末收盘）。已知限制（披露，r3 B5）：ST ±5% 与新股上市初期特殊幅度不建模（回放上下文无名称/上市日信息）——误差方向：ST 高波动日一字板可能漏判（误判为可成交，偏乐观）；窗口内 bars ≤ 5 视为新股初期，同样披露。
+  - **涨跌停/停牌（FR-2c）**：复用 AGENTS 网格回测规则——停牌（`volume ≤ 0`）当日跳过（无成交可能）；**一字板（`high == low`，`volume > 0`）判定按前收盘价计算的涨跌停价（r3，B5）**：`limitUp = round(prevClose × (1 + pct), 2)`、`limitDown = round(prevClose × (1 − pct), 2)`，pct 按 `classify_code()` 板块（北交所 30%、创业板/科创板 20%、其他 10%）；prevClose 取窗口首根 bar 的前一根收盘价（**该根同样须满足已收盘条件——B2 规则 `barDate < 今天` 天然覆盖，显式写明，r3.1**），不可得时该 bar 跳过一字板判定（披露）。**买入方向不可成交**于涨停一字板日、**卖出方向不可成交**于跌停一字板日——受影响事件（入场/离场）**顺延到下一可成交 bar**；**顺延后触发价恒为原 entry/stop/target，不因顺延改用开盘价成交**（r3.1，决议 20）；顺延后的 bar 未触及触发价 → 继续顺延，窗口闭合仍未成交入场 → 未入场；已入场但无法离场且窗口闭合 → 平出（exit = 末收盘）。已知限制（披露，r3 B5）：ST ±5% 与新股上市初期特殊幅度不建模（回放上下文无名称/上市日信息）——误差方向：ST 高波动日一字板可能漏判（误判为可成交，偏乐观）；窗口内 bars ≤ 5 视为新股初期，同样披露。
   - 窗口闭合仍未决 → **进行中**（不算胜负）；入场后窗口内 target/stop 均未触 → **平出**（exit = 窗口末已收盘 bar 收盘价，R 按实际值）。
   - 首个触及入场价当日若同时触及 target/stop → 该日即计入双触裁定（不延迟到次日）。
 - **FR-3 聚合 API**：`GET /api/plans/review?days=30|90|0&feeRate=`（0=全部，默认 90；feeRate 可选默认 0.0015，**校验 0 ≤ feeRate ≤ 0.05**，越界 422；决议 12/17）→ 顶层键 `{kpis, groups, items}`：
@@ -53,10 +54,10 @@ r2 → r3 修订 6 blocker（评审"有条件通过"清单全部闭环）：B1 �
   - KPI 卡行（FR-3 kpis 主要项 + 总数）；分组 Tab（来源/方向/有效期/月份）切换分组表；
   - 明细表（可按结局/R 值排序；同日双控行标「保守裁定」角标、跳空成交行标「跳空」角标、一字板顺延行标「顺延」角标、参数修改披露于明细）；
   - 来源为 `scan:{strategyId}` 的分组行展开显示近 30 天扫描留痕摘要（FR-4 数据：运行次数/命中数均值/最近运行）；
-  - 入口默认折叠 + 顶部摘要一句话（如「近 90 天 23 份已了结计划，胜率 52%」）；feeRate 以"成本假设"小字标注于 KPI 区（r3 B4：明示近似）；
+  - 入口默认折叠 + 顶部摘要一句话（如「近 90 天 23 份已了结计划，胜率 52%」）；feeRate 以"成本假设（可调，参考范围 0.1%–0.5%）"小字标注于 KPI 区（r3 B4 + r3.1：明示近似与可调）；`smallSample` 行文案「样本不足，仅供参考」（r3.1）；
   - **固定免责行**：面板底部常驻——「设计口径回放，非实际成交；历史回放不代表未来；不构成投资建议。」
   - data-testid：`review-toggle`、`review-kpis`、`review-group-tab`、`review-items`、`review-trace`、`review-disclaimer`、`review-fee-note`。
-- **FR-6 观测**：回放计算记结构化日志（logger `atlas.review`：计划数/窗口/唯一代码数/上游拉取次数/feeRate/elapsed_ms）；复盘为只读端点，失败如实 502（复用 `ERR_UPSTREAM_UNAVAILABLE`，历史拉取失败时）。
+- **FR-6 观测**：回放计算记结构化日志（logger `atlas.review`：计划数/窗口/唯一代码数/上游拉取次数/feeRate/elapsed_ms）；复盘为只读端点，失败如实 502（复用 `ERR_UPSTREAM_UNAVAILABLE`，历史拉取失败时），**502 日志记录失败 code 列表**（r3.1，便于定位；部分降级 P2 再议）。
 
 ## 4. 数据模型 / 算法
 
@@ -81,6 +82,7 @@ r2 → r3 修订 6 blocker（评审"有条件通过"清单全部闭环）：B1 �
 | ST / 新股特殊涨跌幅 | 不建模（披露）：ST 一字板可能漏判（偏乐观）；窗口内 bars ≤ 5 视为新股初期 |
 | bars 不足（次新股/停牌长） | 窗口内可用 bars 回放；起点前无数据 → notEntered；无 bars → invalid |
 | 同日触及 entry 且 target/stop | 双触裁定当日生效（保守记败 + ambiguous 标记） |
+| 整日低于 entry 的跳空 bar（buy） | 触及成立（low ≤ entry，r3.1），成交价记计划 entry（不取开盘优惠价） |
 | 上游历史拉取失败 | 任一 code 拉取失败 → 整体 502 ERR_UPSTREAM_UNAVAILABLE（如实报错；bars 已 DB 缓存的下次直接用，不重试风暴） |
 | days/feeRate 参数非法 | 422 ERR_VALIDATION_ERROR（feeRate ∈ [0, 0.05]） |
 | 计划数 0 | 空态：kpis 全零 + 「暂无已了结计划」 |
@@ -98,7 +100,7 @@ r2 → r3 修订 6 blocker（评审"有条件通过"清单全部闭环）：B1 �
 
 ## 7. 测试与验收
 
-1. 回放引擎纯函数单测：胜/败/平出/未入场/进行中/invalid 六态 + 同日双触保守裁定 + sell 方向（平仓语义，非做空；entry=卖出参考价语义断言，r3 B6）+ R 公式双向（含 R=−1 与正 R 数值断言，**手工推演核对**）+ 跳空成交价（gap up/down 各一）+ 停牌跳过 + 一字板顺延（涨停买入/跌停卖出各一，**按前收盘价计算涨跌停价**，r3 B5/B6）+ **回放起点排除创建当日** + **未收盘 bar 不参与**（r3 B6，反前视回归）。
+1. 回放引擎纯函数单测：胜/败/平出/未入场/进行中/invalid 六态 + 同日双触保守裁定 + sell 方向（平仓语义，非做空；entry=卖出参考价语义断言，r3 B6）+ R 公式双向（含 R=−1 与正 R 数值断言，**手工推演核对**）+ 跳空成交价（gap up/down 各一）+ 停牌跳过 + 一字板顺延（涨停买入/跌停卖出各一，**按前收盘价计算涨跌停价**，r3 B5/B6）+ **顺延后触发价恒为原 entry**（r3.1 决议 20）+ **跳空穿越 entry 触及**（整日低于 entry 的 bar 仍入场，low ≤ entry 断言，r3.1）+ **回放起点排除创建当日** + **未收盘 bar 不参与**（r3 B6，反前视回归）+ **过期日当日已收盘 bar 参与**（r3.1 消歧回归）。
 2. bfq 链路：data_source param 尾字段/响应 day 行解析；adapter 透传；storage adjustment="" 存取往返；**默认参数 adjustment="qfq" 兼容现有全部调用**（r3 B6）。
 3. source 链路：openFor 各入口传 source → 计划落 source；存量无 source → legacy 归一；workspace PUT 同步往返保留 source；`scan:{strategyId}` 长度上限内不截断。
 4. 聚合 API：days/feeRate 校验 422（**feeRate 越界 422**，r3 B6）；统计口径（winRate 分母 = decided = 胜+败；expectancyR = decided+flatCount；avgWinR/avgLossR 用净 R；payoffRatio 平出不计入；**notEnteredRate 分母 = decided+flatCount+notEntered**）；smallSample 徽标阈值（decided+flatCount<5）；四维分组返回结构（r3 B6）；空计划空态；**costR = feeRate×entry/|entry−stop| 数值断言**（不同止损距离不同 costR）。
@@ -142,4 +144,5 @@ r2 → r3 修订 6 blocker（评审"有条件通过"清单全部闭环）：B1 �
 | 16 | 计划价口径（r3 B1） | 计划价统一原始实时价（草案预填即该口径）；PlanDraftDialog 加提示行（K 线图为前复权，勿照抄图表位）；不做 priceAdjustment 落库（v1 口径规则 + 提示即可，落库留待版本表 P3 一并考虑） |
 | 17 | 未收盘 bar（r3 B2） | 回放只用 `barDate < 今天(Asia/Shanghai)` 的已收盘 bars；validity=长期时终点 = 最近已收盘交易日；结果盘中稳定 |
 | 18 | 统计命名（r3 B3） | `decided`=胜+败（winRate 分母）；`flatCount` 替代 breakevenCount（平出 R 非零）；outcome 值 `flat`；avgWinR/avgLossR 均净 R；notEnteredRate 分母 = decided+flatCount+notEntered |
-| 19 | 涨跌停价（r3 B5） | 按前收盘价 × 板块涨跌幅计算（10/20/30）；prevClose 取窗口前一根 bar；ST/新股不建模（披露，误差方向注明） |
+| 19 | 涨跌停价（r3 B5） | 按前收盘价 × 板块涨跌幅计算（10/20/30）；prevClose 取窗口前一根 bar（同样须已收盘，r3.1）；ST/新股不建模（披露，误差方向注明） |
+| 20 | 顺延触发价（r3.1） | 一字板顺延后触发价恒为原 entry/stop/target，不因顺延改用开盘价成交；顺延后未触及 → 继续顺延/窗口闭合未入场；顺带修正入场触及式为 `low ≤ entry`（跳空穿越按触及、成交价记计划 entry） |
