@@ -221,7 +221,7 @@ def test_history_returns_daily_kline(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
 
-    def fake_history(code, limit=40, is_index=False):
+    def fake_history(code, limit=40, is_index=False, adjustment="qfq"):
         return [{"date": "2026-08-06", "open": 10, "close": 11, "high": 12, "low": 9, "volume": 1000}]
 
     monkeypatch.setattr("backend.data_source.load_history", fake_history)
@@ -1239,7 +1239,7 @@ def test_grid_optimize_returns_candidates(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
     bars = _strategy_bars(60)
-    monkeypatch.setattr("backend.data_source.load_history", lambda code, limit=40, is_index=False: bars)
+    monkeypatch.setattr("backend.data_source.load_history", lambda code, limit=40, is_index=False, adjustment="qfq": bars)
     monkeypatch.setattr(app_module, "save_market_bars", lambda code, history: "2026-08-30")
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519", "capital": 100000, "feeBps": 3})

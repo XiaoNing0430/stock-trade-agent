@@ -34,8 +34,10 @@ class TencentSource(DataSource):
     def load_quotes(self, codes: list[str]) -> list[dict[str, Any]]:
         return tencent_ds.load_quotes(codes)
 
-    def load_history(self, code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
-        return tencent_ds.load_history(code, limit, is_index)
+    def load_history(
+        self, code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq"
+    ) -> list[dict[str, Any]]:
+        return tencent_ds.load_history(code, limit, is_index, adjustment)
 
     def load_market(self, codes: list[str]) -> dict[str, Any]:
         return tencent_ds.load_market(codes)

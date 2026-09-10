@@ -326,15 +326,16 @@ def load_quotes(codes: list[str]) -> list[dict[str, Any]]:
     return load_quote_symbols([tencent_symbol(code) for code in unique_codes])
 
 
-def load_history(code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
+def load_history(code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq") -> list[dict[str, Any]]:
     symbol = index_symbol(code) if is_index else tencent_symbol(code)
+    fq = adjustment or ""
     payload = cached(
-        f"history:{symbol}:{limit}",
-        lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},qfq"}),
+        f"history:{symbol}:{limit}:{fq}",
+        lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},{fq}"}),
     )
     data = payload.get("data") or {}
     symbol_data = data.get(symbol) or {}
-    rows = symbol_data.get("qfqday") or symbol_data.get("day") or []
+    rows = symbol_data.get(f"{fq}day") or symbol_data.get("day") or symbol_data.get("qfqday") or []
     history = []
     for row in rows[-limit:]:
         if len(row) < 6:
