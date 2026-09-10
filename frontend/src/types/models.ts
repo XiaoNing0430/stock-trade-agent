@@ -27,6 +27,7 @@ export interface Plan {
   note: string;
   status: string;
   triggered: Record<string, boolean>;
+  source?: string;
   createdAtMs: number;
 }
 
