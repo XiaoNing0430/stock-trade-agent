@@ -7,6 +7,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from backend.data_source import price_limit_ratio
+
 SHANGHAI = timezone(timedelta(hours=8))
 
 
@@ -50,6 +52,20 @@ def slice_window(bars: list[dict[str, Any]], created_ms: int, validity: str,
     return window, (prior[-1] if prior else None), closed
 
 
+def _board_pct(code: str) -> float:
+    """板块涨跌幅：北交所 30%、创业板/科创板 20%、其他 10%（AGENTS 涨跌幅纪律）。
+
+    经 data_source.price_limit_ratio（classify_code 口径，评审决议 2）单一出处。
+    """
+    return price_limit_ratio(code or "")
+
+
+def _limit_prices(prev_close: float | None, pct: float) -> tuple[float, float] | None:
+    if prev_close is None or prev_close <= 0:
+        return None
+    return round(prev_close * (1 + pct), 2), round(prev_close * (1 - pct), 2)
+
+
 def replay_plan(plan: dict[str, Any], bars: list[dict[str, Any]], fee_rate: float,
                 today: str | None = None) -> dict[str, Any]:
     entry = float(plan.get("entry") or 0)
@@ -76,25 +92,53 @@ def replay_plan(plan: dict[str, Any], bars: list[dict[str, Any]], fee_rate: floa
     def r_of(exit_price: float) -> float:
         return round((exit_price - entry) / risk, 3)
 
+    prev_close = float(prev_bar["close"]) if prev_bar else None   # prev_bar 来自 slice_window
     for bar in window:
         low = float(bar["low"])
         high = float(bar["high"])
+        close = float(bar["close"])
+        open_ = float(bar["open"])
+        volume = float(bar.get("volume") or 0)
+        if volume <= 0:            # 停牌：无成交可能，prev_close 不更新
+            continue
+        limits = _limit_prices(prev_close, _board_pct(str(plan.get("code") or "")))
+        one_price = high == low
+        limit_up_day = bool(limits and one_price and close >= limits[0])
+        limit_down_day = bool(limits and one_price and close <= limits[1])
+        prev_close = float(bar["close"])
         if not entered:
-            if low <= entry:            # r3.1：跳空穿越亦触及，成交价恒记计划 entry
+            if limit_up_day:       # 涨停一字板：买入不可成交 → 顺延（决议 20）
+                rec["limitDeferred"] = True
+                continue
+            if low <= entry:       # r3.1：跳空穿越亦触及，成交价恒记计划 entry
                 entered = True
                 rec["entryDate"] = bar["date"]
             else:
                 continue
         hit_stop = low <= stop
         hit_target = high >= target
-        if hit_stop and hit_target:     # 同日双触保守记败（决议 3）
-            rec.update(outcome="loss", rValue=-1.0, exitDate=bar["date"], ambiguous=True)
+        # 跳空成交模型：离场实际成交价
+        exit_stop = open_ if open_ < stop else stop
+        exit_target = open_ if open_ > target else target
+        if (hit_stop or hit_target) and (exit_stop != stop or exit_target != target):
+            rec["gapFill"] = True
+        if hit_stop and hit_target:     # 同日双触保守记败（决议 3）——跳空模型同样适用（评审 B2）
+            exit_price = open_ if open_ < stop else stop
+            rec.update(outcome="loss", rValue=r_of(exit_price), exitDate=bar["date"], ambiguous=True)
             return _finalize(rec)
         if hit_target:
-            rec.update(outcome="win", rValue=r_of(target), exitDate=bar["date"])
+            if limit_down_day:          # 跌停一字板：卖出离场不可成交 → 顺延
+                rec["limitDeferred"] = True
+                continue
+            rec.update(outcome="win", rValue=r_of(exit_target), exitDate=bar["date"])
             return _finalize(rec)
         if hit_stop:
-            rec.update(outcome="loss", rValue=-1.0, exitDate=bar["date"])
+            if limit_down_day:
+                rec["limitDeferred"] = True
+                continue
+            rec["rValue"] = r_of(exit_stop)
+            rec["outcome"] = "loss"
+            rec["exitDate"] = bar["date"]
             return _finalize(rec)
     # 窗口走完未决：未闭合 → 进行中；已闭合 → 入场过=平出；未入场（仅 buy）→ notEntered；
     # sell 无未入场概念，窗口空且已闭合 → invalid（无末收盘价可平出，评审 B1）

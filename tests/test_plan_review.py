@@ -345,3 +345,71 @@ def test_slice_window_excludes_unclosed_today_bar():
 def test_shanghai_date_str_pins_creation_ms():
     # 补充钉死用例（brief 用例集未含）：钉死时区换算事实，并使 shanghai_date_str 导入被使用（避免 F401）
     assert shanghai_date_str(1_789_084_800_000) == "2026-09-11"
+
+
+# —— Task 4: 市场微结构（跳空成交价 + 停牌跳过 + 前收盘涨跌停一字板顺延 + B2 双触跳空修正）——
+# brief Step 1/Step 3 测试块转录。转录调整（语义中立，详见 task-4-report.md）：
+# 1. 两个一字板用例的 brief 注释均为「主板 10%」口径，而 make_plan 默认 code=300750（创业板 → 20%），
+#    故按注释意图改用 make_plan(code="600519")（沪深主板 → 10%）。
+# 2. test_limit_down 按 brief 自带的构造修正落定：prevClose=10.1 → limitDown=round(10.1*0.9,2)=9.09，
+#    09-15 取 9.05（≤9.09 且 high==low）方为一字跌停。
+# 3. test_suspended_day_skipped 的停牌 bar 报价 9.4（brief 原值 10.1 触不到 stop/target，在 T3 循环下
+#    不具判别力；9.4 若被误作交易日，low 9.4 ≤ stop 9.5 会误判 09-15 loss——正是本用例要抓的行为）。
+# 一字板用例一律先手算 limitUp/limitDown 再造 bar（brief 示范纪律）。
+
+def test_gap_fill_stop_executes_at_open():
+    # 跳空低开：open 9.2 < stop 9.5 → exit=open（更劣），R=(9.2-10)/0.5=-1.6，gapFill=True
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
+                      ("2026-09-15", 9.2, 9.1, 9.6, 9.0, 1000.0)])
+    rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "loss" and rec["gapFill"] is True
+    assert rec["rValue"] == -1.6 and rec["netR"] == -1.63
+
+
+def test_gap_fill_target_executes_at_open():
+    # 跳空高开：open 11.5 > target 11 → exit=open（更优），R=(11.5-10)/0.5=3.0，gapFill=True
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
+                      ("2026-09-15", 11.5, 11.6, 11.7, 11.2, 1000.0)])
+    rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "win" and rec["gapFill"] is True and rec["rValue"] == 3.0
+
+
+def test_suspended_day_skipped():
+    # 09-14 触及 entry；09-15 停牌（volume 0）跳过；09-16 到 target → win
+    # （停牌报价 9.4：若误作交易日，low 9.4 ≤ stop 9.5 会误判 09-15 loss）
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
+                      ("2026-09-15", 9.4, 9.4, 9.4, 9.4, 0.0),
+                      ("2026-09-16", 10.5, 11.2, 11.3, 10.4, 1000.0)])
+    rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "win" and rec["exitDate"] == "2026-09-16"
+
+
+def test_limit_up_one_price_defers_buy_entry():
+    # 主板 10%：prevClose=10.0 → limitUp=11.0；09-14 一字涨停（high==low==11.0, vol>0）→ 买入入场顺延
+    # 09-15 正常触及 entry → entryDate=09-15，limitDeferred=True
+    bars = make_bars([("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),  # prev bar（窗口前一根）
+                      ("2026-09-14", 11.0, 11.0, 11.0, 11.0, 1000.0),  # 一字涨停
+                      ("2026-09-15", 10.5, 10.6, 10.8, 9.8, 1000.0)])
+    rec = replay_plan(make_plan(code="600519"), bars, 0.0015, today=TODAY)
+    assert rec["entryDate"] == "2026-09-15" and rec["limitDeferred"] is True and rec["outcome"] == "flat"
+
+
+def test_limit_down_one_price_defers_sell_exit():
+    # buy 已入场后 09-15 一字跌停（prevClose=10.1 → limitDown=round(10.1*0.9,2)=9.09）
+    # → 卖出离场顺延；09-16 low 9.0 ≤ stop 9.5 → loss；limitDeferred=True
+    # （brief 构造修正保留：09-15 取 9.05 ≤ 9.09 且 high==low 方为一字跌停）
+    bars = make_bars([("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),
+                      ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),   # 入场
+                      ("2026-09-15", 9.05, 9.05, 9.05, 9.05, 1000.0),  # 一字跌停（9.05 ≤ 9.09）
+                      ("2026-09-16", 9.0, 9.0, 9.2, 9.0, 1000.0)])
+    rec = replay_plan(make_plan(code="600519"), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "loss" and rec["limitDeferred"] is True
+
+
+def test_double_touch_with_gap_down_uses_open_exit():
+    # 双触 + 跳空低开：open 9.2 < stop 9.5 → exit=9.2，R=(9.2-10)/0.5=-1.6（非 -1），ambiguous+gapFill
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),   # 入场日
+                      ("2026-09-15", 9.2, 9.3, 11.2, 9.0, 1000.0)])    # open<stop 且 low≤stop、high≥target
+    rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
+    assert rec["outcome"] == "loss" and rec["ambiguous"] is True and rec["gapFill"] is True
+    assert rec["rValue"] == -1.6
