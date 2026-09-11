@@ -9,7 +9,16 @@ from __future__ import annotations
 import pytest
 from backend import storage
 from backend import storage as storage_module
-from backend.plan_review import replay_plan, shanghai_date_str, slice_window, validity_expiry_date
+from backend.plan_review import (
+    ReviewUpstreamError,
+    aggregate,
+    fetch_all_bars,
+    replay_plan,
+    review_plans,
+    shanghai_date_str,
+    slice_window,
+    validity_expiry_date,
+)
 
 # 专用测试工作区，避免覆盖默认工作区真实数据
 WS = "pr-ws"
@@ -116,6 +125,7 @@ def test_save_workspace_roundtrips_source():
 # session_db：brief 第三例的参数名；tests/ 下无同名 fixture，这里给出最小实现，
 # 并在前后清理 300750 的 market_bars，避免与其他用例互相污染。
 
+
 @pytest.fixture()
 def session_db():
     from sqlalchemy import delete as _delete
@@ -133,6 +143,7 @@ def _row(date: str) -> list:
 
 def test_load_history_default_qfq_unchanged(monkeypatch):
     from backend import data_source as ds
+
     keys: list[str] = []
     seen: dict[str, str] = {}
 
@@ -149,12 +160,13 @@ def test_load_history_default_qfq_unchanged(monkeypatch):
     monkeypatch.setattr(ds, "fetch_json", fake_fetch_json)
     rows = ds.load_history("600519", limit=40)
     assert rows[0]["date"] == "2026-09-01"
-    assert keys == ["history:sh600519:40:qfq"]          # 默认 qfq：缓存键含 :qfq
-    assert seen["param"] == "sh600519,day,,,40,qfq"     # 上游 param 尾字段 qfq（现行为不变）
+    assert keys == ["history:sh600519:40:qfq"]  # 默认 qfq：缓存键含 :qfq
+    assert seen["param"] == "sh600519,day,,,40,qfq"  # 上游 param 尾字段 qfq（现行为不变）
 
 
 def test_load_history_bfq_uses_day_rows(monkeypatch):
     from backend import data_source as ds
+
     keys: list[str] = []
     seen: dict[str, str] = {}
 
@@ -164,20 +176,30 @@ def test_load_history_bfq_uses_day_rows(monkeypatch):
 
     def fake_fetch_json(url, params):
         seen["param"] = params["param"]
-        return {"data": {"sh600519": {"day": [_row("2026-09-02")]}}}   # 不复权响应只有 day 键
+        return {"data": {"sh600519": {"day": [_row("2026-09-02")]}}}  # 不复权响应只有 day 键
 
     monkeypatch.setattr(ds, "tencent_symbol", lambda c: "sh600519")
     monkeypatch.setattr(ds, "cached", fake_cached)
     monkeypatch.setattr(ds, "fetch_json", fake_fetch_json)
     rows = ds.load_history("600519", limit=40, adjustment="")
     assert rows[0]["date"] == "2026-09-02"
-    assert keys == ["history:sh600519:40:"]             # 空串 fq 的缓存键（与 qfq 键不冲突）
-    assert seen["param"] == "sh600519,day,,,40,"        # 尾字段空串 → 上游返回原始价
+    assert keys == ["history:sh600519:40:"]  # 空串 fq 的缓存键（与 qfq 键不冲突）
+    assert seen["param"] == "sh600519,day,,,40,"  # 尾字段空串 → 上游返回原始价
 
 
 def test_storage_market_bars_bfq_roundtrip(session_db):
-    bars = [{"date": "2026-09-01", "open": 10.0, "close": 10.2, "high": 10.5,
-             "low": 9.9, "volume": 100000, "amount": 102000000.0, "change": 1.5}]
+    bars = [
+        {
+            "date": "2026-09-01",
+            "open": 10.0,
+            "close": 10.2,
+            "high": 10.5,
+            "low": 9.9,
+            "volume": 100000,
+            "amount": 102000000.0,
+            "change": 1.5,
+        }
+    ]
     storage.save_market_bars("300750", bars, adjustment="")
     loaded = storage.load_market_bars("300750", adjustment="")
     assert loaded[0]["date"] == "2026-09-01"
@@ -194,15 +216,30 @@ TODAY = "2026-10-05"  # 「本月内」（过期 09-30）窗口均闭合
 
 def make_bars(dates_prices: list[tuple[str, float, float, float, float, float]]) -> list[dict]:
     """(date, open, close, high, low, volume) → bar dicts，amount/change 补默认。"""
-    return [{"date": d, "open": o, "close": c, "high": h, "low": lo, "volume": v,
-             "amount": 1_000_000.0, "change": 1.0} for d, o, c, h, lo, v in dates_prices]
+    return [
+        {"date": d, "open": o, "close": c, "high": h, "low": lo, "volume": v, "amount": 1_000_000.0, "change": 1.0}
+        for d, o, c, h, lo, v in dates_prices
+    ]
 
 
 def make_plan(**over) -> dict:
-    base = {"id": "p1", "code": "300750", "direction": "buy", "entry": 10.0, "stop": 9.5,
-            "target": 11.0, "capital": 10000, "position": 50, "validity": "本月内",
-            "status": "执行中", "triggered": {}, "createdAtMs": 1_789_084_800_000,
-            "note": "", "createdAt": "00:00", "source": None}
+    base = {
+        "id": "p1",
+        "code": "300750",
+        "direction": "buy",
+        "entry": 10.0,
+        "stop": 9.5,
+        "target": 11.0,
+        "capital": 10000,
+        "position": 50,
+        "validity": "本月内",
+        "status": "执行中",
+        "triggered": {},
+        "createdAtMs": 1_789_084_800_000,
+        "note": "",
+        "createdAt": "00:00",
+        "source": None,
+    }
     base.update(over)
     return base
 
@@ -211,8 +248,7 @@ def test_buy_win_hits_target_first():
     # 创建 09-11；窗口从 09-14 起。entry=10 stop=9.5 target=11 → risk=0.5
     # 09-14 low=9.8>未触? low 9.8 > entry 10? 9.8<10 → 触及 entry（low≤entry）
     # 09-15 high=11.3 ≥ target 11 → win, R=(11-10)/0.5=2.0；costR=0.0015*10/0.5=0.03 → netR=1.97
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
-                      ("2026-09-15", 10.5, 11.2, 11.3, 10.4, 1000.0)])
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0), ("2026-09-15", 10.5, 11.2, 11.3, 10.4, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "win" and rec["rValue"] == 2.0 and rec["netR"] == 1.97
     assert rec["entryDate"] == "2026-09-14" and rec["exitDate"] == "2026-09-15"
@@ -220,8 +256,9 @@ def test_buy_win_hits_target_first():
 
 
 def test_buy_loss_hits_stop():
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
-                      ("2026-09-15", 10.0, 9.4, 10.1, 9.4, 1000.0)])  # low 9.4 ≤ stop 9.5
+    bars = make_bars(
+        [("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0), ("2026-09-15", 10.0, 9.4, 10.1, 9.4, 1000.0)]
+    )  # low 9.4 ≤ stop 9.5
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "loss" and rec["rValue"] == -1.0 and rec["netR"] == -1.03
 
@@ -236,16 +273,14 @@ def test_same_day_double_touch_conservative_loss():
 def test_gap_down_whole_day_below_entry_still_enters():
     # 整日低于 entry（high 9.8 < entry 10）→ low ≤ entry 触及成立（r3.1），成交价记 entry=10
     # 09-15 收 9.4≤stop? low 9.4 ≤ stop 9.5 → loss -1
-    bars = make_bars([("2026-09-14", 9.7, 9.6, 9.8, 9.5, 1000.0),
-                      ("2026-09-15", 9.5, 9.4, 9.6, 9.4, 1000.0)])
+    bars = make_bars([("2026-09-14", 9.7, 9.6, 9.8, 9.5, 1000.0), ("2026-09-15", 9.5, 9.4, 9.6, 9.4, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["entryDate"] == "2026-09-14" and rec["outcome"] == "loss"
 
 
 def test_flat_exits_at_window_end_close():
     # 窗口内触及 entry 后 target/stop 均未触 → 平出，exit=末收盘 10.1，R=(10.1-10)/0.5=0.2
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.3, 9.9, 1000.0),
-                      ("2026-09-15", 10.1, 10.1, 10.4, 10.0, 1000.0)])
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.3, 9.9, 1000.0), ("2026-09-15", 10.1, 10.1, 10.4, 10.0, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "flat" and abs(rec["rValue"] - 0.2) < 1e-9
 
@@ -287,16 +322,26 @@ def test_creation_day_bar_excluded_and_expiry_day_included():
     # validity=本周内 → 过期日=09-13（ISO 周日，已实算）
     assert validity_expiry_date(1_789_084_800_000, "本周内") == "2026-09-13"
     assert validity_expiry_date(1_789_084_800_000, "本月内") == "2026-09-30"
-    bars = make_bars([("2026-09-11", 9.0, 9.0, 9.0, 9.0, 1000.0),   # 创建当日：若被误用会立刻 win（low≤entry≤target）→ 该用例防前视
-                      ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0)])
+    bars = make_bars(
+        [
+            (
+                "2026-09-11",
+                9.0,
+                9.0,
+                9.0,
+                9.0,
+                1000.0,
+            ),  # 创建当日：若被误用会立刻 win（low≤entry≤target）→ 该用例防前视
+            ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
+        ]
+    )
     rec = replay_plan(make_plan(validity="本月内"), bars, 0.0015, today=TODAY)
     assert rec["entryDate"] == "2026-09-14"  # 创建当日 bar 未参与
 
 
 def test_unclosed_today_bar_excluded():
     # today=09-15：09-15 的 bar 是"今天"，未收盘不参与 → 09-14 触及 entry 后窗口无后续 → open
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
-                      ("2026-09-15", 11.5, 11.6, 11.7, 11.0, 1000.0)])
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0), ("2026-09-15", 11.5, 11.6, 11.7, 11.0, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today="2026-09-15")
     assert rec["outcome"] == "open"
 
@@ -314,7 +359,7 @@ def test_validity_long_term_and_empty_sentinel():
     assert validity_expiry_date(1_789_084_800_000, "") == "9999-12-31"
     bars = make_bars([("2026-09-14", 10.5, 10.6, 10.8, 10.4, 1000.0)])
     rec = replay_plan(make_plan(validity="长期"), bars, 0.0015, today="2026-09-16")
-    assert rec["outcome"] == "open"   # 窗口未闭合 → 进行中（非 notEntered）
+    assert rec["outcome"] == "open"  # 窗口未闭合 → 进行中（非 notEntered）
 
 
 # —— slice_window 窗口终点语义直测（数值按 createdAt=09-11 钉死）——
@@ -323,10 +368,14 @@ def test_validity_long_term_and_empty_sentinel():
 def test_slice_window_expiry_day_bar_included():
     # validity=本周内 → 过期日 09-13；today=09-16 → end_date=min(09-13, 09-16)=09-13，已闭合
     # 窗口 = (09-11, 09-13] → 09-12、09-13；prevClose 用 09-11（创建当日 bar 可作 prev）
-    bars = make_bars([("2026-09-11", 10, 10, 10, 10, 1000.0),
-                      ("2026-09-12", 10, 10, 10, 10, 1000.0),
-                      ("2026-09-13", 10, 10, 10, 10, 1000.0),
-                      ("2026-09-14", 10, 10, 10, 10, 1000.0)])   # 09-14 > 过期日 → 不在窗口
+    bars = make_bars(
+        [
+            ("2026-09-11", 10, 10, 10, 10, 1000.0),
+            ("2026-09-12", 10, 10, 10, 10, 1000.0),
+            ("2026-09-13", 10, 10, 10, 10, 1000.0),
+            ("2026-09-14", 10, 10, 10, 10, 1000.0),
+        ]
+    )  # 09-14 > 过期日 → 不在窗口
     window, prev, closed = slice_window(bars, 1_789_084_800_000, "本周内", today="2026-09-16")
     assert [b["date"] for b in window] == ["2026-09-12", "2026-09-13"]  # 过期日当日 bar 参与（r3.1 消歧）
     assert closed is True and prev is not None and prev["date"] == "2026-09-11"
@@ -334,12 +383,16 @@ def test_slice_window_expiry_day_bar_included():
 
 def test_slice_window_excludes_unclosed_today_bar():
     # today=09-15：09-15 的 bar 未收盘，即使 ≤ end_date 也排除（B2）
-    bars = make_bars([("2026-09-11", 10, 10, 10, 10, 1000.0),
-                      ("2026-09-14", 10, 10, 10, 10, 1000.0),
-                      ("2026-09-15", 10, 10, 10, 10, 1000.0)])
+    bars = make_bars(
+        [
+            ("2026-09-11", 10, 10, 10, 10, 1000.0),
+            ("2026-09-14", 10, 10, 10, 10, 1000.0),
+            ("2026-09-15", 10, 10, 10, 10, 1000.0),
+        ]
+    )
     window, _, closed = slice_window(bars, 1_789_084_800_000, "本月内", today="2026-09-15")
-    assert [b["date"] for b in window] == ["2026-09-14"]    # 09-15（今天）被 < today 排除
-    assert closed is False                                   # end_date=min(09-30,09-15)=09-15 不早于今天
+    assert [b["date"] for b in window] == ["2026-09-14"]  # 09-15（今天）被 < today 排除
+    assert closed is False  # end_date=min(09-30,09-15)=09-15 不早于今天
 
 
 def test_shanghai_date_str_pins_creation_ms():
@@ -357,10 +410,10 @@ def test_shanghai_date_str_pins_creation_ms():
 #    不具判别力；9.4 若被误作交易日，low 9.4 ≤ stop 9.5 会误判 09-15 loss——正是本用例要抓的行为）。
 # 一字板用例一律先手算 limitUp/limitDown 再造 bar（brief 示范纪律）。
 
+
 def test_gap_fill_stop_executes_at_open():
     # 跳空低开：open 9.2 < stop 9.5 → exit=open（更劣），R=(9.2-10)/0.5=-1.6，gapFill=True
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
-                      ("2026-09-15", 9.2, 9.1, 9.6, 9.0, 1000.0)])
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0), ("2026-09-15", 9.2, 9.1, 9.6, 9.0, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "loss" and rec["gapFill"] is True
     assert rec["rValue"] == -1.6 and rec["netR"] == -1.63
@@ -368,8 +421,7 @@ def test_gap_fill_stop_executes_at_open():
 
 def test_gap_fill_target_executes_at_open():
     # 跳空高开：open 11.5 > target 11 → exit=open（更优），R=(11.5-10)/0.5=3.0，gapFill=True
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
-                      ("2026-09-15", 11.5, 11.6, 11.7, 11.2, 1000.0)])
+    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0), ("2026-09-15", 11.5, 11.6, 11.7, 11.2, 1000.0)])
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "win" and rec["gapFill"] is True and rec["rValue"] == 3.0
 
@@ -377,9 +429,13 @@ def test_gap_fill_target_executes_at_open():
 def test_suspended_day_skipped():
     # 09-14 触及 entry；09-15 停牌（volume 0）跳过；09-16 到 target → win
     # （停牌报价 9.4：若误作交易日，low 9.4 ≤ stop 9.5 会误判 09-15 loss）
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
-                      ("2026-09-15", 9.4, 9.4, 9.4, 9.4, 0.0),
-                      ("2026-09-16", 10.5, 11.2, 11.3, 10.4, 1000.0)])
+    bars = make_bars(
+        [
+            ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),
+            ("2026-09-15", 9.4, 9.4, 9.4, 9.4, 0.0),
+            ("2026-09-16", 10.5, 11.2, 11.3, 10.4, 1000.0),
+        ]
+    )
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "win" and rec["exitDate"] == "2026-09-16"
 
@@ -387,9 +443,13 @@ def test_suspended_day_skipped():
 def test_limit_up_one_price_defers_buy_entry():
     # 主板 10%：prevClose=10.0 → limitUp=11.0；09-14 一字涨停（high==low==11.0, vol>0）→ 买入入场顺延
     # 09-15 正常触及 entry → entryDate=09-15，limitDeferred=True
-    bars = make_bars([("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),  # prev bar（窗口前一根）
-                      ("2026-09-14", 11.0, 11.0, 11.0, 11.0, 1000.0),  # 一字涨停
-                      ("2026-09-15", 10.5, 10.6, 10.8, 9.8, 1000.0)])
+    bars = make_bars(
+        [
+            ("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),  # prev bar（窗口前一根）
+            ("2026-09-14", 11.0, 11.0, 11.0, 11.0, 1000.0),  # 一字涨停
+            ("2026-09-15", 10.5, 10.6, 10.8, 9.8, 1000.0),
+        ]
+    )
     rec = replay_plan(make_plan(code="600519"), bars, 0.0015, today=TODAY)
     assert rec["entryDate"] == "2026-09-15" and rec["limitDeferred"] is True and rec["outcome"] == "flat"
 
@@ -398,18 +458,147 @@ def test_limit_down_one_price_defers_sell_exit():
     # buy 已入场后 09-15 一字跌停（prevClose=10.1 → limitDown=round(10.1*0.9,2)=9.09）
     # → 卖出离场顺延；09-16 low 9.0 ≤ stop 9.5 → loss；limitDeferred=True
     # （brief 构造修正保留：09-15 取 9.05 ≤ 9.09 且 high==low 方为一字跌停）
-    bars = make_bars([("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),
-                      ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),   # 入场
-                      ("2026-09-15", 9.05, 9.05, 9.05, 9.05, 1000.0),  # 一字跌停（9.05 ≤ 9.09）
-                      ("2026-09-16", 9.0, 9.0, 9.2, 9.0, 1000.0)])
+    bars = make_bars(
+        [
+            ("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),
+            ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),  # 入场
+            ("2026-09-15", 9.05, 9.05, 9.05, 9.05, 1000.0),  # 一字跌停（9.05 ≤ 9.09）
+            ("2026-09-16", 9.0, 9.0, 9.2, 9.0, 1000.0),
+        ]
+    )
     rec = replay_plan(make_plan(code="600519"), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "loss" and rec["limitDeferred"] is True
 
 
 def test_double_touch_with_gap_down_uses_open_exit():
     # 双触 + 跳空低开：open 9.2 < stop 9.5 → exit=9.2，R=(9.2-10)/0.5=-1.6（非 -1），ambiguous+gapFill
-    bars = make_bars([("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),   # 入场日
-                      ("2026-09-15", 9.2, 9.3, 11.2, 9.0, 1000.0)])    # open<stop 且 low≤stop、high≥target
+    bars = make_bars(
+        [
+            ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),  # 入场日
+            ("2026-09-15", 9.2, 9.3, 11.2, 9.0, 1000.0),
+        ]
+    )  # open<stop 且 low≤stop、high≥target
     rec = replay_plan(make_plan(), bars, 0.0015, today=TODAY)
     assert rec["outcome"] == "loss" and rec["ambiguous"] is True and rec["gapFill"] is True
     assert rec["rValue"] == -1.6
+
+
+# —— Task 5: bars 批量获取 + 聚合编排（fetch_all_bars 双层缓存 / aggregate kpis+四维分组 / review_plans）——
+# brief 测试块转录。转录修正（非语义中立，详见 task-5-report.md）：
+# test_aggregate_excludes_null_netr_defensively 的计数断言由 brief 原稿 decided == 2 / winRate == 1.0
+# （注释"2 胜 0 败"）修正为 decided == 3 / winRate == 0.667（注释"2 胜 1 败"）：输入含 2 胜 1 败三条
+# 记录，spec r3 B3（spec.md:43「decided = 胜 + 败」，None 净R 只剔均值不剔计数——正是本用例注释
+# 「计数仍按 outcome」的本意）与 brief 自带实现、上方 kpis 主用例一致地给出 3/0.667；
+# 均值剔除断言（avgWinR 1.97 / expectancyR 0.47，B3 的核心）原样保留。
+
+
+def test_aggregate_kpis_and_null_placeholders():
+    recs = [
+        {**_rec("win", 2.0, 0.03)},
+        {**_rec("win", 1.5, 0.03)},
+        {**_rec("loss", -1.0, 0.03)},
+        {**_rec("flat", 0.2, 0.03)},
+        {**_rec("notEntered", None, None)},
+        {**_rec("open", None, None)},
+        {**_rec("invalid", None, None)},
+    ]
+    out = aggregate(recs)
+    k = out["kpis"]
+    # netR：win 1.97 / win 1.47 / loss -1.03 / flat 0.17（cost=0.03）
+    assert k["total"] == 7 and k["decided"] == 3 and k["flatCount"] == 1
+    assert k["winRate"] == 0.667  # 2 胜 / 3 decided
+    assert k["expectancyR"] == 0.645  # (1.97+1.47-1.03+0.17)/4
+    assert k["avgWinR"] == 1.72 and k["avgLossR"] == -1.03
+    assert k["payoffRatio"] == 1.67  # 1.72 / 1.03
+    assert k["notEnteredRate"] == 0.2  # 1 / (3+1+1)
+    assert k["openCount"] == 1 and k["invalidCount"] == 1
+
+
+def test_aggregate_null_when_no_losses():
+    recs = [{**_rec("win", 2.0, 0.0)}, {**_rec("win", 1.0, 0.0)}]
+    k = aggregate(recs)["kpis"]
+    assert k["payoffRatio"] is None and k["avgLossR"] is None  # 败样本空 → null（绝不造数）
+
+
+def test_groups_small_sample_flag():
+    recs = [{**_rec("win", 2.0, 0.03), "source": "manual"}] * 3
+    out = aggregate(recs)
+    g = next(row for row in out["groups"]["source"] if row["key"] == "manual")
+    assert g["smallSample"] is True and g["decided"] + g["flatCount"] < 5
+
+
+def test_aggregate_excludes_null_netr_defensively():
+    # 评审 B3：settled 记录 netR 为 None（回放异常）→ 显式剔除均值，绝不静默归零；计数仍按 outcome
+    recs = [{**_rec("win", 2.0, 0.03)}, {**_rec("win", None, None)}, {**_rec("loss", -1.0, 0.03)}]
+    k = aggregate(recs)["kpis"]
+    assert k["decided"] == 3 and k["winRate"] == 0.667  # 计数按结局：2 胜 1 败（spec r3 B3，转录修正）
+    assert k["avgWinR"] == 1.97  # netR None 的 win 剔除后均值（非 (2.0+0)/2）
+    assert k["expectancyR"] == round((1.97 - 1.03) / 2, 3)  # 0.47
+
+
+def test_review_plans_days_filter_and_flow():
+    plans = [
+        make_plan(id="old", createdAtMs=1_700_000_000_000),  # 2023-11
+        make_plan(id="new"),
+    ]
+
+    def fake_load_bars(codes):
+        return {
+            c: make_bars(
+                [("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0), ("2026-09-15", 10.5, 11.2, 11.3, 10.4, 1000.0)]
+            )
+            for c in codes
+        }
+
+    out = review_plans(plans, days=90, fee_rate=0.0015, load_bars=fake_load_bars)
+    ids = {i["planId"] for i in out["items"]}
+    assert "new" in ids and "old" not in ids  # days=90 只留 createdAt 近 90 天
+    out_all = review_plans(plans, days=0, fee_rate=0.0015, load_bars=fake_load_bars)
+    assert {"old", "new"} <= {i["planId"] for i in out_all["items"]}
+
+
+def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db, monkeypatch):
+    # DB 命中：save 一份 bfq bars 后 fetch 不打上游
+    bars = make_bars([("2026-09-14", 10, 10, 10, 10, 1000.0)])
+    storage.save_market_bars("300750", bars, adjustment="")
+    calls: list[str] = []
+
+    class FakeRouter:
+        def load_history(self, code, limit, is_index=False, adjustment="qfq"):
+            calls.append(code)
+            return []
+
+    out = fetch_all_bars(["300750"], FakeRouter())
+    assert out["300750"][0]["date"] == "2026-09-14" and calls == []
+    # 上游失败：无缓存 code 抛 ReviewUpstreamError 且 codes 齐全
+
+    class BadRouter:
+        def load_history(self, code, limit, is_index=False, adjustment="qfq"):
+            raise RuntimeError("upstream down")
+
+    with pytest.raises(ReviewUpstreamError) as ei:
+        fetch_all_bars(["600519", "000001"], BadRouter())
+    assert sorted(ei.value.codes) == ["000001", "600519"]
+
+
+def _rec(outcome, r, cost):
+    return {
+        "planId": "x",
+        "code": "300750",
+        "source": "manual",
+        "direction": "buy",
+        "entry": 10.0,
+        "stop": 9.5,
+        "target": 11.0,
+        "validity": "本月内",
+        "status": "执行中",
+        "outcome": outcome,
+        "rValue": r,
+        "netR": None if r is None else round(r - (cost or 0), 3),
+        "costR": cost,
+        "entryDate": None,
+        "exitDate": None,
+        "ambiguous": False,
+        "gapFill": False,
+        "limitDeferred": False,
+    }
