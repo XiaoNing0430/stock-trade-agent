@@ -177,7 +177,7 @@ def index_symbol(code: str) -> str:
 
 def classify_code(code: str) -> dict[str, str]:
     code = code.strip()
-    if code.startswith(("4", "8")):
+    if code.startswith(("4", "8", "92")):
         return {
             "exchange": "北交所",
             "board": "北交所",

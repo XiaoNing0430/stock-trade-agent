@@ -931,6 +931,12 @@ def test_price_limit_ratio_by_board():
     assert data_source.price_limit_ratio("600519") == 0.10
 
 
+def test_price_limit_ratio_bj_920_segment():
+    # 920xxx 北交所新码段（评审 I1）：classify_code 旧元组 ("4","8") 漏 92 → 未知 → 误回 0.10
+    assert data_source.classify_code("920001")["exchange"] == "北交所"
+    assert data_source.price_limit_ratio("920001") == 0.30
+
+
 def test_http_get_raises_after_retries_exhausted(monkeypatch):
     def always_fail(url, params=None, headers=None, timeout=None):
         raise data_source.requests.ConnectionError("boom")
