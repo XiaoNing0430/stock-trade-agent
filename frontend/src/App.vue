@@ -310,7 +310,7 @@ function isItemUnread(item: Alert): boolean {
 function openScanDraft(item: Alert): void {
   if (!item.code) return;
   // openFor 自吞错误（内部 catch + toast），此处无需 await
-  assist.openFor({ code: item.code });
+  assist.openFor({ code: item.code, source: `scan:${item.strategyId}` });
   markScanSeen(item.strategyId || '');
 }
 

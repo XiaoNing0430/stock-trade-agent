@@ -122,8 +122,10 @@ describe('PlanDraftDialog', () => {
   });
 
   it('确认触发 confirmDraft：构建 savePlan 同形计划（status 执行中 / triggered:{}）', async () => {
-    const { wrapper } = await mountDialog();
-    const assist = useAssistStore();
+    const { wrapper, assist } = await mountDialog();
+    // B6：source 经 openFor 写入 draft 状态对象（与 code 同路），对话框同源读取后随确认落计划
+    assist.draft = { ...structuredClone(DRAFT), source: 'scan:trend_breakout' };
+    await wrapper.vm.$nextTick();
     const confirmSpy = vi
       .spyOn(assist, 'confirmDraft')
       .mockImplementation(async () => {
@@ -146,6 +148,24 @@ describe('PlanDraftDialog', () => {
     expect(plan.createdAtMs).toEqual(expect.any(Number));
     expect(plan.createdAt).toEqual(expect.any(String));
     expect(plan.id).toContain('plan-600519-');
+    expect(plan.source).toBe('scan:trend_breakout'); // 入口归因随计划落库
+  });
+
+  it('confirmDraft 落计划 source 缺省兜底 manual，且入场价附近显示口径提示行', async () => {
+    const { wrapper, assist } = await mountDialog();
+    const note = wrapper.find('[data-testid="draft-price-scope-note"]');
+    expect(note.exists()).toBe(true);
+    expect(note.text()).toContain('K 线图为前复权价，请勿直接照抄图表价位');
+    const confirmSpy = vi
+      .spyOn(assist, 'confirmDraft')
+      .mockImplementation(async () => {
+        assist.visible = false;
+        return 'saved';
+      });
+    await wrapper.find('button[data-testid="confirm"]').trigger('click');
+    await vi.waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
+    const plan = confirmSpy.mock.calls[0][0] as Plan & { createdAt?: string };
+    expect(plan.source).toBe('manual');
   });
 
   it('确认成功后对话框关闭且计划入列（真实 confirmDraft 流程）', async () => {

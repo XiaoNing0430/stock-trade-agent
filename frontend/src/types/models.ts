@@ -81,4 +81,6 @@ export interface AssistDraft {
   provider: string;
   warnings: string[];
   disclaimer: string;
+  /** 入口归因（前端 openFor 写入，非后端响应字段）：scan:{strategyId} | screener | monitor | manual */
+  source?: string;
 }

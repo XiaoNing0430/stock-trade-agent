@@ -297,7 +297,7 @@ function openStrategyTab() {
 
 /** 策略命中行 → 草案：快照携带价格与时间戳（screener 行无 updatedAt 传 null，stale 警告兜底）。 */
 async function openDraft(row: any) {
-  await assist.openFor({ code: row.code, name: row.name, price: row.price ?? null, asOfMs: row.updatedAt ?? null });
+  await assist.openFor({ code: row.code, name: row.name, price: row.price ?? null, asOfMs: row.updatedAt ?? null, source: 'screener' });
 }
 
 /** 策略命中行 → 回测：预填代码并切到策略实验室。 */
