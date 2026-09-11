@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 from backend import storage
 from backend import storage as storage_module
 from backend.plan_review import (
+    SHANGHAI,
     ReviewUpstreamError,
     aggregate,
     fetch_all_bars,
@@ -537,10 +540,10 @@ def test_aggregate_excludes_null_netr_defensively():
 
 
 def test_review_plans_days_filter_and_flow():
-    plans = [
-        make_plan(id="old", createdAtMs=1_700_000_000_000),  # 2023-11
-        make_plan(id="new"),
-    ]
+    # 相对时钟（fix round 1）：不再钉死 createdAtMs——400 天前恒在 90 天窗口外，昨天恒在窗口内
+    old = int((datetime.now() - timedelta(days=400)).timestamp() * 1000)
+    new = int((datetime.now() - timedelta(days=1)).timestamp() * 1000)
+    plans = [make_plan(id="old", createdAtMs=old), make_plan(id="new", createdAtMs=new)]
 
     def fake_load_bars(codes):
         return {
@@ -557,9 +560,10 @@ def test_review_plans_days_filter_and_flow():
     assert {"old", "new"} <= {i["planId"] for i in out_all["items"]}
 
 
-def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db, monkeypatch):
-    # DB 命中：save 一份 bfq bars 后 fetch 不打上游
-    bars = make_bars([("2026-09-14", 10, 10, 10, 10, 1000.0)])
+def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db):
+    # DB 命中：save 一份 bfq bars（昨日 bar——恒新于 7 天 stale 阈值，fix round 1 相对时钟）后 fetch 不打上游
+    fresh_date = (datetime.now(SHANGHAI) - timedelta(days=1)).strftime("%Y-%m-%d")
+    bars = make_bars([(fresh_date, 10, 10, 10, 10, 1000.0)])
     storage.save_market_bars("300750", bars, adjustment="")
     calls: list[str] = []
 
@@ -569,7 +573,7 @@ def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db, monkeypa
             return []
 
     out = fetch_all_bars(["300750"], FakeRouter())
-    assert out["300750"][0]["date"] == "2026-09-14" and calls == []
+    assert out["300750"][0]["date"] == fresh_date and calls == []
     # 上游失败：无缓存 code 抛 ReviewUpstreamError 且 codes 齐全
 
     class BadRouter:
