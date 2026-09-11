@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
+from backend import plan_review
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -70,6 +71,7 @@ from backend.storage import (
     list_enabled_scan_configs,
     list_grid_strategies,
     list_scan_configs,
+    list_scan_history,
     list_strategies,
     load_market_bars,
     save_grid_backtest,
@@ -96,6 +98,7 @@ ERR_NOT_FOUND = "NOT_FOUND"  # 404 资源不存在
 ERR_RATE_LIMITED = "RATE_LIMITED"  # 429 草案限频
 
 logger = logging.getLogger("atlas.assist")
+review_logger = logging.getLogger("atlas.review")  # 计划复盘独立通道：上游失败 codes 落日志（r3.1）
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -478,6 +481,46 @@ def create_app() -> FastAPI:
                 }
             )
         return {"hits": hits}
+
+    def _scan_history_out(row: dict[str, Any]) -> dict[str, Any]:
+        """扫描历史行 → camelCase 出参。list_scan_history 行键已是 camelCase（storage.py:875），
+        仅把 runAt（datetime）转为机器时间戳 runAtMs（毫秒，同 _plan_dict createdAtMs 惯例）。"""
+        run_at = row.get("runAt")
+        return {
+            "strategyId": row.get("strategyId"),
+            "runAtMs": int(run_at.timestamp() * 1000) if run_at is not None else None,
+            "status": row.get("status"),
+            "hitCount": row.get("hitCount"),
+            "newCount": row.get("newCount"),
+            "elapsedMs": row.get("elapsedMs"),
+            "traceId": row.get("traceId"),
+        }
+
+    @app.get("/api/screener/scan/history")
+    def scan_history(strategyId: str | None = None, limit: int = 30) -> dict[str, Any]:
+        """扫描运行留痕（只读，最新在前）：limit 夹取 1..200。"""
+        limit = max(1, min(int(limit), 200))
+        rows = list_scan_history(strategy_id=strategyId or None, limit=limit)
+        return {"history": [_scan_history_out(r) for r in rows]}
+
+    @app.get("/api/plans/review")
+    def plans_review(days: int = 90, feeRate: float = plan_review.DEFAULT_FEE_RATE) -> dict[str, Any]:
+        """计划绩效复盘（只读，设计口径回算；红线：零写 plans）。"""
+        if days not in (0, 30, 90):
+            raise api_error(422, ERR_VALIDATION_ERROR, "days 仅支持 0/30/90")
+        if not (0.0 <= feeRate <= 0.05):
+            raise api_error(422, ERR_VALIDATION_ERROR, "feeRate 须在 [0, 0.05]")
+        plans = get_workspace().get("plans") or []
+        try:
+            return plan_review.review_plans(
+                plans,
+                days=days,
+                fee_rate=float(feeRate),
+                load_bars=lambda codes: plan_review.fetch_all_bars(codes, app.state.assist_router),
+            )
+        except plan_review.ReviewUpstreamError as exc:
+            review_logger.error("review_upstream_failed codes=%s", exc.codes)
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
 
     @app.post("/api/assist/plan-draft", response_model=PlanDraftResponse)
     def assist_plan_draft(payload: PlanDraftIn) -> PlanDraftResponse:

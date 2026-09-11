@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 import pytest
+from backend import app as app_module
 from backend import storage
 from backend import storage as storage_module
 from backend.plan_review import (
@@ -22,6 +24,7 @@ from backend.plan_review import (
     slice_window,
     validity_expiry_date,
 )
+from fastapi.testclient import TestClient
 
 # 专用测试工作区，避免覆盖默认工作区真实数据
 WS = "pr-ws"
@@ -606,3 +609,81 @@ def _rec(outcome, r, cost):
         "gapFill": False,
         "limitDeferred": False,
     }
+
+
+# ---------------------------------------------------------------------------
+# API 端点（Task 6）：GET /api/plans/review + GET /api/screener/scan/history
+# patch 目标：review_plans 走 "backend.plan_review.review_plans" 属性访问（app.py 同款）；
+# get_workspace / list_scan_history 走 app 模块名（与 test_backend_api.py 的
+# monkeypatch.setattr(app_module, ...) 惯例一致——app.py 顶层 from-import 直引名称）。
+# ---------------------------------------------------------------------------
+
+client = TestClient(app_module.app)  # 模块级共享；各用例自 monkeypatch，互不残留
+
+
+def test_review_endpoint_happy_path(monkeypatch):
+    plans = [make_plan(id="p1"), make_plan(id="p2", source="scan:trend_breakout")]
+    monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": plans})
+    monkeypatch.setattr(
+        "backend.plan_review.review_plans",
+        lambda ps, days, fee_rate, **k: {"kpis": {"total": len(ps)}, "groups": {}, "items": []},
+    )
+    r = client.get("/api/plans/review", params={"days": 90})
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"kpis", "groups", "items"} and body["kpis"]["total"] == 2
+    # feeRate 以字符串数值传入 → FastAPI float 解析兼容（评审遗留观察）
+    ok = client.get("/api/plans/review", params={"days": 0, "feeRate": "0.002"})
+    assert ok.status_code == 200
+
+
+def test_review_endpoint_422_days_and_feerate(monkeypatch):
+    monkeypatch.setattr("backend.plan_review.review_plans", lambda *a, **k: {})  # 422 在调用前返回，不触达
+    assert client.get("/api/plans/review", params={"days": 45}).status_code == 422
+    assert client.get("/api/plans/review", params={"days": 90, "feeRate": 0.9}).status_code == 422
+    assert client.get("/api/plans/review", params={"days": 90, "feeRate": -0.1}).status_code == 422
+
+
+def test_review_endpoint_502_logs_failed_codes(monkeypatch, caplog):
+    def boom(plans, days, fee_rate, **k):
+        raise ReviewUpstreamError(["600519", "000001"])
+
+    caplog.set_level(logging.ERROR)
+    monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": []})
+    monkeypatch.setattr("backend.plan_review.review_plans", boom)
+    r = client.get("/api/plans/review")
+    assert r.status_code == 502
+    assert r.json()["detail"]["failedCodes"] == ["600519", "000001"]  # codes 进 detail（冻结契约）
+    assert "600519" in caplog.text and "000001" in caplog.text  # 失败 code 落日志（r3.1）
+
+
+def test_scan_history_endpoint(monkeypatch):
+    run_at = datetime.now(SHANGHAI)
+    rows = [
+        {
+            "id": 7,
+            "strategyId": "trend_breakout",
+            "runAt": run_at,
+            "status": "ok",
+            "hitCount": 3,
+            "newCount": 1,
+            "elapsedMs": 1200,
+            "traceId": "t1",
+        }
+    ]  # list_scan_history 实际行键（storage.py:875）：已 camelCase，runAt 为 datetime，无 mode 列
+    seen: dict = {}
+
+    def fake_list(strategy_id=None, limit=50):
+        seen["strategy_id"] = strategy_id
+        seen["limit"] = limit
+        return rows
+
+    monkeypatch.setattr(app_module, "list_scan_history", fake_list)
+    r = client.get("/api/screener/scan/history", params={"strategyId": "trend_breakout"})
+    assert r.status_code == 200
+    body = r.json()["history"][0]
+    assert body["hitCount"] == 3 and body["strategyId"] == "trend_breakout"  # camelCase 出参
+    assert body["runAtMs"] == int(run_at.timestamp() * 1000)  # 机器时间戳口径（ms，同 storage.py:288 惯例）
+    assert seen["strategy_id"] == "trend_breakout" and seen["limit"] == 30  # 默认 limit=30
+    assert client.get("/api/screener/scan/history", params={"limit": 999}).status_code == 200
+    assert seen["limit"] == 200  # 1..200 夹取
