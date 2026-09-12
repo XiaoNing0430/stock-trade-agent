@@ -4020,3 +4020,8 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 11px;
 }
+/* 复审 M1：复盘面板 muted 披露行（摘要/降级提示/留痕）此前无任何规则，红线披露与正文视觉无差别 */
+.muted {
+  color: var(--muted);
+  font-size: 11px;
+}
