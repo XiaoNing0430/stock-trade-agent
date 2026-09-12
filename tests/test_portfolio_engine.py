@@ -6,6 +6,11 @@ bar 元组顺序与 test_plan_review 一致：(date, open, close, high, low, vol
 
 oracle 说明（评审低1 修正）：`replay_plan` 只在本文件里作为对照 oracle 导入——引擎本体
 backend/portfolio_risk.py 不 import replay_plan，微结构等价性由 test_equiv_vs_plan_review 锁住。
+
+分歧口径（评审 I-2 钉桩）：「同日双触且 open>target（高开跳空）」一角，复盘 gap_exit 按
+stop/target 双侧检查（plan_review.py:143）→ 记 gapFill；组合只在**实际成交价≠触发价**时记
+→ 该角不记（双触成交价恒=stop 侧）。成交价与离场日仍逐项等价，equiv 断言经 `equiv_skip`
+仅豁免该角的 gapFill 比较（场景 double_touch_gap_up，组合侧行为另由 expect 钉死）。
 """
 
 from __future__ import annotations
@@ -285,6 +290,19 @@ SCENARIOS: list[dict[str, Any]] = [
         "expect": {"ambiguous": True, "gapFill": True, "outcome": "loss"},
     },
     {
+        # 评审 I-2 分歧角：双触 + open 11.2 > target 11 → 复盘 gap_exit 双侧检查记 gapFill=True，
+        # 成交价仍=stop 9.5；组合按"成交价≠触发价"不记（expect 钉组合侧）。
+        # equiv 断言本角只比成交价/离场日（equiv_skip 豁免 gapFill），口径见模块 docstring。
+        "name": "double_touch_gap_up",
+        "bars": [
+            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10
+            ("2026-01-06", 11.2, 10.8, 11.3, 9.4, 1000.0),  # 双触（low 9.4≤stop，high 11.3≥target）+ 高开
+        ],
+        "equiv_skip": ["gapFill"],
+        "expect": {"ambiguous": True, "gapFill": False, "outcome": "loss", "exitDate": "2026-01-06"},
+    },
+    {
         "name": "suspended_day_skipped",
         "bars": [
             ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
@@ -390,6 +408,11 @@ def test_equiv_vs_plan_review(case: dict[str, Any]) -> None:
         assert pos["exit"] is None
 
     for key in ("ambiguous", "gapFill", "limitDeferred"):
+        if key in (case.get("equiv_skip") or []):
+            # 评审 I-2：双触+高开跳空一角成交价/离场日等价但 gapFill 标记有意分歧
+            # （复盘 gap_exit 双侧检查→True；组合按成交价≠触发价→False）。分歧由 expect 单独钉。
+            assert pos[key] is False and oracle[key] is True, (key, outcome)
+            continue
         assert pos[key] == oracle[key], (key, outcome)
     if oracle["entryDate"] is not None:
         entry_bar = next(b for b in bars if b["date"] == pos["entryDate"])
@@ -573,3 +596,80 @@ def test_invalid_plans_and_missing_bars_are_skipped_without_fabrication() -> Non
         assert positions == [] and events == [], over
     # 无 bars 的可交易日历缺口：窗内无 bar 的已过期/存续计划 → 不出仓（有 bar 才计账）
     assert replay_positions([make_plan()], {}, WINDOW_START, TODAY, "core", {})[0] == []
+
+
+# —— 评审补钉（Fix-round-1：I-1 / I-3 / M-1）——
+
+
+def test_exit_proceeds_counted_once_into_later_allocation_base() -> None:
+    # I-1 离场回笼单计：A 窗内止损回笼 0.94 后，隔 01-07/01-08 两个轴日 B 才分配——
+    # base 必须仍是"单次回笼后"的 0.94；若每个后续轴日重复入账，01-09 会膨胀为 2.82。
+    # （test_allocation_base_uses_last_known_nav 的下一日即分配，恰好躲不过该缺陷——评审指认。）
+    bars_a = make_bars(
+        [
+            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # A 入场 @10，notional=1.0（position=100）
+            ("2026-01-06", 9.4, 9.5, 9.6, 9.3, 1000.0),  # A 跳空止损 @9.4 → 回笼 0.94，NAV=0.94
+            ("2026-01-07", 9.6, 9.7, 9.8, 9.5, 1000.0),  # 离场后第 1 个轴日（重复入账在此暴露）
+            ("2026-01-08", 9.7, 9.8, 9.9, 9.6, 1000.0),  # 第 2 个轴日
+        ]
+    )
+    bars_b = make_bars(
+        [
+            ("2026-01-02", 20.6, 20.5, 20.7, 20.4, 1000.0),
+            ("2026-01-09", 20.2, 20.4, 20.6, 19.8, 1000.0),  # B 入场 @20：基准必须=0.94（非 2.82）
+        ]
+    )
+    plan_a = make_plan(id="A", code="600519", position=100)
+    plan_b = make_plan(id="B", code="000001", entry=20.0, stop=19.0, target=22.0, position=50)
+    positions, events = replay_positions([plan_a, plan_b], {"600519": bars_a, "000001": bars_b}, WINDOW_START, TODAY)
+    assert events == []
+    by_id = {p["planId"]: p for p in positions}
+    a, b = by_id["A"], by_id["B"]
+    assert a["status"] == "closed" and a["exit"] is not None
+    assert a["exit"]["date"] == "2026-01-06" and a["exit"]["price"] == pytest.approx(9.4)
+    assert a["proceeds"] == pytest.approx(0.94)
+    assert b["entryDate"] == "2026-01-09" and b["entryPrice"] == pytest.approx(20.0)
+    assert b["baseNav"] == pytest.approx(0.94), "回笼只计一次：01-07/01-08 不得再各 +0.94"
+    assert b["requestedNotional"] == pytest.approx(0.47) and b["notional"] == pytest.approx(0.47)
+    assert b["scaled"] is False and b["shares"] == pytest.approx(0.47 / 20.0)
+    dates = nav_dates({"600519": bars_a, "000001": bars_b}, WINDOW_START, TODAY)
+    r = compose_nav(positions, dates, 0.0)
+    assert dates == ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09"]
+    # 01-06 起纯现金 0.94 平台两日（不膨胀）；01-09 = 0.47 现金 + 0.0235 股 × 20.4 = 0.9494
+    assert r["gross"] == pytest.approx([1.03, 0.94, 0.94, 0.94, 0.9494])
+
+
+def test_suspension_does_not_roll_prev_close_for_one_price_gate() -> None:
+    # I-3 停牌+一字板连击：停牌日 close 9.9 恰为真前收 9.0 的涨停价（绊马索）；若停牌日被误滚动
+    # prev_close，次日一字板带宽变 10.89 → 9.9 被误判"可正常买入"提前入场。
+    # 正确口径：停牌日跳过且 prev_close 仍 9.0 → limitUp=9.9 → 涨停一字不可买 → 顺延至 01-07。
+    bars = make_bars(
+        [
+            ("2026-01-02", 9.0, 9.0, 9.0, 9.0, 1000.0),  # 创建日锚：真 prev_close = 9.0
+            ("2026-01-05", 9.9, 9.9, 9.9, 9.9, 0.0),  # 停牌：不得更新 prev_close
+            ("2026-01-06", 9.9, 9.9, 9.9, 9.9, 1000.0),  # 一字板 = 正确带宽涨停位 → 买顺延
+            ("2026-01-07", 10.0, 10.2, 10.4, 9.7, 1000.0),  # 次日正常：low 9.7 ≤ entry → 成交 10
+        ]
+    )
+    pos, events = replay_one(make_plan(entry=10.0, stop=9.0, target=12.0), bars)
+    assert pos is not None and events == []
+    assert pos["limitDeferred"] is True, "一字板可成交性判定必须用跳过停牌后的前收（9.0→带宽 9.9）"
+    assert pos["entryDate"] == "2026-01-07" and pos["entryPrice"] == pytest.approx(10.0)
+    assert pos["marks"] == {"2026-01-07": 10.2}
+    assert pos["status"] == "holding" and pos["exit"] is None
+
+
+def test_compose_nav_key_set_matches_i9() -> None:
+    # M-1：I9 九键键集钉桩（防增删/改名漂移），空仓与含仓返回同构。
+    keys = {"dates", "gross", "net", "feeCum", "feeSum", "cashEnd", "exposureEnd", "mddGross", "mddNet"}
+    assert set(compose_nav([], ["2026-01-05", "2026-01-06"], FEE)) == keys
+    bars = make_bars(
+        [
+            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),
+        ]
+    )
+    pos, _ = replay_one(make_plan(), bars)
+    assert pos is not None
+    assert set(compose_nav([pos], nav_dates({"600519": bars}, WINDOW_START, TODAY), FEE)) == keys
