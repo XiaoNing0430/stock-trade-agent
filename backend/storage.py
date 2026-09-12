@@ -219,6 +219,21 @@ class WorkspaceState(Base):
     )
 
 
+class IndustryMap(Base):
+    """行业映射持久层（组合风险视图 Task 2）：全市场 code→行业（东财 f100），后台每日刷新。
+
+    name 存原始 f100 字符串；行业缺失（空/缺）的行不落库——消费侧对未命中统一走"未知"桶。
+    """
+
+    __tablename__ = "industry_map"
+
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)

@@ -12,8 +12,8 @@ from backend.sources.cn_impl import CNAssetMetadata, CNDataNormalizer, CNMarketC
 # 报价字段：f2=price f3=changePct f4=changeAmount f5=volume f6=amount f8=turnoverRate
 #           f9=pe f10=pb f12=code f14=name f15=high f16=low f17=open f18=prevClose
 _QUOTE_FIELDS = "f2,f3,f4,f5,f6,f8,f9,f10,f12,f14,f15,f16,f17,f18"
-# 排行字段（screener）
-_CLIST_FIELDS = "f2,f3,f5,f6,f8,f9,f10,f12,f14"
+# 排行字段（screener）：f100=行业（industry_map 用）
+_CLIST_FIELDS = "f2,f3,f5,f6,f8,f9,f10,f12,f14,f100"
 # 前端排序字段 → clist fid（f2 现价 f3 涨跌幅 f6 成交额 f8 换手率 f9 PE f20 总市值）
 _EM_SORT_MAP = {
     "changePct": "f3",
@@ -106,6 +106,8 @@ class EastMoneySource(DataSource):
             "pb": numeric(raw.get("f10")),
             "pe": numeric(raw.get("f9")),
             "volumeRatio": None,
+            # 行归一带出行业（f100 原始串）；缺字段时为 None，行业空值由映射/消费侧处理
+            "industry": raw.get("f100"),
             "updatedAt": int(time.time() * 1000),
         }
 
@@ -258,6 +260,27 @@ class EastMoneySource(DataSource):
             "rows": rows,
             "provider": self.provider_label,
         }
+
+    def _clist_page(self, page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        """行业映射用全市场分页：复用 clist 请求构造（同 load_screener_paged 的 URL/参数/解析）。
+
+        返回 (归一 rows, total)；每行由 _parse_quote 归一并带出 industry（f100 原始串）。
+        """
+        params: dict[str, Any] = {
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f12",
+            "po": 1,
+            "np": 1,
+            "pn": page,
+            "pz": size,
+            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+            "fields": _CLIST_FIELDS,
+        }
+        data = self._http_get(self.CLIST_URL, params)
+        payload = data.get("data") or {}
+        rows = [q for q in (self._parse_quote(raw) for raw in payload.get("diff", [])) if q is not None]
+        return rows, int(payload.get("total", 0))
 
     def load_fundamentals(self, code: str) -> dict[str, Any]:
         """拉取个股财务字段（唯一 fundamental 提供方）。"""

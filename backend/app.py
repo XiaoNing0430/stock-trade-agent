@@ -4,6 +4,7 @@ import logging
 import math
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from importlib.util import find_spec
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,8 +25,15 @@ from backend.data_source import (
     price_limit_ratio,
     recent_stale,
 )
-from backend.grid_scheduler import schedule_strategy, start_scheduler, stop_scheduler, unschedule_strategy
+from backend.grid_scheduler import (
+    schedule_strategy,
+    scheduler,
+    start_scheduler,
+    stop_scheduler,
+    unschedule_strategy,
+)
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
+from backend.industry_map import refresh_industry_map
 from backend.schemas import (
     DeleteOut,
     GridBacktestIn,
@@ -101,6 +109,7 @@ ERR_RATE_LIMITED = "RATE_LIMITED"  # 429 草案限频
 
 logger = logging.getLogger("atlas.assist")
 review_logger = logging.getLogger("atlas.review")  # 计划复盘独立通道：上游失败 codes 落日志（r3.1）
+industry_logger = logging.getLogger("atlas.industry")  # 行业映射后台预热独立通道（Task 2）
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -140,6 +149,14 @@ def _load_history_with_fallback(
         return bars, "local", bars[-1]["date"], "local"
 
 
+def _industry_warmup_job() -> None:
+    """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。"""
+    try:
+        refresh_industry_map()
+    except Exception:
+        industry_logger.warning("行业映射全市场刷新失败（已跳过，不影响 API）", exc_info=True)
+
+
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -161,6 +178,20 @@ def create_app() -> FastAPI:
                 )
             except Exception:
                 pass
+            # 行业映射预热（Task 2）：启动后 30s 首刷，其后每 24h 刷新。
+            # APScheduler 3.x 无 first_run_delay，用 next_run_time 等价实现延迟首刷；
+            # 注册失败仅记日志，绝不影响 API 启动。
+            try:
+                scheduler.add_job(
+                    _industry_warmup_job,
+                    "interval",
+                    hours=24,
+                    id="industry-warmup",
+                    replace_existing=True,
+                    next_run_time=datetime.now(scheduler.timezone) + timedelta(seconds=30),
+                )
+            except Exception:
+                industry_logger.warning("行业映射预热任务注册失败（已跳过，不影响 API）", exc_info=True)
         yield
         stop_scheduler()
 
