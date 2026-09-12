@@ -687,3 +687,50 @@ def test_scan_history_endpoint(monkeypatch):
     assert seen["strategy_id"] == "trend_breakout" and seen["limit"] == 30  # 默认 limit=30
     assert client.get("/api/screener/scan/history", params={"limit": 999}).status_code == 200
     assert seen["limit"] == 200  # 1..200 夹取
+
+
+def test_review_endpoint_real_chain_with_load_history_facade(monkeypatch):
+    """冒烟缺陷回归：bars 预取必须走 load_history 门面（assist_router 无 load_history 时整链 502）。
+
+    真实 review_plans/fetch_all_bars/slice_window/replay_plan 链路，只在最外层
+    load_history（app 模块名）与 storage 缓存读写打桩。旧接线（assist_router）下
+    fetch_all_bars 对每个 code 抛 AttributeError → ReviewUpstreamError → 502，本用例必红。
+    """
+    now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
+    plan = {
+        "id": "chain-1",
+        "code": "600519",
+        "name": "链路冒烟",
+        "direction": "buy",
+        "entry": 10.0,
+        "stop": 9.5,
+        "target": 11.0,
+        "position": 10,
+        "validity": "长期",
+        "status": "执行中",
+        "triggered": False,
+        "source": "manual",
+        "createdAtMs": now_ms - 10 * 86_400_000,
+    }
+    bars = [
+        {
+            "date": (datetime.now(SHANGHAI) - timedelta(days=d)).strftime("%Y-%m-%d"),
+            "open": 10.4,
+            "high": 11.5,
+            "low": 9.9,
+            "close": 11.0,
+            "volume": 1000,
+        }
+        for d in range(9, 1, -1)  # 8 根：创建日(now-10d)之后、今天之前的连续日期
+    ]
+    saved: list = []
+    monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": [plan]})
+    monkeypatch.setattr(app_module, "load_history", lambda code, **k: list(bars))
+    monkeypatch.setattr(storage, "load_market_bars", lambda *a, **k: [])
+    monkeypatch.setattr(storage, "save_market_bars", lambda code, rows, adjustment="": saved.append((code, adjustment)))
+    r = client.get("/api/plans/review", params={"days": 90})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kpis"]["total"] == 1 and body["kpis"]["winRate"] == 1.0
+    assert body["items"][0]["outcome"] == "win" and body["items"][0]["netR"] == 1.97
+    assert saved and saved[0] == ("600519", "")  # bfq 落缓存，adjustment 恒空串

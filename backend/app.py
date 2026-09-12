@@ -6,6 +6,7 @@ import time
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +21,7 @@ from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
+    load_history,
     price_limit_ratio,
     recent_stale,
 )
@@ -516,7 +518,9 @@ def create_app() -> FastAPI:
                 plans,
                 days=days,
                 fee_rate=float(feeRate),
-                load_bars=lambda codes: plan_review.fetch_all_bars(codes, app.state.assist_router),
+                # 冒烟修复：assist_router 是能力路由器、无 load_history；bars 预取走 data_source.load_history
+                # （内含路由/重试/redis 缓存 + adjustment 参数，T2），SimpleNamespace 满足 fetch_all_bars 的 router 契约。
+                load_bars=lambda codes: plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=load_history)),
             )
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
