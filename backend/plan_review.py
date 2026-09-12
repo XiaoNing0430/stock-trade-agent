@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from backend.data_source import price_limit_ratio
 
 SHANGHAI = timezone(timedelta(hours=8))
+review_logger = logging.getLogger("atlas.review")  # 与 app 复盘端点同通道：取数失败/成功留痕
 
 
 def shanghai_date_str(ms: int) -> str:
@@ -135,25 +137,30 @@ def replay_plan(
                 continue
         hit_stop = low <= stop
         hit_target = high >= target
-        # 跳空成交模型：离场实际成交价
+        # 跳空成交模型：离场实际成交价；gapFill 只落在当日真实离场的分支（顺延日不留幻影跳空标记）
         exit_stop = open_ if open_ < stop else stop
         exit_target = open_ if open_ > target else target
-        if (hit_stop or hit_target) and (exit_stop != stop or exit_target != target):
-            rec["gapFill"] = True
+        gap_exit = exit_stop != stop or exit_target != target
         if hit_stop and hit_target:  # 同日双触保守记败（决议 3）——跳空模型同样适用（评审 B2）
             exit_price = open_ if open_ < stop else stop
+            if gap_exit:
+                rec["gapFill"] = True
             rec.update(outcome="loss", rValue=r_of(exit_price), exitDate=bar["date"], ambiguous=True)
             return _finalize(rec)
         if hit_target:
             if limit_down_day:  # 跌停一字板：卖出离场不可成交 → 顺延
                 rec["limitDeferred"] = True
                 continue
+            if gap_exit:  # 单触止盈日 open>target（高开跳空）→ 更优成交价
+                rec["gapFill"] = True
             rec.update(outcome="win", rValue=r_of(exit_target), exitDate=bar["date"])
             return _finalize(rec)
         if hit_stop:
             if limit_down_day:
                 rec["limitDeferred"] = True
                 continue
+            if gap_exit:  # 单触止损日 open<stop（低开跳空）→ 更劣成交价
+                rec["gapFill"] = True
             rec["rValue"] = r_of(exit_stop)
             rec["outcome"] = "loss"
             rec["exitDate"] = bar["date"]
@@ -208,7 +215,8 @@ def fetch_all_bars(codes: list[str], router) -> dict[str, list[dict[str, Any]]]:
                     storage.save_market_bars(code, fresh, adjustment="")
                     bars = fresh
             out[code] = sorted(bars, key=lambda b: b["date"])
-        except Exception:  # noqa: BLE001 —— 任一 code 失败不阻断其他 code 的拉取，最后统一抛
+        except Exception as exc:  # noqa: BLE001 —— 任一 code 失败不阻断其他 code 的拉取，最后统一抛
+            review_logger.warning("review_fetch_failed code=%s err=%r", code, exc)
             failed.append(code)
     if failed:
         raise ReviewUpstreamError(failed)

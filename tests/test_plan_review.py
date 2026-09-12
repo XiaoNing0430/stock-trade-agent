@@ -476,6 +476,26 @@ def test_limit_down_one_price_defers_sell_exit():
     assert rec["outcome"] == "loss" and rec["limitDeferred"] is True
 
 
+def test_deferred_limit_down_day_leaves_no_phantom_gap_fill():
+    # 回归：跌停一字 09-15 open 9.05 < stop 9.5 属跳空离场价，但当日离场顺延（不可成交）
+    # → gapFill 不得留幻影标记（旧代码在顺延分支前置赋值）；次日真实跳空止损离场才记位。
+    deferred_only = make_bars(
+        [
+            ("2026-09-11", 10.0, 10.0, 10.0, 10.0, 1000.0),  # 窗口前一根（prevClose 起锚）
+            ("2026-09-14", 10.2, 10.1, 10.4, 9.8, 1000.0),  # 入场日
+            ("2026-09-15", 9.05, 9.05, 9.05, 9.05, 1000.0),  # 一字跌停（prevClose 10.1 → limitDown 9.09）
+        ]
+    )
+    rec = replay_plan(make_plan(code="600519"), deferred_only, 0.0015, today=TODAY)
+    # 当日未决出止损离场：outcome 非该 bar 的跳空 loss，窗口走完 → 期末平出（flat）
+    assert rec["outcome"] == "flat" and rec["limitDeferred"] is True and rec["gapFill"] is False
+    # 次日普通跳空低开（open 9.0 < stop）→ 真实离场日 gapFill=True、loss
+    bars = deferred_only + make_bars([("2026-09-16", 9.0, 9.0, 9.2, 9.0, 1000.0)])
+    rec2 = replay_plan(make_plan(code="600519"), bars, 0.0015, today=TODAY)
+    assert rec2["outcome"] == "loss" and rec2["exitDate"] == "2026-09-16"
+    assert rec2["gapFill"] is True and rec2["limitDeferred"] is True and rec2["rValue"] == -2.0
+
+
 def test_double_touch_with_gap_down_uses_open_exit():
     # 双触 + 跳空低开：open 9.2 < stop 9.5 → exit=9.2，R=(9.2-10)/0.5=-1.6（非 -1），ambiguous+gapFill
     bars = make_bars(

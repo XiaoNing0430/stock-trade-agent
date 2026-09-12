@@ -520,19 +520,37 @@ def create_app() -> FastAPI:
         if not (0.0 <= feeRate <= 0.05):
             raise api_error(422, ERR_VALIDATION_ERROR, "feeRate 须在 [0, 0.05]")
         plans = get_workspace().get("plans") or []
+        # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""
+        t0 = time.perf_counter()
+        stats = {"upstream": 0}
+
+        def _loader(codes: list[str]) -> dict[str, list[dict[str, Any]]]:
+            def _counting(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
+                stats["upstream"] += 1
+                return _review_bars_loader(code, limit, is_index, adjustment)
+
+            return plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=_counting))
+
         try:
-            return plan_review.review_plans(
+            result = plan_review.review_plans(
                 plans,
                 days=days,
                 fee_rate=float(feeRate),
-                # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""
-                load_bars=lambda codes: plan_review.fetch_all_bars(
-                    codes, SimpleNamespace(load_history=_review_bars_loader)
-                ),
+                load_bars=_loader,
             )
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
+        review_logger.info(
+            "review_ok plans=%d window_days=%d codes=%d upstream=%d fee_rate=%.4f elapsed_ms=%d",
+            len(plans),
+            days,
+            len({str(r.get("code")) for r in result.get("items", []) if r.get("code")}),
+            stats["upstream"],
+            float(feeRate),
+            int((time.perf_counter() - t0) * 1000),
+        )
+        return result
 
     @app.post("/api/assist/plan-draft", response_model=PlanDraftResponse)
     def assist_plan_draft(payload: PlanDraftIn) -> PlanDraftResponse:
