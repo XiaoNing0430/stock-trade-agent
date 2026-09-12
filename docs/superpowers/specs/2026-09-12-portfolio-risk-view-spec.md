@@ -1,6 +1,6 @@
-# 组合风险视图（P1）— 设计规格 r3
+# 组合风险视图（P1）— 设计规格 r3.2
 
-日期：2026-09-12 ｜ 状态：**终审通过（r2 附 P0/P1 条件，r3 已补全），待用户放行进计划** ｜ 上游：ROADMAP「P1 组合风险视图：自选 + 计划合计敞口、行业集中度、虚拟组合回撤」
+日期：2026-09-12 ｜ 状态：**计划评审通过项已吸收（P0/P1/观察 2·4），实施计划为唯一执行依据** ｜ 上游：ROADMAP「P1 组合风险视图：自选 + 计划合计敞口、行业集中度、虚拟组合回撤」
 定位：研究向**纯计算视图**，读现有计划/自选数据，零写入计划（红线：无券商、无自动执行、绝不造数）。
 
 ## 0. 术语
@@ -39,8 +39,8 @@
 
 ## 4. 行业映射
 
-- 新模块 `backend/industry_map.py`：`get_industry_map() -> dict[code, str]`。**双层缓存**：进程 dict（TTL 24h）+ 新表 `industry_map(code PK, name, updated_at)`（Alembic 迁移 2）持久化——重启不清零；读取顺序：进程 → DB（未过期）→ 陈旧 DB（stale 容忍 + `industryDegraded=stale` 标注）→ 全市场拉取（仅首启/表空）。
-- 数据源=东财 clist 全市场分页（`_CLIST_FIELDS` 追加 `f100`，复用 screener 既有请求构造，≤10 req/s 纪律）。**API 永不内联拉取全市场**：`GET /api/portfolio/risk` 只读缓存；拉取/刷新走后台任务（APScheduler 既有基建，每日一次 + 启动后延迟预热），进度不进面板（预热完成前集中度以已有 DB 行 + 未知桶运行，`meta.industryCoverage = {known, total, stale}` 如实披露）。
+- 新模块 `backend/industry_map.py`：`get_industry_map() -> tuple[dict[str, str], status]`，status ∈ `fresh|stale|empty`。**双层缓存**：进程 dict（TTL 24h）+ 新表 `industry_map(code PK, name, updated_at)`（Alembic 迁移 2）持久化——重启不清零；读取顺序：进程 → DB（未过期→fresh）→ 陈旧 DB（stale 容忍）→ **表空即返回 ({}, 'empty')，绝不内联全量拉取**（首启由后台预热填充，前端见 empty 出预热文案）。
+- 数据源=东财 clist 全市场分页（`_CLIST_FIELDS` 追加 `f100`，复用 screener 既有请求构造，≤10 req/s 纪律）。**API 永不内联拉取全市场**：`GET /api/portfolio/risk` 只读缓存；拉取/刷新走后台任务（APScheduler 既有基建，每日一次 + 启动后延迟预热），进度不进面板（预热完成前集中度以已有 DB 行 + 未知桶运行，`meta.industryCoverage = {known, total, staleCount}` 如实披露，r3.2 计数命名与 status 词区分）。
 - 腾讯排名接口无行业字段 → 行业模块与 historySource 设置**无关**（固定东财，文档如实写明，同"复盘 bars 走路由源"的披露风格）。
 - 失败：保留上次 DB 数据（stale 容忍）；空表且拉取失败 → 全"未知"桶 + degraded 标注。**不影响 NAV 计算（正交降级）**。
 
@@ -81,7 +81,7 @@
 `GET /api/portfolio/risk?days=30|90|180|365|0&start=YYYY-MM-DD&layer=core|closed&withWatch=true|false&feeRate=`
 - 校验（越界均 422，同复盘纪律）：days 白名单（0=ALL，默认 **90**→前端 3M）；start 给定时须为合法 ISO、∈ [today−1825d, today−1d]；**start 优先且 days 完全忽略、不参与交叉校验（终审 R4 取消"覆盖 days"含糊条款）**；layer ∈ {core, closed}（默认 core）；withWatch bool（默认 false）；feeRate 可选，**默认复用既有常量 `plan_review.DEFAULT_FEE_RATE=0.0015`（r3.1 事实修正：常量已在，复盘端点即引用它）；上限新增常量 `FEE_RATE_MAX=0.05` 入 plan_review（一行纯新增，替换复盘端点内联 0.05 与组合端点共用，杜绝漂移）**。
 - **轻量护栏**：复用 `SlidingWindowLimiter`（assist 草案先例）**20 req/min**——只防误循环/连点重算，非安全边界（单用户本地）；超限 429。
-- 顶层键：`{kpis, nav: {dates[], values[], net[]}, exposure: {plannedPct, capPct, overCap, cashPct, amountByEquity}, concentration: {top3, hhi, industries[{key,label,pct}], unknownPct, watchPool{...}, hypothetical{...}|null}, pairs: [...], orphans: [...], signals: {items[], note}, events: [...], eventsTotal, degraded: [codes], meta: {layer, windowStart, truncatedAt?, industryCoverage{known,total,stale}, equity, feeRate}}`。
+- 顶层键：`{kpis, nav: {dates[], gross[], net[], feeCum[], feeSum}, exposure: {plannedPct, capPct, overCap, cashPct, amountByEquity}, concentration: {top3, hhi, industries[{key,label,pct}], unknownPct, watchPool{...}, hypothetical{...}|null}, pairs: [...], orphans: [...], signals: {items[], note}, events: [...], eventsTotal, degraded: [codes], meta: {layer, windowStart, truncatedAt?, industryCoverage{known,total,staleCount}, equity, feeRate}}`（r3.2：values→gross 与引擎/决策 D7 命名对齐；stale→staleCount 消除与 I4 status 词的歧义）。
 - **列表截断**：pairs/orphans/signals.items/events 各 cap 50 + 对应 `*Total` 计数（前端折叠区显示"共 N 条，已截断"）——单用户数据量下替代分页。
 - `kpis`：`{navNow, navNowNet, mdd, mddNet, exposurePct, cashPct, planCount:{active,triggered,closedInWindow,notEntered}, orphanSellCount, pairCount, scalingCount}`；金额换算锚 `defaultCapital`（meta.equity 如实回显）。
 - 上游失败：复用 `ReviewUpstreamError` → 502 `{error,code,detail.failedCodes}` + `atlas.review` 日志（同式）；空计划 → 200 全零态结构。

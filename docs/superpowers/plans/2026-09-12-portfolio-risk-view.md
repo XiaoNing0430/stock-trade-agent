@@ -30,7 +30,7 @@
 | I6 | `FEE_RATE_MAX = 0.05` 入 `plan_review.py`（与既有 `DEFAULT_FEE_RATE` 并排；两端点共用） | T3 |
 | I7 | `replay_positions(plans, bars_map, window_start: str, today: str, layer: str, links: dict[str,dict]) -> tuple[list[dict], list[dict]]`（positions, events；position 含 `marks: dict[date,float]`、`status: holding\|closed\|notEntered`、`exit: {date,price,reason}\|None`） | T3 |
 | I8 | `build_links(plans) -> tuple[dict[str,dict], list[dict]]`（buyPlanId→{sell,exitMode}，events：dangling/双配冲突） | T4 |
-| I9 | `compose_nav(positions, dates: list[str], fee_rate: float) -> dict`（`{dates, gross, net, cashEnd, exposureEnd, mddGross, mddNet, feeSum}`；恒等式 gross_t−net_t=Σfee_{≤t}） | T3 |
+| I9 | `compose_nav(positions, dates: list[str], fee_rate: float) -> dict`（`{dates, gross, net, feeCum, feeSum, cashEnd, exposureEnd, mddGross, mddNet}`；**feeCum=逐日累计费用数组、feeSum=标量终值**；恒等式 gross_t−net_t=feeCum_t） | T3 |
 | I10 | `aggregate_portfolio(...) -> dict`（payload 除 degraded 的全部区块，签名见 T5） | T5 |
 | I11 | `GET /api/portfolio/risk` 参数与顶层键（spec §6 逐字） | T6 |
 | I12 | `usePortfolioStore`：`{days,start,layer,withWatch,feeRate,payload,error,loading,fetchedOnce, fetch(), setParam()}` | T7 |
@@ -105,7 +105,7 @@ def test_empty(tmp_db):                                 # 表空且拉取失败 
 def test_refresh_partial_page_keeps_rows(tmp_db):       # 拉取中途失败 → 已 upsert 行保留，返回计数
 ```
 
-- [ ] **Step 2: 红**；**Step 3: 实现**：进程 `_cache: tuple[float, dict]` TTL 86400；读序=进程→DB(updated_at 距今≤24h→fresh)→DB 全量(stale)→触发拉取（仅表空）；`refresh_industry_map` 分页循环（size=200，≤10req/s 用既有 sleep 纪律）、upsert、写穿进程缓存；真 fetch_page 用 eastmoney 既有 clist 请求构造（新增薄函数 `_clist_page(page, size)` 返回归一 rows）。
+- [ ] **Step 2: 红**；**Step 3: 实现**：进程 `_cache: tuple[float, dict]` TTL 86400；读序=进程→DB(updated_at 距今≤24h→fresh)→DB 全量(stale)→**表空返回 ({}, 'empty') 绝不内联拉取（评审观察 4：全市场拉取只发生在后台预热/显式 refresh；首启前端见 empty→预热文案，≤30s 窗口不阻塞 API）**；`refresh_industry_map` 分页循环（size=200，≤10req/s 用既有 sleep 纪律）、upsert、写穿进程缓存；真 fetch_page 用 eastmoney 既有 clist 请求构造（新增薄函数 `_clist_page(page, size)` 返回归一 rows）。
 - [ ] **Step 4: 绿 + ruff/mypy 该两文件**；**Step 5: Commit** — `feat: 行业映射双层缓存（东财 f100+DB 持久化+每日预热）`
 
 **Interfaces:** Consumes 既有 scheduler；Produces I4/I5。
@@ -138,12 +138,14 @@ def test_stop_target_race_conservative():
 def test_nav_identity_gross_net():
     r = compose_nav(positions, dates, fee_rate=0.0015)
     for t in range(len(r["dates"])):
-        assert r["gross"][t] - r["net"][t] == pytest.approx(r["feeCum"][t])
+        assert r["gross"][t] - r["net"][t] == pytest.approx(r["feeCum"][t])   # P0 修正：feeCum 数组
+    assert r["feeCum"][-1] == pytest.approx(r["feeSum"])                      # 标量=末位数组值
 def test_equiv_vs_plan_review():
-    # 单 plan、窗=其 created..expiry：portfolio 入场/离场/价格与 plan_review.replay_plan 逐项相等
+    # oracle 修正（评审低1）：直接 import plan_review.replay_plan 作对照——单 plan、
+    # 窗=其 created..expiry 时 portfolio 入场/离场日期与价格逐项 == replay_plan rec 字段
 ```
 
-- [ ] **Step 2: 红**；**Step 3: 实现** `replay_positions` + `compose_nav`（两函数；position dict 结构照 I7；`from backend.plan_review import slice_window, _limit_prices, _board_pct` 复用微结构；不 import replay_plan——语义等价由 test_equiv 锁住）。
+- [ ] **Step 2: 红**；**Step 3: 实现** `replay_positions` + `compose_nav`（两函数；position dict 结构照 I7；`_exec_price(bar, trigger, side, prev_close, code)` **本任务即定义**——主层跳空/一字板成交已需要，T4 复用不重构（观察 1）；`from backend.plan_review import slice_window, _limit_prices, _board_pct` 复用微结构；引擎不 import replay_plan——语义等价由 test_equiv 锁住）。
 - [ ] **Step 4: 绿**；**Step 5: Commit** — `feat: 组合回放引擎核心（名义额静态分配/毛净双序列/缩放事件）`
 
 **Produces I7/I9/I6。**
@@ -169,7 +171,7 @@ def test_exit_mode_suppresses_target():      # sell_priority 下 target 永不�
 def test_build_links_rules():                # 双配→后者视为未配对 sell；buy 带 relatedPlan→忽略
 ```
 
-- [ ] **Step 2: 红**；**Step 3: 实现** `build_links`（I8）+ 信号集日扫描扩展（position 状态机加 sell 信号源；`layer=='closed'` 才启用；exitMode 默认 race；执行价统一函数 `_exec_price(bar, trigger, side, prev_close, code)`）；conflict `detail.suppressed[]`。
+- [ ] **Step 2: 红**；**Step 3: 实现** `build_links`（I8）+ 信号集日扫描扩展（position 状态机加 sell 信号源；`layer=='closed'` 才启用；exitMode 默认 race；执行价复用 T3 `_exec_price`）；conflict `detail.suppressed[]`。
 - [ ] **Step 4: 绿**；**Step 5: Commit** — `feat: 闭环层交易对与四档离场模式（冲突抑制/冗余平仓事件）`
 
 **Produces I8。**
@@ -192,6 +194,9 @@ def test_signal_board_truncation():  # 尾窗不足 10 日 → chg10=None、chg5
 def test_watch_index_equal_weight_and_missing():  # 缺 bar 标的该日 null 拖尾（不填充）；等权=Σret/n
 def test_hypothetical_null_without_flag()
 def test_kpis_and_plan_count()
+def test_pairs_list_built():     # 已配对：{buyPlanId, sellPlanId, exitMode, buy:{...摘要}, sell:{...摘要}}
+def test_orphans_list_built():   # 未配对 sell：{planId, code, signalDate|None}
+def test_lists_cap_50_with_total():  # pairs/orphans/signals/events 各 51→50 条 + *Total=51
 ```
 
 - [ ] **Step 2: 红**；**Step 3: 实现**：
@@ -203,7 +208,7 @@ def aggregate_portfolio(*, plans, watchlist, settings, bars_map, positions, date
                         with_watch: bool) -> dict: ...   # I10：返回 spec §6 顶层区块（不含 degraded）
 ```
 
-信号源=孤儿 sell + redundant 事件；市值权重取窗尾日 marks 归一（现金不参与）；行业 miss→"未知"；payload `meta.industryCoverage={known,total,stale}`。
+信号源=孤儿 sell + redundant 事件；市值权重取窗尾日 marks 归一（现金不参与）；行业 miss→"未知"；payload `meta.industryCoverage={known,total,staleCount}`（观察 2：计数命名与 I4 status 词区分，spec r3.2 同步）。
 - [ ] **Step 4: 绿**；**Step 5: Commit** — `feat: 组合聚合层（敞口/行业集中度/信号看板/自选观察指数/假想线）`
 
 ---
@@ -225,7 +230,7 @@ def test_risk_degraded_and_log(caplog):  # local flag → degraded + review_degr
 def test_review_refactor_regression():   # 既有复盘端点全测试保持绿（提取辅助不改行为）
 ```
 
-- [ ] **Step 2: 红**；**Step 3: 实现**：参数解析（start 校验 `[today−1825d, today−1d]`）→ `fetch_all_bars(codes|watchlist, loader)`（layer=closed 并入 sell codes）→ `replay_positions/build_links` → `compose_nav` → `aggregate_portfolio` → `result["degraded"]=sorted(set(...))` → `review_logger.info("portfolio_ok layer=%s window=%d plans=%d codes=%d upstream=%d gross_mdd=%.4f net_mdd=%.4f scaling=%d conflicts=%d degraded=%s elapsed_ms=%d", ...)`；`ReviewUpstreamError`→502 同式；`SlidingWindowLimiter(20, 60)` 模块级实例（照 plan-draft 用法），超限 429 `api_error`。feeRate 校验用 I6 常量（review 端点内联 0.05 同步替换）。
+- [ ] **Step 2: 红**；**Step 3: 实现**：参数解析（start 校验 `[today−1825d, today−1d]`）→ `fetch_all_bars(codes|watchlist, loader)`（layer=closed 并入 sell codes）→ `replay_positions/build_links` → `compose_nav` → `aggregate_portfolio` → `result["degraded"]=sorted(set(...))` → `review_logger.info("portfolio_ok layer=%s window=%d plans=%d codes=%d upstream=%d gross_mdd=%.4f net_mdd=%.4f scaling=%d conflicts=%d degraded=%s elapsed_ms=%d", ...)`；`ReviewUpstreamError`→502 同式；`SlidingWindowLimiter(20, 60)` 模块级实例（照 plan-draft 用法），超限 429 `api_error`；**测试走依赖注入**：limiter 为模块级可替换引用，fixture 换 max=2 小实例发 3 请求验 429（观察 5，不 monkeypatch 时钟不真发 20 次）。feeRate 校验用 I6 常量（review 端点内联 0.05 同步替换）。
 - [ ] **Step 4: 绿（含复盘端点回归全量）**；**Step 5: Commit** — `feat: 组合风险端点（参数校验/20 次每分钟护栏/降级披露/结构化日志）`
 
 ---
@@ -236,7 +241,7 @@ def test_review_refactor_regression():   # 既有复盘端点全测试保持绿�
 - Create: `frontend/src/stores/usePortfolioStore.ts`
 - Test: `tests/frontend/usePortfolioStore.test.ts`
 
-- [ ] **Step 1: 失败测试**：拼参（默认 days=90 单层请求；start 有值才带且不带 days；withWatch==='true'；feeRate 非空才带）；成功清 error；失败 `error='组合风险计算失败…'` + payload=null + fetchedOnce 复位；偏好 `{days,layer,withWatch}` localStorage `portfolio_prefs_v1` 读写（setParam 即持久化，初始化恢复）。类型 I13（`degraded: string[]`、`nav.net: (number|null)[]` 等照 payload 契约，字段名逐字）。
+- [ ] **Step 1: 失败测试**：拼参（默认 days=90 单层请求；start 有值才带且不带 days；withWatch==='true'；feeRate 非空才带）；成功清 error；失败 `error='组合风险计算失败…'` + payload=null + fetchedOnce 复位；偏好**仅 `{days,layer,withWatch}`** localStorage `portfolio_prefs_v1` 读写（setParam 即持久化，初始化恢复）——**feeRate/start 属一次性分析参数，明确不持久化**（观察 3，与 spec §7 一致）。类型 I13（`degraded: string[]`、`nav:{gross,net,feeSum}` 数组 `number|null` 容忍 null 起点等照 payload 契约，字段名逐字 r3.2 后为 gross）。
 - [ ] **Step 2: 红**；**Step 3: 实现**（风格对齐 useReviewStore：refs + `api.get` + try/catch）；**Step 4: 绿** `npx vitest run tests/frontend/usePortfolioStore.test.ts`；**Step 5: Commit** — `feat: 组合风险 store（拼参/错误态/偏好持久化）`
 
 ---
@@ -245,11 +250,11 @@ def test_review_refactor_regression():   # 既有复盘端点全测试保持绿�
 
 **Files:**
 - Create: `frontend/src/views/ViewPortfolio.vue`
-- Modify: `frontend/src/main.ts`、`frontend/src/App.vue`（`view==='portfolio'` 分支）、`frontend/src/modules/constants.ts`（NAV 项 `{ id:'portfolio', label:'组合风险', icon:<lucide 现名，执行时验证存在> }`）、`frontend/src/app.ts:97`（`6:'portfolio'`）、`frontend/src/styles.css`（portfolio 块 + 复用 review/.muted 族）、`frontend/src/modules/chart.ts`（如需多线 svg 扩展；能力已够则不动）
+- Modify: `frontend/src/main.ts`、`frontend/src/App.vue`（`view==='portfolio'` 分支）、`frontend/src/modules/constants.ts`（NAV 项 `{ id:'portfolio', label:'组合风险', icon:<lucide 现名，执行时验证存在> }`）、`frontend/src/app.ts:97`（`6:'portfolio'`）、`frontend/src/styles.css`（portfolio 块 + 复用 review/.muted 族）、`frontend/src/modules/chart.ts`（**已查实需扩展 `multiLineSvg`**：现 compareChartSvg 仅 2 系列无 null 间隙）、`tests/frontend/chart.test.ts`（若存在则追加，否则并入 ViewPortfolio.test）
 - Test: `tests/frontend/ViewPortfolio.test.ts`
 
 - [ ] **Step 1: 失败测试**：高级三区默认关（`queryByTestId('portfolio-adv-start')` null，点「高级」后在）；degraded 黄条 `portfolio-degraded` 文案含代码；预热文案 `industryCoverage.known===0 && stale==='empty'` → `portfolio-warming`「行业数据预热中」；红线双句逐字；层切换 chips 点击 → setParam+fetch；KPI '--'（null 渲染）；事件/信号折叠区 cap+`共 N 条已截断`。
-- [ ] **Step 2: 红**；**Step 3: 实现**（区块顺序=spec §7；chart 线：gross 主 / net 灰虚 / 现金 0 基线 / watch 灰虚第二条）；`npx prettier --check` 触碰文件；**Step 4: 绿 + `npx vue-tsc --noEmit`**；**Step 5: Commit** — `feat: 组合风险视图（双层切换/毛净曲线/敞口集中度卡/事件与信号折叠区）`
+- [ ] **Step 2: 红**；**Step 3: 实现**（区块顺序=spec §7；**chart.ts 已查实需扩展**——现 `compareChartSvg` 仅 2 系列 equityCurve/benchmarkCurve 且无 null 间隙，本任务新增 `multiLineSvg(series: {label:string; points:(number|null)[]; style:'solid'|'dash'; color:string}[], opts)`（gross 主实线/net 灰虚/现金基线/watch 灰虚，null 断线不连线；`chartSvg`/`compareChartSvg` 既有签名与测试零触碰）；线义：gross 主 / net 灰虚 / 现金 0 基线 / watch 灰虚第二条）；`npx prettier --check` 触碰文件；**Step 4: 绿 + `npx vue-tsc --noEmit`**；**Step 5: Commit** — `feat: 组合风险视图（多线 svg/双层切换/毛净曲线/敞口集中度卡/事件与信号折叠区）`
 
 ---
 
@@ -266,8 +271,9 @@ def test_review_refactor_regression():   # 既有复盘端点全测试保持绿�
 ### Task 10: 文档 + 全量门禁 + 真实冒烟
 
 **Files:** Modify `ROADMAP.md`（[x]+已知限制照 spec §11 浓缩）、`AGENTS.md`（布局 +portfolio_risk.py/industry_map.py/ViewPortfolio/usePortfolioStore；计数刷新：pytest/vitest 实际值）、Create `.superpowers/smoke_portfolio.py`（v2 模式：备份→播种 buy×2(1 配对 sell、1 孤儿 sell)→PUT→GET core/closed 手推 → net≤gross 恒等抽查 → 预热落库二次 upstream=0 → 恢复+零残留）
-- [ ] 全量门禁：`python -m pytest tests/ -q`（含覆盖率）· `npx vitest run` · `npx vue-tsc --noEmit` · `npm run build` · ruff check/format · mypy · eslint/prettier 触碰面
-- [ ] 冒烟跑通并归档报告 → `docs: ROADMAP/AGENTS 组合风险视图交付记录` + `chore: 组合风险真实冒烟脚本`
+- [ ] 全量门禁：`python -m pytest tests/ -q`（含覆盖率）· `npx vitest run` · `npx vue-tsc --noEmit` · `npm run build` · ruff check/format · mypy · eslint/prettier 触碰面。**Windows 假退出码处理**：门禁脚本以 `Select-String "passed|failed|error"` 汇总行为判据，不信 exit code（低4）。
+- [ ] 冒烟（真实网络）：播种含 buy/sell/配对/孤儿 → 手推 → **逐日** `gross_t−net_t==feeCum_t` 全序列断言（低3，非抽查）→ 行业映射真实落库 → 二次请求 upstream=0 → 恢复+零残留
+- [ ] 提交：`docs: ROADMAP/AGENTS 组合风险视图交付记录` + `chore: 组合风险真实冒烟脚本`（脚本 gitignored 仅归档报告）
 
 ---
 
