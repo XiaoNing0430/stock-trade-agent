@@ -113,17 +113,22 @@ DIST_DIR = FRONTEND_DIR / "dist"
 
 
 def _load_history_with_fallback(
-    code: str, limit: int, is_index: bool = False, adjustment: str = "qfq"
+    code: str, limit: int, is_index: bool = False, adjustment: str = "qfq", source: Any = None
 ) -> tuple[list, str, str | None, str]:
-    """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。"""
-    from backend.sources import build_router
+    """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。
 
-    settings = get_workspace_settings("default")
-    router = build_router()
+    source 可由调用方预解析注入（复盘按请求解析一次，免逐码重建 settings+router）；缺省按当前 settings 现场路由。
+    """
+    if source is None:
+        from backend.sources import build_router
+
+        settings = get_workspace_settings("default")
+        router = build_router()
     try:
-        source = router.route_with_fallback(
-            settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
-        )
+        if source is None:
+            source = router.route_with_fallback(
+                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+            )
         history = source.load_history(code, limit=limit, is_index=is_index, adjustment=adjustment)
         data_as_of = save_market_bars(code, history, adjustment=adjustment)
         return history, "live", data_as_of, source.provider_label
@@ -132,12 +137,6 @@ def _load_history_with_fallback(
         if not bars:
             raise
         return bars, "local", bars[-1]["date"], "local"
-
-
-def _review_bars_loader(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
-    """复盘 bars 预取 loader：走 _load_history_with_fallback（路由历史源+本地兜底），默认 bfq 口径。"""
-    history, *_ = _load_history_with_fallback(code, limit, is_index, adjustment)
-    return history
 
 
 def create_app() -> FastAPI:
@@ -520,14 +519,32 @@ def create_app() -> FastAPI:
         if not (0.0 <= feeRate <= 0.05):
             raise api_error(422, ERR_VALIDATION_ERROR, "feeRate 须在 [0, 0.05]")
         plans = get_workspace().get("plans") or []
-        # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""
+        # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""；
+        # 命中本地兜底的 code 记入 degraded 如实披露（红线：降级不得静默），历史源按请求解析一次
         t0 = time.perf_counter()
         stats = {"upstream": 0}
+        degraded: list[str] = []
+        history_source: Any = None
+        try:
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            history_source = build_router().route_with_fallback(
+                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+            )
+        except Exception:  # 构造失败 → helper 逐码现场路由（与旧行为一致）
+            history_source = None
 
         def _loader(codes: list[str]) -> dict[str, list[dict[str, Any]]]:
             def _counting(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
                 stats["upstream"] += 1
-                return _review_bars_loader(code, limit, is_index, adjustment)
+                history, flag, as_of, _ = _load_history_with_fallback(
+                    code, limit, is_index, adjustment, source=history_source
+                )
+                if flag == "local":
+                    degraded.append(code)
+                    review_logger.warning("review_degraded code=%s as_of=%s", code, as_of)
+                return history
 
             return plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=_counting))
 
@@ -541,12 +558,14 @@ def create_app() -> FastAPI:
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
+        result["degraded"] = sorted(set(degraded))
         review_logger.info(
-            "review_ok plans=%d window_days=%d codes=%d upstream=%d fee_rate=%.4f elapsed_ms=%d",
+            "review_ok plans=%d window_days=%d codes=%d upstream=%d degraded=%s fee_rate=%.4f elapsed_ms=%d",
             len(plans),
             days,
             len({str(r.get("code")) for r in result.get("items", []) if r.get("code")}),
             stats["upstream"],
+            ",".join(result["degraded"]) or "-",
             float(feeRate),
             int((time.perf_counter() - t0) * 1000),
         )

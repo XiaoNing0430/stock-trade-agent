@@ -654,7 +654,7 @@ def test_review_endpoint_happy_path(monkeypatch):
     r = client.get("/api/plans/review", params={"days": 90})
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"kpis", "groups", "items"} and body["kpis"]["total"] == 2
+    assert set(body) == {"kpis", "groups", "items", "degraded"} and body["kpis"]["total"] == 2
     # feeRate 以字符串数值传入 → FastAPI float 解析兼容（评审遗留观察）
     ok = client.get("/api/plans/review", params={"days": 0, "feeRate": "0.002"})
     assert ok.status_code == 200
@@ -749,7 +749,7 @@ def test_review_endpoint_real_chain_with_load_history_facade(monkeypatch):
     saved: list = []
     calls: list[dict] = []
 
-    def fake_with_fallback(code, limit, is_index=False, adjustment="qfq"):
+    def fake_with_fallback(code, limit, is_index=False, adjustment="qfq", source=None):
         calls.append({"code": code, "limit": limit, "is_index": is_index, "adjustment": adjustment})
         return list(bars), "live", None, "tencent"
 
@@ -762,7 +762,49 @@ def test_review_endpoint_real_chain_with_load_history_facade(monkeypatch):
     body = r.json()
     assert body["kpis"]["total"] == 1 and body["kpis"]["winRate"] == 1.0
     assert body["items"][0]["outcome"] == "win" and body["items"][0]["netR"] == 1.97
+    assert body["degraded"] == []  # live 路径无降级
     assert saved and saved[0] == ("600519", "")  # bfq 落缓存，adjustment 恒空串
     # 复盘走路由历史路径且 bfq 口径透传：adjustment=""、limit=300、非指数
     assert len(calls) == 1 and calls[0]["adjustment"] == ""
     assert calls[0]["code"] == "600519" and calls[0]["limit"] == 300 and calls[0]["is_index"] is False
+
+
+def test_review_endpoint_local_fallback_disclosed_in_degraded(monkeypatch, caplog):
+    """红线（round-3 N1）：本地 market_bars 兜底命中不得静默——响应 degraded 列表 + review_degraded 告警如实披露。"""
+    now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
+    plan = {
+        "id": "deg-1",
+        "code": "600519",
+        "direction": "buy",
+        "entry": 10.0,
+        "stop": 9.5,
+        "target": 11.0,
+        "validity": "长期",
+        "status": "执行中",
+        "createdAtMs": now_ms - 10 * 86_400_000,
+    }
+    bars = [
+        {
+            "date": (datetime.now(SHANGHAI) - timedelta(days=d)).strftime("%Y-%m-%d"),
+            "open": 10.4,
+            "high": 11.5,
+            "low": 9.9,
+            "close": 11.0,
+            "volume": 1000,
+        }
+        for d in range(9, 1, -1)
+    ]
+
+    def fake_local(code, limit, is_index=False, adjustment="qfq", source=None):
+        return list(bars), "local", "2026-01-05", "local"  # 兜底命中：陈旧 as_of 如实带出
+
+    monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": [plan]})
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", fake_local)
+    monkeypatch.setattr(storage, "load_market_bars", lambda *a, **k: [])
+    monkeypatch.setattr(storage, "save_market_bars", lambda *a, **k: None)
+    caplog.set_level(logging.WARNING)
+    r = client.get("/api/plans/review", params={"days": 90})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["degraded"] == ["600519"] and body["items"][0]["outcome"] == "win"  # 降级不阻断回算
+    assert "review_degraded code=600519 as_of=2026-01-05" in caplog.text
