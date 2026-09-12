@@ -95,4 +95,48 @@ describe('useReviewStore', () => {
     expect(s.sortKey).toBe('outcome'); expect(s.sortDir).toBe('desc');
     expect(codes()).toEqual(['600001', '600003', '600002']);
   });
+
+  it('fetchReview 失败 → 错误状态可见化 + review 置空 + 复位可重试（终审 F3 红线）', async () => {
+    requestJson.mockRejectedValueOnce(new Error('502 Bad Gateway'));
+    const s = useReviewStore();
+    await s.toggle();                                   // 首次展开 → fetchReview 抛错
+    expect(s.review).toBeNull();                        // 失败即无可信数据，不保留旧面板
+    expect(s.error).toBe('复盘数据加载失败：502 Bad Gateway');
+    // fetchedOnce 复位：折叠后再次展开应重新拉取（可重试），成功后清除 error
+    requestJson.mockResolvedValueOnce(payload);
+    s.expanded = false;
+    await s.toggle();
+    expect(s.review?.kpis.total).toBe(2);
+    expect(s.error).toBeNull();                         // 成功清除错误状态
+  });
+
+  it('fetchTrace 面板钳制为 10 条（§6：请求 limit=30，展示降序前 10）', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      strategyId: 'trend_breakout', runAtMs: 1_789_000_000_000 - i, status: 'ok',
+      hitCount: i, newCount: 0, elapsedMs: 1200, traceId: `t${i}`,
+    }));
+    requestJson.mockResolvedValue({ history: rows });
+    const s = useReviewStore();
+    await s.fetchTrace('trend_breakout');
+    expect(requestJson.mock.calls.some((c) => String(c[0]).includes('limit=30'))).toBe(true);
+    expect(s.trace?.length).toBe(10);                   // 12 → 钳制 10
+    expect(s.trace?.[0]?.runAtMs).toBe(1_789_000_000_000); // 保留后端降序首条
+  });
+
+  it('fetchTrace 失败 → 错误状态 + trace 置空（F3）', async () => {
+    requestJson.mockRejectedValue(new Error('boom'));
+    const s = useReviewStore();
+    await s.fetchTrace('trend_breakout');
+    expect(s.trace).toBeNull();
+    expect(s.error).toBe('扫描留痕加载失败：boom');
+  });
+
+  it('runAtMs null 行原样保留（app.py 解析失败下发 null，不造时间；F5）', async () => {
+    requestJson.mockResolvedValue({ history: [
+      { strategyId: 's', runAtMs: null, status: 'ok', hitCount: 1, newCount: 0, elapsedMs: 10, traceId: 'a' },
+    ] });
+    const s = useReviewStore();
+    await s.fetchTrace('s');
+    expect(s.trace?.[0]?.runAtMs).toBeNull();
+  });
 });

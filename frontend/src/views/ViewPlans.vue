@@ -47,6 +47,7 @@
           <i data-lucide="chevron-down" :class="{ flipped: review.expanded }"></i>
         </button>
         <template v-if="review.expanded">
+          <p v-if="review.error" class="plan-draft-error" data-testid="review-error" role="alert">{{ review.error }}</p>
           <div class="review-days">
             <button v-for="d in REVIEW_DAYS" :key="d" type="button"
                     :class="{ active: review.days === d }" @click="review.setDays(d)">
@@ -89,7 +90,7 @@
           </table>
           <div v-if="activeScanTrace.length" data-testid="review-trace" class="review-trace">
             <p class="muted">{{ traceSummary }}</p>
-            <p v-for="t in activeScanTrace" :key="t.runAtMs" class="muted">{{ formatTime(t.runAtMs) }} · {{ t.status }} · 命中 {{ t.hitCount }} / 新增 {{ t.newCount }}</p>
+            <p v-for="(t, i) in activeScanTrace" :key="t.runAtMs ?? i" class="muted">{{ t.runAtMs == null ? '--' : formatTime(t.runAtMs) }} · {{ t.status }} · 命中 {{ t.hitCount }} / 新增 {{ t.newCount }}</p>
           </div>
           <p class="review-disclaimer" data-testid="review-disclaimer">设计口径回放，非实际成交；历史回放不代表未来；不构成投资建议。</p>
         </template>
@@ -149,8 +150,9 @@ const sortedDetail = computed<ReviewItem[]>(() => {
 });
 const activeScanTrace = computed(() => review.trace ?? []);
 const traceSummary = computed(() => {
+  // 仅在 activeScanTrace.length > 0 时（见 review-trace 的 v-if）被读取，故空数组分支不可达（终审 F5）：
+  // 除零由 v-if 保证，删除原不可达的 `if (!runs.length) return ...` 死分支。
   const runs = activeScanTrace.value;
-  if (!runs.length) return '近 30 天无扫描运行';
   const avgHits = runs.reduce((sum, t) => sum + t.hitCount, 0) / runs.length;
   return `近 30 天运行 ${runs.length} 次 · 平均命中 ${avgHits.toFixed(1)}`;
 });

@@ -154,4 +154,45 @@ describe('ViewPlans', () => {
     expect(wrapper.text()).toContain('买入');
     expect(wrapper.text()).not.toContain('样本不足，仅供参考');
   });
+
+  it('复盘加载失败 → 渲染可见错误条 review-error（终审 F3 红线）', async () => {
+    vi.mocked(requestJson).mockRejectedValue(new Error('网络中断'));
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const err = wrapper.find('[data-testid="review-error"]');
+    expect(err.exists()).toBe(true);
+    expect(err.text()).toContain('复盘数据加载失败');
+    expect(err.text()).toContain('网络中断');
+  });
+
+  it('扫描留痕降序渲染至多 10 条、runAtMs null 行渲染 --（终审 F4/F5）', async () => {
+    const withScan = {
+      ...reviewPayload,
+      groups: {
+        ...reviewPayload.groups,
+        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 2, flatCount: 0, wins: 1,
+                   winRate: 0.5, expectancyR: 0.4, smallSample: false }],
+      },
+    };
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      strategyId: 'trend_breakout', runAtMs: i === 0 ? null : 1_789_000_000_000 - i, status: 'ok',
+      hitCount: 2, newCount: 1, elapsedMs: 1200, traceId: `t${i}`,
+    }));
+    vi.mocked(requestJson).mockImplementation((url: unknown) =>
+      String(url).includes('/api/plans/review')
+        ? Promise.resolve(withScan)
+        : Promise.resolve({ history: rows }),
+    );
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const trace = wrapper.find('[data-testid="review-trace"]');
+    expect(trace.exists()).toBe(true);
+    // 行 `<p>` 含「/ 新增」，概览 `<p>`（近 30 天运行 … 平均命中 …）不含，据此仅取数据行。
+    const rowTexts = trace.findAll('p.muted').filter((p) => p.text().includes('新增')).map((p) => p.text());
+    expect(rowTexts).toHaveLength(10);                  // 12 → 钳制 10
+    expect(rowTexts[0]).toContain('--');                // 首行 runAtMs null → 占位，不崩溃
+    expect(rowTexts.some((t) => !t.startsWith('--'))).toBe(true); // 其余行正常显示时间
+  });
 });

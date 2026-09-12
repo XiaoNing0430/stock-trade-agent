@@ -3852,3 +3852,171 @@ textarea:focus-visible {
 .strategy-mode-tabs {
   margin-top: 4px;
 }
+
+/* ===== 绩效复盘面板（Task 8 终审 F2：ViewPlans review section 样式落地，CSS 变量 + 复用既有密度） ===== */
+.review-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 14px 22px 18px;
+}
+.review-panel .plan-draft-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.review-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.review-toggle i {
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+.review-toggle i.flipped {
+  transform: rotate(180deg);
+}
+.review-days {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+.review-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.review-days button,
+.review-tabs button {
+  padding: 5px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.review-days button.active,
+.review-tabs button.active {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+  color: var(--coral-dark);
+}
+.review-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+}
+.kpi b {
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.kpi span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.kpi-note {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+.review-table th {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.review-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 12px;
+  vertical-align: middle;
+}
+.review-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.review-table th button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+/* 表头无专用数值类，按列位右对齐数字列（分组表第 2 列起；明细表仅净 R 列） */
+[data-testid='review-items'] th:nth-child(n + 2),
+[data-testid='review-items'] td:nth-child(n + 2),
+[data-testid='review-items-detail'] th:nth-child(4),
+[data-testid='review-items-detail'] td:nth-child(4) {
+  text-align: right;
+}
+.review-trace {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.review-trace p {
+  margin: 0;
+}
+.badge-muted {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-tint);
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.review-disclaimer {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.field-hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}

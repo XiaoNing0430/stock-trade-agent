@@ -27,8 +27,9 @@ export interface ReviewPayload {
 
 // 扫描留痕行 = GET /api/screener/scan/history 列表行 camelCase（FR-4）。
 // 无 mode 字段——T6 裁定：存储无 mode 列，brief 中的 mode 以裁定为准移除。
+// runAtMs 可为 null：app.py 在日期解析失败时下发 null（终审 F5），视图据此渲染占位而非造时间。
 export interface ScanTraceRow {
-  strategyId: string; runAtMs: number; status: string; hitCount: number;
+  strategyId: string; runAtMs: number | null; status: string; hitCount: number;
   newCount: number; elapsedMs: number; traceId: string;
 }
 
@@ -43,6 +44,8 @@ export const useReviewStore = defineStore('review', () => {
   const sortDir = ref<'asc' | 'desc'>('desc');
   const trace = ref<ScanTraceRow[] | null>(null);
   const traceLoading = ref(false);
+  // 错误状态（终审 F3 红线）：复盘/留痕加载失败时展现为可见错误，绝不静默保留旧面板。
+  const error = ref<string | null>(null);
 
   async function fetchReview(d?: 0 | 30 | 90) {
     if (d !== undefined) days.value = d;
@@ -50,7 +53,13 @@ export const useReviewStore = defineStore('review', () => {
     try {
       review.value = await requestJson<ReviewPayload>(`/api/plans/review?days=${days.value}`, { method: 'GET' });
       fetchedOnce.value = true;
+      error.value = null;
       void syncTrace();
+    } catch (e) {
+      // 红线：加载失败即无可信数据 → 清空 review，并复位 fetchedOnce 使再次展开可重新拉取（可重试）。
+      review.value = null;
+      fetchedOnce.value = false;
+      error.value = `复盘数据加载失败：${(e as Error).message}`;
     } finally {
       loading.value = false;
     }
@@ -68,7 +77,12 @@ export const useReviewStore = defineStore('review', () => {
     try {
       const res = await requestJson<{ history: ScanTraceRow[] }>(
         `/api/screener/scan/history?strategyId=${encodeURIComponent(strategyId)}&limit=30`, { method: 'GET' });
-      trace.value = res.history;
+      // §6：请求取 30 条（后端按 runAt 降序），面板仅展示前 10 条。
+      trace.value = (res.history ?? []).slice(0, 10);
+      error.value = null;
+    } catch (e) {
+      trace.value = null;
+      error.value = `扫描留痕加载失败：${(e as Error).message}`;
     } finally {
       traceLoading.value = false;
     }
@@ -90,6 +104,6 @@ export const useReviewStore = defineStore('review', () => {
   function formatR(v: number | null | undefined): string {
     return v === null || v === undefined ? '--' : v.toFixed(2);
   }
-  return { review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading,
+  return { review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading, error,
            fetchReview, toggle, setGroup, setDays: fetchReview, toggleSort, fetchTrace, formatRatio, formatR };
 });
