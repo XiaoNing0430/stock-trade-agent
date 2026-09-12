@@ -1245,7 +1245,9 @@ def test_grid_optimize_returns_candidates(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
     bars = _strategy_bars(60)
-    monkeypatch.setattr("backend.data_source.load_history", lambda code, limit=40, is_index=False, adjustment="qfq": bars)
+    monkeypatch.setattr(
+        "backend.data_source.load_history", lambda code, limit=40, is_index=False, adjustment="qfq": bars
+    )
     monkeypatch.setattr(app_module, "save_market_bars", lambda code, history: "2026-08-30")
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519", "capital": 100000, "feeBps": 3})
