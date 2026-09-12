@@ -41,6 +41,14 @@ class TradePlan(Base):
     status: Mapped[str] = mapped_column(String(32), default="执行中", index=True)
     triggered: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 交易对关联：仅 sell 使用，指向同 workspace 内 buy 计划 id；与 trade_plans.id 主键同宽 String(96)
+    related_plan: Mapped[str | None] = mapped_column(
+        String(96), nullable=True, comment="交易对关联：sell→buy 计划 id（仅 sell 使用）"
+    )
+    # 离场模式枚举 race|sell_priority|sell_stop_only|sell_only；NULL≡race（先到先平）
+    exit_mode: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="交易对离场模式 race|sell_priority|sell_stop_only|sell_only；NULL≡race"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -285,6 +293,8 @@ def _plan_dict(plan: TradePlan) -> dict[str, Any]:
         "status": plan.status,
         "triggered": plan.triggered or {},
         "source": plan.source,
+        "relatedPlan": plan.related_plan,
+        "exitMode": plan.exit_mode,
         "createdAt": plan.created_at.astimezone().strftime("%H:%M"),
         "createdAtMs": int(plan.created_at.timestamp() * 1000),
     }
@@ -348,6 +358,8 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "rrRatio": 2.0,
     "stopMode": "atr",
     "positionCapPct": 25,
+    # 组合风险视图：总仓位上限（敞口卡"上限对比"分母与 >100% 提示锚，范围 20..300）
+    "totalPositionCapPct": 100,
 }
 
 
@@ -378,7 +390,44 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["rrRatio"] = max(1.0, min(float(data["rrRatio"]), 10.0))
     data["stopMode"] = data["stopMode"] if data["stopMode"] in {"atr", "ma20"} else "atr"
     data["positionCapPct"] = max(5.0, min(float(data["positionCapPct"]), 100.0))
+    # 组合风险视图：总仓位上限 int 化 + clamp（照 defaultCapital 行式）
+    data["totalPositionCapPct"] = max(20, min(int(data["totalPositionCapPct"]), 300))
     return data
+
+
+def validate_plan_links(plans_payload: list[dict[str, Any]]) -> str | None:
+    """交易对关联写路径校验（spec §3 规则）。None=通过；返回中文错误串即 422 detail。
+
+    规则：仅 sell 可携带 relatedPlan；目标须存在、为 buy、workspace 内、非归档；
+    禁自引用；同 code；一 buy 至多被一 sell 关联。悬空（目标已删）消息含"请先解除关联"
+    指引；悬空数据的引擎侧容错（孤儿 + degraded 标注）由回放任务负责，不在此处。
+    """
+    by_id = {str(item.get("id")): item for item in plans_payload if item.get("id")}
+    linked_buy: dict[str, str] = {}  # buy id → 首个关联它的 sell id（一 buy 一 sell）
+    for item in plans_payload:
+        related = item.get("relatedPlan")
+        if not related:
+            continue
+        sid = str(item.get("id") or "")
+        tid = str(related)
+        if item.get("direction", "buy") != "sell":
+            return f"计划「{sid}」为建仓方向，不能携带关联建仓计划；仅卖出计划可设置 relatedPlan"
+        if sid and sid == tid:
+            return f"计划「{sid}」不能关联自身"
+        target = by_id.get(tid)
+        if target is None:
+            return f"卖出计划「{sid}」关联的建仓计划「{tid}」不存在；如需删除该建仓计划，请先解除关联"
+        if target.get("direction", "buy") != "buy":
+            return f"卖出计划「{sid}」只能关联建仓（buy）计划，「{tid}」方向为 {target.get('direction')}"
+        if target.get("status") == "已归档":
+            return f"卖出计划「{sid}」关联的建仓计划「{tid}」已归档；请先解除关联或改关联未归档的建仓计划"
+        if str(target.get("code") or "") != str(item.get("code") or ""):
+            return f"卖出计划「{sid}」与关联建仓计划「{tid}」的证券代码不一致，不能跨代码关联"
+        owner = linked_buy.get(tid)
+        if owner is not None:
+            return f"建仓计划「{tid}」已被卖出计划「{owner}」关联，不能被「{sid}」重复关联；如需换绑请先解除原关联"
+        linked_buy[tid] = sid
+    return None
 
 
 def get_workspace_settings(workspace_id: str = "default") -> dict[str, Any]:
@@ -454,6 +503,8 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
             plan.status = item.get("status", "执行中")
             plan.triggered = item.get("triggered") or {}
             plan.source = item.get("source") or None
+            plan.related_plan = item.get("relatedPlan") or None
+            plan.exit_mode = item.get("exitMode") or None
 
         alerts_payload = [item for item in payload.get("alerts", []) if item.get("id")]
         alert_ids = {item["id"] for item in alerts_payload}

@@ -84,6 +84,7 @@ from backend.storage import (
     save_workspace_settings,
     storage_status,
     upsert_scan_config,
+    validate_plan_links,
 )
 from backend.storage import (
     delete_strategy as delete_generic_strategy,
@@ -216,7 +217,12 @@ def create_app() -> FastAPI:
                     revision=current,
                     workspace=get_workspace(workspace_id),
                 )
-            return WorkspaceOut.model_validate(save_workspace(payload.model_dump(exclude_unset=True), workspace_id))
+            body = payload.model_dump(exclude_unset=True)
+            # 交易对关联写路径校验（I1）：违规在落盘前拒绝，422 中文错误可直接指导用户
+            link_error = validate_plan_links(body.get("plans") or [])
+            if link_error:
+                raise api_error(422, ERR_VALIDATION_ERROR, link_error)
+            return WorkspaceOut.model_validate(save_workspace(body, workspace_id))
         except HTTPException:
             raise
         except Exception as exc:

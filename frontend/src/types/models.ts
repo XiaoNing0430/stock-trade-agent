@@ -28,6 +28,10 @@ export interface Plan {
   status: string;
   triggered: Record<string, boolean>;
   source?: string;
+  /** 交易对关联：sell→buy 计划 id（仅 sell 使用） */
+  relatedPlan?: string;
+  /** 离场模式；后端 NULL ≡ race（先到先平） */
+  exitMode?: 'race' | 'sell_priority' | 'sell_stop_only' | 'sell_only';
   createdAtMs: number;
 }
 
