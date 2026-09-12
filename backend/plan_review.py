@@ -187,6 +187,7 @@ def _finalize(rec: dict[str, Any]) -> dict[str, Any]:
 # —— Task 5: bars 批量获取 + 聚合编排（fetch_all_bars/aggregate/review_plans，Task 6 依赖，签名冻结）——
 
 DEFAULT_FEE_RATE = 0.0015
+FEE_RATE_MAX = 0.05  # I6：费率校验上限（复盘端点内联 0.05 与组合端点共用，杜绝漂移）
 _BARS_LIMIT = 300
 _STALE_DAYS = 7
 
