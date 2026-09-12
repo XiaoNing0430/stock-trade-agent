@@ -39,22 +39,79 @@
         </div>
         <div v-if="!activePlans.length" class="empty-state"><i data-lucide="clipboard-plus" aria-hidden="true"></i><strong>还没有交易计划</strong><span>先写下一个你愿意执行的交易剧本。</span></div>
       </section>
+
+      <section class="review-panel surface">
+        <button class="review-toggle" data-testid="review-toggle" type="button" @click="review.toggle()">
+          <span>绩效复盘</span>
+          <span v-if="review.review" class="muted">{{ reviewSummary }}</span>
+          <i data-lucide="chevron-down" :class="{ flipped: review.expanded }"></i>
+        </button>
+        <template v-if="review.expanded">
+          <div class="review-days">
+            <button v-for="d in REVIEW_DAYS" :key="d" type="button"
+                    :class="{ active: review.days === d }" @click="review.setDays(d)">
+              {{ d === 0 ? '全部' : `近 ${d} 天` }}
+            </button>
+          </div>
+          <div class="review-kpis" data-testid="review-kpis">
+            <div class="kpi"><b>{{ review.review?.kpis.total ?? '--' }}</b><span>计划总数</span></div>
+            <div class="kpi"><b>{{ review.formatRatio(review.review?.kpis.winRate) }}</b><span>胜率</span></div>
+            <div class="kpi"><b>{{ review.formatR(review.review?.kpis.payoffRatio) }}</b><span>盈亏比</span></div>
+            <div class="kpi"><b>{{ review.formatR(review.review?.kpis.expectancyR) }}</b><span>期望值 R</span></div>
+            <div class="kpi"><b>{{ review.formatRatio(review.review?.kpis.notEnteredRate) }}</b><span>未入场率</span></div>
+            <div class="kpi"><b>{{ review.review?.kpis.openCount ?? '--' }}</b><span>进行中</span></div>
+            <span class="kpi-note" data-testid="review-fee-note">成本假设（可调，参考范围 0.1%–0.5%）：feeRate × 入场 ÷ 止损距离，近似值</span>
+          </div>
+          <div class="review-tabs">
+            <button v-for="g in GROUPS" :key="g.key" data-testid="review-group-tab" type="button"
+                    :class="{ active: review.activeGroup === g.key }" @click="review.setGroup(g.key)">{{ g.label }}</button>
+          </div>
+          <table class="review-table" data-testid="review-items">
+            <thead><tr><th>分组</th><th>已决</th><th>胜</th><th>胜率</th><th>期望 R</th></tr></thead>
+            <tbody>
+              <tr v-for="row in activeRows" :key="row.key">
+                <td>{{ row.label }} <span v-if="row.smallSample" class="badge-muted">样本不足，仅供参考</span></td>
+                <td>{{ row.decided }}</td><td>{{ row.wins }}</td>
+                <td>{{ review.formatRatio(row.winRate) }}</td>
+                <td>{{ review.formatR(row.expectancyR) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <table class="review-table" data-testid="review-items-detail">
+            <thead><tr><th>代码</th><th>来源</th><th><button type="button" @click="review.toggleSort('outcome')">结局</button></th><th><button type="button" @click="review.toggleSort('netR')">净 R</button></th><th>入场日</th><th>离场日</th></tr></thead>
+            <tbody>
+              <tr v-for="item in sortedDetail" :key="item.planId">
+                <td>{{ item.code }}</td><td>{{ sourceLabel(item.source) }}</td>
+                <td>{{ outcomeLabel(item) }}<span v-if="item.ambiguous" class="badge-muted">保守裁定</span><span v-if="item.gapFill" class="badge-muted">跳空</span><span v-if="item.limitDeferred" class="badge-muted">顺延</span></td>
+                <td>{{ review.formatR(item.netR) }}</td><td>{{ item.entryDate ?? '--' }}</td><td>{{ item.exitDate ?? '--' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="activeScanTrace.length" data-testid="review-trace" class="review-trace">
+            <p class="muted">{{ traceSummary }}</p>
+            <p v-for="t in activeScanTrace" :key="t.runAtMs" class="muted">{{ formatTime(t.runAtMs) }} · {{ t.status }} · 命中 {{ t.hitCount }} / 新增 {{ t.newCount }}</p>
+          </div>
+          <p class="review-disclaimer" data-testid="review-disclaimer">设计口径回放，非实际成交；历史回放不代表未来；不构成投资建议。</p>
+        </template>
+      </section>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import { formatMoney, formatNumber } from '@/modules/format';
+import { formatMoney, formatNumber, formatTime } from '@/modules/format';
 import { calculateRr, calculateShares } from '@/modules/planUtils';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { usePlansStore } from '@/stores/usePlansStore';
+import { useReviewStore, type ReviewItem } from '@/stores/useReviewStore';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const plans = usePlansStore();
+const review = useReviewStore();
 
 const { activePlans, draftDirty } = storeToRefs(workspace);
 const { refreshAll, renderIcons } = workspace;
@@ -62,6 +119,60 @@ const { draft, planOptions, planMetrics } = storeToRefs(plans);
 const { quoteFor } = quotes;
 const { switchView } = quotes;
 const { savePlan, monitorPlan, archivePlan } = plans;
+
+// ── 绩效复盘（Task 8）：四维分组 + 明细排序 + 扫描留痕（store 的 syncTrace 在 fetchReview/setGroup 后自动触发，组件无额外 watch）
+const GROUPS = [
+  { key: 'source', label: '来源' },
+  { key: 'direction', label: '方向' },
+  { key: 'validity', label: '有效期' },
+  { key: 'createdMonth', label: '创建月份' },
+] as const;
+const REVIEW_DAYS: Array<0 | 30 | 90> = [30, 90, 0];
+
+const activeRows = computed(() => review.review?.groups[review.activeGroup] ?? []);
+const reviewSummary = computed(() => {
+  const k = review.review?.kpis;
+  if (!k || k.decided === 0) return '暂无已了结计划';
+  const daysLabel = review.days === 0 ? '全部' : `近 ${review.days} 天`;
+  return `${daysLabel} ${k.decided} 份已了结计划，胜率 ${review.formatRatio(k.winRate)}`;
+});
+// 明细排序：outcome 按 localeCompare、netR 按数值（?? -Infinity）；
+// 未选排序键 → 保持后端原序（plan_review.py 已按 createdAtMs 降序返回，且该字段不随 payload 下发）。
+const sortedDetail = computed<ReviewItem[]>(() => {
+  const items = [...(review.review?.items ?? [])];
+  if (!review.sortKey) return items;
+  const dir = review.sortDir === 'asc' ? 1 : -1;
+  if (review.sortKey === 'outcome') {
+    return items.sort((a, b) => dir * a.outcome.localeCompare(b.outcome));
+  }
+  return items.sort((a, b) => dir * ((a.netR ?? -Infinity) - (b.netR ?? -Infinity)));
+});
+const activeScanTrace = computed(() => review.trace ?? []);
+const traceSummary = computed(() => {
+  const runs = activeScanTrace.value;
+  if (!runs.length) return '近 30 天无扫描运行';
+  const avgHits = runs.reduce((sum, t) => sum + t.hitCount, 0) / runs.length;
+  return `近 30 天运行 ${runs.length} 次 · 平均命中 ${avgHits.toFixed(1)}`;
+});
+function outcomeLabel(item: ReviewItem): string {
+  switch (item.outcome) {
+    case 'win': return '胜';
+    case 'loss': return '败';
+    case 'flat': return '平出';
+    case 'notEntered': return '未入场';
+    case 'open': return '进行中';
+    case 'invalid': return '参数无效';
+    default: return item.outcome;
+  }
+}
+function sourceLabel(source: string): string {
+  if (source.startsWith('scan:')) return `扫描·${source.slice(5)}`;
+  if (source === 'legacy') return '早期计划';
+  if (source === 'manual') return '手动新建';
+  if (source === 'screener') return '策略命中';
+  if (source === 'monitor') return '盯盘信号';
+  return source;
+}
 
 onMounted(() => renderIcons());
 </script>
