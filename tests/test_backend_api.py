@@ -544,7 +544,9 @@ def test_fallback_serves_local_when_upstream_fails(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(
+            ConnectionError("upstream down")
+        ),
     )
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=600888")
@@ -564,7 +566,9 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(
+            ConnectionError("upstream down")
+        ),
     )
     monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
     with TestClient(app_module.create_app()) as client:
