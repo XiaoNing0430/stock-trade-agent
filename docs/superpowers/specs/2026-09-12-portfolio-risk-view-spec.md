@@ -1,6 +1,6 @@
-# 组合风险视图（P1）— 设计规格 r2
+# 组合风险视图（P1）— 设计规格 r3
 
-日期：2026-09-12 ｜ 状态：**r1 评审处置已入（D7-D9），待终审** ｜ 上游：ROADMAP「P1 组合风险视图：自选 + 计划合计敞口、行业集中度、虚拟组合回撤」
+日期：2026-09-12 ｜ 状态：**终审通过（r2 附 P0/P1 条件，r3 已补全），待用户放行进计划** ｜ 上游：ROADMAP「P1 组合风险视图：自选 + 计划合计敞口、行业集中度、虚拟组合回撤」
 定位：研究向**纯计算视图**，读现有计划/自选数据，零写入计划（红线：无券商、无自动执行、绝不造数）。
 
 ## 0. 术语
@@ -32,7 +32,7 @@
 
 ## 3. 数据模型 / 存储（迁移 1）
 
-- `trade_plans` +2 可空列：`related_plan` VARCHAR(64) NULL（sell→buy 的 plan id，仅 sell 使用）、`exit_mode` VARCHAR(16) NULL（NULL≡race 先到先平；枚举 `race | sell_priority | sell_stop_only | sell_only`）。
+- `trade_plans` +2 可空列：`related_plan` VARCHAR(96) NULL（**与 `trade_plans.id` 主键同宽 String(96)，r3 修正**；sell→buy 的 plan id，仅 sell 使用）、`exit_mode` VARCHAR(16) NULL（NULL≡race 先到先平；枚举 `race | sell_priority | sell_stop_only | sell_only`）。
 - `storage._plan_dict` 透传两键；`save_workspace` 映射同 `source` 模式（缺省 None）；`models.ts Plan` + `relatedPlan?: string; exitMode?: 'race'|'sell_priority'|'sell_stop_only'|'sell_only'`。
 - 关联约束（后端校验，违反 → 422 `api_error`）：仅 sell 可携带 relatedPlan；目标须存在、为 buy、workspace 内、非归档；**一 buy 至多被一 sell 关联**；禁自引用；悬空 relatedPlan（目标已删）→ 引擎视作孤儿 + degraded 标注 `danglingRelatedPlan`。
 - 设置 +1 键：`totalPositionCapPct`（int，默认 **100**，范围 20..300）——敞口卡"上限对比"的分母与 >100% 提示锚。
@@ -54,7 +54,7 @@
 ### 5.2 成分与名义额
 - 纳入（主层）：`direction=buy`、status ∈ {执行中,已触发,已过期,已归档}，且与窗口有存续交集。
 - 入场：复用复盘微结构——entry 触及（跳空穿越恒记计划 entry）、一字板顺延、停牌跳过；执行中/已触发未触发的 buy 在窗尾前入场按实际日，未入场计现金。
-- 触发日：`notional = NAV_(t-1) × positionPct / 100`（**基准=前一交易日收盘 NAV**，杜绝"当日分配依赖当日 NAV"的自指；成交仍按当日触发价）；**当日累计分配 > 可用现金 → 当日各新分配等比缩放至剩余现金**（既有持仓名义额不动——缩放只作用于新分配，不再平衡存量；每次缩放记事件）。跨界（D4 原文口径）：窗前已结束→不纳入；**窗前已触发且存续→窗起点按 positionPct 分配名义额（NAV_起点×positionPct），收益自窗起点起算，窗前表现不追溯（不编造）**；窗尾未离场→最后 close 记浮动，**持有到"今天"**（open 仓不算结束）。
+- 触发日：`notional = NAV_(t-1) × positionPct / 100`（**基准=前一交易日收盘 NAV**，杜绝"当日分配依赖当日 NAV"的自指；成交仍按当日触发价）。**r3 统一规则（终审 R1）：分配基准=分配日之前最近一个已知收盘 NAV，窗口起点日触发视同窗前触发、基准=NAV_起点(=1)——两条规则收敛为一条，边界无特判**；**当日累计分配 > 可用现金 → 当日各新分配等比缩放至剩余现金**（既有持仓名义额不动——缩放只作用于新分配，不再平衡存量；每次缩放记事件）。跨界（D4 原文口径）：窗前已结束→不纳入；**窗前已触发且存续→窗起点按 positionPct 分配名义额（NAV_起点×positionPct），收益自窗起点起算，窗前表现不追溯（不编造）**；窗尾未离场→最后 close 记浮动，**持有到"今天"**（open 仓不算结束）。
 - 状态语义澄清：`已过期` 若从未触发 → 无入场事件，纯现金贡献（引擎无需特判）；触发后离场一律由 §5.3 触发规则决定（止损/止盈/关联 sell/窗尾持有），status 字段不参与回放判定（与复盘引擎一致）。
 - sell 计划：主层零参与；闭环层中已关联者作为其 buy 仓位的离场信号源。
 - 触发日语义注记：buy 的"触发"=entry 触及（低吸单可能创建后数日才触发），名义额在**触发当日**分配而非创建日——与"按计划执行"一致。
@@ -71,15 +71,15 @@
 - 冲突事件：同日 |S|≥2 → `{date, code, buyPlanId, signals[], executed, suppressed[]}` 入事件流（§5.5）。
 
 ### 5.5 组合事件流（D8）
-统一结构 `{type: 'scaling'|'conflict'|'redundant'|'danglingRelatedPlan', date, code, detail{...}}`，payload `events[]`（各类型 cap 50 + `eventsTotal` 计数），面板折叠区「回放事件」可查；scaling 事件含 `requestedPct → allocatedPct`，面板注记"缩放日之后各计划不再按原始 positionPct 满额执行"。
+统一结构 `{type: 'scaling'|'conflict'|'redundant'|'danglingRelatedPlan', date, code, detail{...}}`，payload `events[]`（各类型 cap 50 + `eventsTotal` 计数），面板折叠区「回放事件」可查。**事件记录当日计算输入快照（终审 R5）**：scaling `detail = {positionPct, baseNav, requestedNotional, allocatedNotional}`；conflict `detail = {signals[{name,triggerPrice,execPrice}], executed, suppressed[]}`；redundant `detail = {sellPlanId, sellTriggerPrice, positionExit:{date,price}}`。语义定位：**事件流保证"可解释"（每条事件可核对当日输入），不承诺"可复现"（复现仍受 §11 参数漂移限制）**——两者区别在面板注记一句写明，不误导。
 
 ### 5.4 汇总
-`NAV 序列（日频）`、`MDD = max(1 − NAV_t / max_{s≤t} NAV_s)`、当前仓位/现金%、计划数量状态分布、行业集中度（**按当前市值权重**，含"未知"桶；HHI=Σw²，Top3=权重前三合计）。**费用模型（D7）**：gross 序列现金不计费；net 序列入场日 `cash −= notional×feeRate`、离场日 `cash −= 市值×feeRate`，其余同日——两序列同引擎单趟产出。**现金不计息**（§11 披露）。信号看板锚点定义：sell（孤儿或已配对但冗余）的**信号日 = 窗口内其 stop/target 任一首次触及日**（同日双触按复盘保守口径取 stop），**基准价 = 该日复盘同款执行价（含跳空 open）**；其后 5/10/20 交易日标的涨跌幅 = close[t+N]/基准价 − 1、区间最大反弹/回撤、**费用影响估算列**=名义额×feeRate×2 折算成收益率（标注"估算"）；数据不足 N 日 → 该列 null（不造数）。
+`NAV 序列（日频）`、`MDD = max(1 − NAV_t / max_{s≤t} NAV_s)`、当前仓位/现金%、计划数量状态分布、行业集中度（**按当前市值权重**，含"未知"桶；HHI=Σw²，Top3=权重前三合计）。**费用模型（D7，r3 恒等式收紧，终审 R2）**：gross 序列现金不计费；net 序列入场日 `cash −= notional×feeRate`、离场日 `cash −= 市值×feeRate`——**费用只从现金端扣减，绝不改动持仓市值；两序列持仓市值逐日全等，NAV 差异严格等于现金差异**。由此 `net_t = gross_t − Σ已发生费用` 逐日成立，测试恒等式 `net ≤ gross 且 gross_t − net_t = Σ_{≤t} fee` 为硬断言。两序列同引擎单趟产出。**现金不计息**（§11 披露）。信号看板锚点定义：sell（孤儿或已配对但冗余）的**信号日 = 窗口内其 stop/target 任一首次触及日**（同日双触按复盘保守口径取 stop），**基准价 = 该日复盘同款执行价（含跳空 open）**；其后 5/10/20 交易日标的涨跌幅 = close[t+N]/基准价 − 1、区间最大反弹/回撤、**费用影响估算列**=名义额×feeRate×2 折算成收益率（标注"估算"）；数据不足 N 日 → 该列 null（不造数）。
 
 ## 6. API
 
 `GET /api/portfolio/risk?days=30|90|180|365|0&start=YYYY-MM-DD&layer=core|closed&withWatch=true|false&feeRate=`
-- 校验（越界均 422，同复盘纪律）：days 白名单（0=ALL，默认 **90**→前端 3M）；start 给定时须为合法 ISO、∈ [today−1825d, today−1d] 且**覆盖 days**（二者同给 start 优先）；layer ∈ {core, closed}（默认 core）；withWatch bool（默认 false）；feeRate 可选，默认 0.0015，校验 [0,0.05]（同复盘）。
+- 校验（越界均 422，同复盘纪律）：days 白名单（0=ALL，默认 **90**→前端 3M）；start 给定时须为合法 ISO、∈ [today−1825d, today−1d]；**start 优先且 days 完全忽略、不参与交叉校验（终审 R4 取消"覆盖 days"含糊条款）**；layer ∈ {core, closed}（默认 core）；withWatch bool（默认 false）；feeRate 可选，**默认与范围取共享常量 `schemas.DEFAULT_FEE_RATE=0.0015 / FEE_RATE_MAX=0.05`（终审 R7；常量落 `schemas.py` 契约之家而非 plan_review——§2"零改动"承诺保持成立，复盘端点同步改用常量，默认值行为零变化，杜绝两处硬编码漂移）**。
 - **轻量护栏**：复用 `SlidingWindowLimiter`（assist 草案先例）**20 req/min**——只防误循环/连点重算，非安全边界（单用户本地）；超限 429。
 - 顶层键：`{kpis, nav: {dates[], values[], net[]}, exposure: {plannedPct, capPct, overCap, cashPct, amountByEquity}, concentration: {top3, hhi, industries[{key,label,pct}], unknownPct, watchPool{...}, hypothetical{...}|null}, pairs: [...], orphans: [...], signals: {items[], note}, events: [...], eventsTotal, degraded: [codes], meta: {layer, windowStart, truncatedAt?, industryCoverage{known,total,stale}, equity, feeRate}}`。
 - **列表截断**：pairs/orphans/signals.items/events 各 cap 50 + 对应 `*Total` 计数（前端折叠区显示"共 N 条，已截断"）——单用户数据量下替代分页。
@@ -93,7 +93,7 @@
 - `usePortfolioStore`：`days/start/layer/withWatch` 参数态 + `fetch`（URL 拼参、单请求）+ `error` 态（红线：失败可见化，复用 review 错误模式）+ `fetchedOnce`。
 - 布局（自上而下）：控制行（回看 chips｜层切换 chips｜自选观察组合开关·高级｜起始日输入·高级｜假想线开关·高级，**三项高级默认关**）→ KPI 行 → NAV 曲线（**复用 chart.ts 自研 svg**，多线：gross 主线 + net 费后虚线 + 现金底线；withWatch 时叠加"自选观察组合（等权指数，非持仓）"灰虚线，同图标注文案）→ 敞口卡（Σ vs totalPositionCapPct，超限标红）→ 集中度卡（横向条 + Top3/HHI；观察池单列行 + 假想虚线条注"假想参考，非真实持仓"）→ 折叠区：交易对/孤儿/信号看板/**回放事件（缩放/冲突/冗余/悬空）**。**面板偏好（层切换/高级开关/回看档）持久化 localStorage**（复用工程既有 localStorage 惯例），跨重启记忆。
 - **交易对管理入口在 ViewPlans**：sell 行（执行中/已触发）"关联建仓计划"按钮 → 下拉仅列同 code 的未配对 buy；行内 exitMode 四档下拉（选 sell_only 弹二次确认）；解除=置空。写路径复用 workspace PUT 整表同步（现计划编辑唯一通路），保存失败 → toast 错误 + 重拉。
-- 空态/单例：无 buy 计划 → 曲线区空态文案；行业全"未知" → 集中度卡整卡降级文案。
+- 空态/单例：无 buy 计划 → 曲线区空态文案；`industryCoverage.known==0 且预热进行中` → 集中度卡整卡文案 **"行业数据预热中，稍后自动刷新"**（终审 R3，不误导为"全是未知行业"）；预热完成后仍有缺口 → "未知"桶 + coverage 数字如实。
 
 ## 8. 错误处理与降级
 
@@ -116,7 +116,7 @@
 
 ## 10. 非目标 / 延期
 
-无真实持仓台账、无自动执行（红线）；部分平仓 P2；组合再平衡策略模拟不做；**滑点/冲击成本建模不做**（信号看板已有费用估算列，滑点加简单模型亦不采纳——流动性代理无依据）；分红拆股复权漂移与复盘同源限制；行业映射预热调度粒度固定每日一次（不做用户可配）；组合级 VaR/相关性矩阵/压力测试 → 后续 P2+；**多租户/认证/审计/外部监控栈（Prometheus/OTel）→ 与 AGENTS 红线一致，永久非目标**（D9）。
+无真实持仓台账、无自动执行（红线）；部分平仓 P2；组合再平衡策略模拟不做；**滑点/冲击成本建模不做**（信号看板已有费用估算列，滑点加简单模型亦不采纳——流动性代理无依据）；分红拆股复权漂移与复盘同源限制；行业映射预热调度粒度固定每日一次（不做用户可配）；组合级 VaR/相关性矩阵/压力测试 → 后续 P2+；**多租户/认证/审计/外部监控栈（Prometheus/OTel）→ 与 AGENTS 红线一致，永久非目标**（D9）；**快捷键可配置化 P2**（终审 R8：现有 1-5 快捷键为无修饰全局键先例，`6:portfolio` 沿用同模式与同风险面，不为本功能单独引入配置项）。
 
 ## 11. 已知限制（ROADMAP 行将披露）
 
