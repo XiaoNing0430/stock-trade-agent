@@ -50,11 +50,11 @@ frontend/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
     api/
       client.ts           类似 Axios 的 fetch 封装
-    stores/               10 个 Pinia 状态仓库
+    stores/               11 个 Pinia 状态仓库
       useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
       useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
       useAlertsStore.ts / useSettingsStore.ts / useAssistStore.ts
-      useScanStore.ts
+      useScanStore.ts / useReviewStore.ts
     modules/              纯逻辑模块
       constants.ts / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
