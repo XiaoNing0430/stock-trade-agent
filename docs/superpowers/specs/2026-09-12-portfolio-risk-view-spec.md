@@ -79,7 +79,7 @@
 ## 6. API
 
 `GET /api/portfolio/risk?days=30|90|180|365|0&start=YYYY-MM-DD&layer=core|closed&withWatch=true|false&feeRate=`
-- 校验（越界均 422，同复盘纪律）：days 白名单（0=ALL，默认 **90**→前端 3M）；start 给定时须为合法 ISO、∈ [today−1825d, today−1d]；**start 优先且 days 完全忽略、不参与交叉校验（终审 R4 取消"覆盖 days"含糊条款）**；layer ∈ {core, closed}（默认 core）；withWatch bool（默认 false）；feeRate 可选，**默认与范围取共享常量 `schemas.DEFAULT_FEE_RATE=0.0015 / FEE_RATE_MAX=0.05`（终审 R7；常量落 `schemas.py` 契约之家而非 plan_review——§2"零改动"承诺保持成立，复盘端点同步改用常量，默认值行为零变化，杜绝两处硬编码漂移）**。
+- 校验（越界均 422，同复盘纪律）：days 白名单（0=ALL，默认 **90**→前端 3M）；start 给定时须为合法 ISO、∈ [today−1825d, today−1d]；**start 优先且 days 完全忽略、不参与交叉校验（终审 R4 取消"覆盖 days"含糊条款）**；layer ∈ {core, closed}（默认 core）；withWatch bool（默认 false）；feeRate 可选，**默认复用既有常量 `plan_review.DEFAULT_FEE_RATE=0.0015`（r3.1 事实修正：常量已在，复盘端点即引用它）；上限新增常量 `FEE_RATE_MAX=0.05` 入 plan_review（一行纯新增，替换复盘端点内联 0.05 与组合端点共用，杜绝漂移）**。
 - **轻量护栏**：复用 `SlidingWindowLimiter`（assist 草案先例）**20 req/min**——只防误循环/连点重算，非安全边界（单用户本地）；超限 429。
 - 顶层键：`{kpis, nav: {dates[], values[], net[]}, exposure: {plannedPct, capPct, overCap, cashPct, amountByEquity}, concentration: {top3, hhi, industries[{key,label,pct}], unknownPct, watchPool{...}, hypothetical{...}|null}, pairs: [...], orphans: [...], signals: {items[], note}, events: [...], eventsTotal, degraded: [codes], meta: {layer, windowStart, truncatedAt?, industryCoverage{known,total,stale}, equity, feeRate}}`。
 - **列表截断**：pairs/orphans/signals.items/events 各 cap 50 + 对应 `*Total` 计数（前端折叠区显示"共 N 条，已截断"）——单用户数据量下替代分页。
