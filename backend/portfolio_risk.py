@@ -459,3 +459,97 @@ def _max_drawdown(series: list[float]) -> float:
         if peak > 0:
             trough = max(trough, 1.0 - nav / peak)
     return trough
+
+
+# —— 闭环层 I8：交易对配对 ——
+# 本函数只管"谁跟谁是一对"；exitMode 矩阵与 conflict/redundant 由仓位状态机（Task 4 第二段）消费。
+
+
+def _plan_kind(plan: dict) -> str:
+    """计划类型：兼容 brief 的 type 键与 storage 的 direction 键，缺省视为 buy（同 _build_state 口径）。"""
+    return str(plan.get("type") or plan.get("direction") or "buy").strip().lower()
+
+
+def _plan_id(plan: dict) -> str:
+    pid = plan.get("id")
+    return pid if isinstance(pid, str) else ""
+
+
+def _plan_code(plan: dict) -> str:
+    code = plan.get("code")
+    return code if isinstance(code, str) else ""
+
+
+def _plan_date(plan: dict) -> str | None:
+    date = plan.get("date")
+    return date if isinstance(date, str) and date else None
+
+
+def _is_archived(plan: dict) -> bool:
+    status = plan.get("status")
+    return isinstance(status, str) and "归档" in status
+
+
+def _exit_mode(plan: dict) -> str:
+    """离场档位：空/缺省 → race（spec §5.3 默认档）；枚举合法性由 API 层 422 把关，引擎不篡改。"""
+    mode = plan.get("exitMode")
+    if not isinstance(mode, str):
+        return "race"
+    return mode.strip() or "race"
+
+
+def build_links(plans: list[dict]) -> tuple[dict[str, dict], list[dict]]:
+    """I8：把 buy+sell 混合计划配成交易对。纯函数、零 IO。
+
+    返回 ``(links, events)``：
+
+    - ``links``：``buyId → {"sell": sell计划dict, "exitMode": str}``。仅 sell 型且其
+      ``relatedPlan`` 指向"存在、为 buy、未归档"的计划才配对；一 buy 至多配一 sell，
+      按 plans 顺序先到先得；``exitMode`` 空/缺省 → ``"race"``。
+    - ``events``：§5.5 结构 ``{type, date, code, detail}``。配不上的 sell →
+      ``danglingRelatedPlan``，``detail.reason`` ∈ ``missing``（目标不存在）/ ``not_buy``
+      （目标非 buy，含自引用）/ ``archived``（目标已归档）/ ``already_paired``
+      （双配：后来者不配对，``detail.pairedWith`` 记在位 sell）。事件 date/code 取自该
+      sell 计划，取不到为 ``None`` / ``""``。
+    - 无 ``relatedPlan`` 的孤儿 sell 静默跳过（平仓信号看板消费）；buy 自带
+      ``relatedPlan`` 一律忽略、不产事件（决策 D2）。
+    """
+    index: dict[str, dict] = {}
+    for plan in plans:
+        if not isinstance(plan, dict):
+            continue
+        pid = _plan_id(plan)
+        if pid and pid not in index:
+            index[pid] = plan
+
+    links: dict[str, dict] = {}
+    events: list[dict] = []
+    for plan in plans:
+        if not isinstance(plan, dict) or _plan_kind(plan) != "sell":
+            continue
+        target = plan.get("relatedPlan")
+        if not isinstance(target, str) or not target:
+            continue
+        detail: dict[str, Any] = {"sellPlanId": _plan_id(plan), "relatedPlan": target}
+        linked = index.get(target)
+        if linked is None:
+            detail["reason"] = "missing"
+        elif _plan_kind(linked) != "buy":
+            detail["reason"] = "not_buy"
+        elif _is_archived(linked):
+            detail["reason"] = "archived"
+        elif target in links:
+            detail["reason"] = "already_paired"
+            detail["pairedWith"] = _plan_id(links[target]["sell"])
+        else:
+            links[target] = {"sell": plan, "exitMode": _exit_mode(plan)}
+            continue
+        events.append(
+            {
+                "type": "danglingRelatedPlan",
+                "date": _plan_date(plan),
+                "code": _plan_code(plan),
+                "detail": detail,
+            }
+        )
+    return links, events

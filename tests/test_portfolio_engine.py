@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 from backend.plan_review import replay_plan
-from backend.portfolio_risk import compose_nav, nav_dates, replay_positions
+from backend.portfolio_risk import build_links, compose_nav, nav_dates, replay_positions
 
 CREATED_MS = 1_767_312_000_000  # 2026-01-02（周五）
 CREATED_MS_DEC = 1_764_547_200_000  # 2025-12-01（本月内 → 过期 2025-12-31）
@@ -673,3 +673,82 @@ def test_compose_nav_key_set_matches_i9() -> None:
     pos, _ = replay_one(make_plan(), bars)
     assert pos is not None
     assert set(compose_nav([pos], nav_dates({"600519": bars}, WINDOW_START, TODAY), FEE)) == keys
+
+
+# —— Task 4 第一段：I8 build_links（交易对配对 / 悬空 / 双配事件）——
+
+
+def test_build_links_rules() -> None:
+    # brief 第六例：双配→后者视为未配对 sell；buy 带 relatedPlan→忽略（不成链、不产事件）
+    b1 = make_plan(id="B1", code="600519")
+    b2 = make_plan(id="B2", code="600519", relatedPlan="B1", exitMode="race")
+    s1 = make_plan(id="S1", code="600519", direction="sell", relatedPlan="B1", exitMode="sell_priority")
+    s2 = make_plan(id="S2", code="600519", direction="sell", relatedPlan="B1", exitMode="sell_only")
+    # plans 顺序即优先级：先出现的 S1 拿到配对，后出现的 S2 视为未配对 sell
+    links, events = build_links([b1, b2, s1, s2])
+    assert links == {"B1": {"sell": s1, "exitMode": "sell_priority"}}
+    assert "B2" not in links, "buy 自带 relatedPlan → 忽略，不成链也不产事件"
+    assert events == [
+        {
+            "type": "danglingRelatedPlan",
+            "date": None,
+            "code": "600519",
+            "detail": {"sellPlanId": "S2", "relatedPlan": "B1", "reason": "already_paired", "pairedWith": "S1"},
+        }
+    ]
+
+
+def test_build_links_default_exit_mode_is_race() -> None:
+    buy = make_plan(id="B1", code="600519")
+    variants: list[dict[str, Any]] = [
+        {"id": "S1", "code": "600519", "type": "sell", "relatedPlan": "B1"},  # 无 exitMode 键
+        {"id": "S2", "code": "600519", "type": "sell", "relatedPlan": "B1", "exitMode": None},
+        {"id": "S3", "code": "600519", "type": "sell", "relatedPlan": "B1", "exitMode": ""},
+    ]
+    for sell in variants:
+        links, events = build_links([buy, sell])
+        assert links == {sell["relatedPlan"]: {"sell": sell, "exitMode": "race"}}, sell
+        assert events == []
+    # 显式档位原样透传（枚举合法性由 API 层 422 把关，引擎不篡改）
+    s4 = make_plan(id="S4", code="600519", direction="sell", relatedPlan="B1", exitMode="sell_stop_only")
+    assert build_links([buy, s4])[0]["B1"]["exitMode"] == "sell_stop_only"
+
+
+def test_build_links_dangling_related_plan() -> None:
+    # 关联约束（spec §3）：目标须存在、为 buy、未归档；否则该 sell 按孤儿 + danglingRelatedPlan
+    buy = make_plan(id="B1", code="600519")
+    archived = make_plan(id="B2", code="600519", status="已归档")
+    orphan = make_plan(id="S0", code="600519", direction="sell")  # 无关联 → 静默孤儿，零事件
+    missing = make_plan(id="S1", code="000001", direction="sell", relatedPlan="GONE", date="2026-01-05")
+    dead = make_plan(id="S2", code="600519", direction="sell", relatedPlan="B2")
+    self_ref = make_plan(id="S3", code="600519", direction="sell", relatedPlan="S3")
+    links, events = build_links([buy, archived, orphan, missing, dead, self_ref])
+    assert links == {}
+    assert [(e["detail"]["sellPlanId"], e["detail"]["reason"]) for e in events] == [
+        ("S1", "missing"),
+        ("S2", "archived"),
+        ("S3", "not_buy"),
+    ]
+    # date/code 从来源 sell 取，取不到 → None / ""
+    assert events[0]["date"] == "2026-01-05" and events[0]["code"] == "000001"
+    assert events[1]["date"] is None and events[1]["code"] == "600519"
+    assert all(e["type"] == "danglingRelatedPlan" for e in events)
+
+
+def test_build_links_is_defensive_and_pure() -> None:
+    assert build_links([]) == ({}, [])
+    junk: list[Any] = [
+        {},  # 全缺键
+        {"id": "X1", "type": None, "relatedPlan": 123},  # 类型错乱
+        {"id": "X2", "direction": 5, "relatedPlan": "X3"},  # 非 buy 非 sell
+        "not-a-dict",
+        None,
+    ]
+    links, events = build_links(junk)
+    assert links == {} and events == []
+    # 纯函数零 IO：不改动入参 plans
+    buy = make_plan(id="B1", code="600519")
+    sell = make_plan(id="S1", code="600519", direction="sell", relatedPlan="B1")
+    snapshot = [dict(buy), dict(sell)]
+    build_links([buy, sell])
+    assert [buy, sell] == snapshot
