@@ -563,7 +563,7 @@ def test_review_plans_days_filter_and_flow():
     assert {"old", "new"} <= {i["planId"] for i in out_all["items"]}
 
 
-def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db):
+def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db, monkeypatch):
     # DB 命中：save 一份 bfq bars（昨日 bar——恒新于 7 天 stale 阈值，fix round 1 相对时钟）后 fetch 不打上游
     fresh_date = (datetime.now(SHANGHAI) - timedelta(days=1)).strftime("%Y-%m-%d")
     bars = make_bars([(fresh_date, 10, 10, 10, 10, 1000.0)])
@@ -583,6 +583,9 @@ def test_fetch_all_bars_uses_db_cache_and_raises_on_failure(session_db):
         def load_history(self, code, limit, is_index=False, adjustment="qfq"):
             raise RuntimeError("upstream down")
 
+    # 封闭性：本段不得依赖共享 DB 里 market_bars 恰为空（冒烟/真实使用会留新鲜 bfq 缓存，
+    # 命中即绕过 BadRouter → 不抛错）。强制缓存未命中，验证的是上游失败聚合路径本身。
+    monkeypatch.setattr(storage, "load_market_bars", lambda *a, **k: [])
     with pytest.raises(ReviewUpstreamError) as ei:
         fetch_all_bars(["600519", "000001"], BadRouter())
     assert sorted(ei.value.codes) == ["000001", "600519"]
