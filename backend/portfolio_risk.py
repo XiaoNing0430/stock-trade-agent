@@ -1,6 +1,7 @@
-"""组合风险视图——回放引擎核心（Task 3：主层入场 / 名义额静态分配 / 主层离场 / 毛净双序列）。
+"""组合风险视图——回放引擎（Task 3 主层：入场 / 名义额静态分配 / 主层离场 / 毛净双序列；
+Task 4 闭环层：交易对平仓信号 / exitMode 四档同日优先级 / 冲突·冗余事件流）。
 
-契约：docs/superpowers/specs/2026-09-12-portfolio-risk-view-spec.md r3.2 §5.1/§5.2/§5.4/§5.5；
+契约：docs/superpowers/specs/2026-09-12-portfolio-risk-view-spec.md r3.2 §5.1/§5.2/§5.3/§5.4/§5.5；
 冻结接口 I7 `replay_positions` / I9 `compose_nav`（I6 `plan_review.FEE_RATE_MAX` 同任务落地）。
 
 纯函数、只读、零写计划。微结构复用 `plan_review` 的同一批纯函数（`slice_window` /
@@ -24,6 +25,15 @@
    窗起点日触发视同窗前触发（基准 = NAV_起点 = 1，无特判）；当日累计请求 > 当日开始现金
    → 当日各**新**分配等比缩放至剩余现金（存量永不动、不再平衡），每次缩放记 `scaling` 事件（含 §5.5 快照）。
 7. 窗尾未离场 = holding，按最后可得收盘进 NAV 浮动，**不算结束**（持有到"今天"）。
+8. 闭环层（`layer='closed'`，§5.3）：关联 sell 的 stop/target 是该 buy 仓位的**平仓信号档**（sell 方向：
+   `high>=sell.target` 止盈卖 / `low<=sell.stop` 止损卖，同日双档按复盘保守口径取 stop 侧），信号一律在
+   持仓标的自身的 K 线序列上求值（引擎只有一条价格轴）；sell 的 entry 不参与判定（语义裁定）。生效信号集
+   与同日优先级由 `_EXIT_ORDER` 四档决定，未登记档位回落 race；**未配对 buy = core 行为**，入场/分配/缩放
+   与主层逐字零差异。执行价、一字跌停不可卖顺延、停牌跳过全部复用 `_exec_price` 与既有微结构。
+9. 同日 ≥2 生效信号 → `conflict` 事件（败者进 `detail.suppressed[]`，**不记** redundant）；离场日**之后**
+   才首触的关联 sell 信号 → 一次性 `redundant` 事件（无 bar / 停牌日不判，与主循环同口径）。胜出信号被
+   一字跌停封死时当日整体顺延（无人成交 → 无冲突）。I8 `build_links` 的 dangling 诊断事件经
+   `link_events` 逐字透传进事件流（排在回放事件之后），主层忽略。
 """
 
 from __future__ import annotations
@@ -40,6 +50,21 @@ _EPS = 1e-12
 # 离场原因（I7 position.exit.reason）；T4 闭环层扩展 "relatedSell" 不改既有值
 REASON_STOP = "stop"
 REASON_TARGET = "target"
+REASON_SELL = "relatedSell"
+_MODE_CORE = "core"
+_MODE_RACE = "race"
+
+# spec §5.3 exitMode 同日矩阵：**元组序即优先级序**（首位成交，其余进 conflict.suppressed；
+# 不在元组内的信号 = 该档位下失效）。"core" 档即主层与"未配对 buy"的行为（stop > target，
+# 同日双触保守记败）→ 与 Task 3 逐字等价。未登记的 exitMode 一律回落 race（spec 默认档）。
+_EXIT_ORDER: dict[str, tuple[str, ...]] = {
+    _MODE_CORE: (REASON_STOP, REASON_TARGET),
+    _MODE_RACE: (REASON_STOP, REASON_SELL, REASON_TARGET),  # D3 裁决：止损 > 关联sell > 止盈
+    "sell_priority": (REASON_SELL, REASON_STOP),  # 止盈失效（"让利润跑"），模式名即语义：sell 优先
+    "sell_stop_only": (REASON_STOP, REASON_SELL),  # 止盈失效（风控优先，与 race 同序仅去止盈）
+    "sell_only": (REASON_SELL,),  # 仅关联 sell：buy 的 stop/target 全失效
+}
+_LAYERS = (_MODE_CORE, "closed")
 
 
 def nav_dates(bars_map: dict[str, list[dict[str, Any]]], window_start: str, today: str) -> list[str]:
@@ -105,6 +130,14 @@ class _PositionState:
     ambiguous: bool = False
     gap_fill: bool = False
     limit_deferred: bool = False
+    # —— 闭环层（layer='closed' 且已配对）专用；主层与未配对 buy 保持下列缺省 = core 行为 ——
+    mode: str = _MODE_CORE  # _EXIT_ORDER 键
+    sell_plan_id: str = ""
+    sell_stop: float = 0.0  # 关联 sell 的止损卖档（<=0 = 无此档，永不触发）
+    sell_target: float = 0.0  # 关联 sell 的止盈卖档（<=0 = 无此档）
+    sell_first_touch: str | None = None  # 关联 sell 信号**首次**触及日（同日败者据此不再被误判为冗余）
+    redundant_emitted: bool = False  # redundant 只记离场后首触一次
+    events: list[dict[str, Any]] = field(default_factory=list)  # 本仓位产出的回放事件（主循环按日收割）
 
     @property
     def proceeds(self) -> float | None:
@@ -157,6 +190,24 @@ class _PositionState:
             "limitDeferred": self.limit_deferred,
         }
 
+    def attach_link(self, link: Any) -> None:
+        """闭环层接线：消费 I8 的 `buyId→{sell, exitMode}`；非法/缺失 → 保持 core 行为（裁定 1）。
+
+        关联 sell 的 stop/target 是本仓位的**平仓信号档**，一律在持仓标的自身的 K 线序列上求值
+        （不引入 sell 的第二序列）；sell 的 entry 不参与判定（语义裁定，§5.3 括号由 §5.4 信号看板承担）。
+        """
+        if not isinstance(link, dict):
+            return
+        sell = link.get("sell")
+        if not isinstance(sell, dict):
+            return
+        raw = link.get("exitMode")
+        mode = raw.strip() if isinstance(raw, str) and raw.strip() else _exit_mode(sell)
+        self.mode = mode if mode in _EXIT_ORDER else _MODE_RACE  # 未登记档位保守按 race
+        self.sell_plan_id = _plan_id(sell)
+        self.sell_stop = _as_float(sell.get("stop"))
+        self.sell_target = _as_float(sell.get("target"))
+
 
 def _build_state(
     plan: dict[str, Any], bars_map: dict[str, list[dict[str, Any]]], window_start: str, today: str
@@ -194,14 +245,133 @@ def _build_state(
     )
 
 
+def _as_float(value: Any) -> float:
+    """脏数据防线：价格档解析失败 = 0.0（= 该信号档永不触发）——引擎不崩，也绝不造数。"""
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _sell_leg(state: _PositionState, low: float, high: float) -> tuple[float, str] | None:
+    """关联 sell 的平仓信号（sell 方向）：`low<=sell.stop` 止损卖 / `high>=sell.target` 止盈卖。
+
+    同日双档触及按复盘保守口径取 stop 侧（§5.4 信号看板同款）。返回 (触发价, `_exec_price` 的 side)。
+    """
+    if state.sell_stop > 0 and low <= state.sell_stop:
+        return state.sell_stop, REASON_STOP
+    if state.sell_target > 0 and high >= state.sell_target:
+        return state.sell_target, REASON_TARGET
+    return None
+
+
+def _day_signals(state: _PositionState, bar: dict[str, Any], date: str) -> list[dict[str, Any]]:
+    """当日**生效**信号集（按 mode 优先级升序：首位胜出，其余 suppressed）——§5.3 的集合 S。
+
+    副作用：登记关联 sell 的首次触及日（同日败者据此不再被误判为"事后冗余"）。
+    """
+    low = float(bar["low"])
+    high = float(bar["high"])
+    legs: dict[str, dict[str, Any]] = {}
+    if low <= state.stop:
+        legs[REASON_STOP] = {"name": REASON_STOP, "triggerPrice": state.stop, "side": REASON_STOP}
+    if high >= state.target:
+        legs[REASON_TARGET] = {"name": REASON_TARGET, "triggerPrice": state.target, "side": REASON_TARGET}
+    if state.mode != _MODE_CORE:
+        sell_leg = _sell_leg(state, low, high)
+        if sell_leg is not None:
+            if state.sell_first_touch is None:
+                state.sell_first_touch = date
+            legs[REASON_SELL] = {"name": REASON_SELL, "triggerPrice": sell_leg[0], "side": sell_leg[1]}
+    return [legs[name] for name in _EXIT_ORDER[state.mode] if name in legs]
+
+
+def _signal_exec(
+    state: _PositionState, bar: dict[str, Any], prev_close: float | None, signal: dict[str, Any]
+) -> float | None:
+    """该信号**被选中时**的成交价（复盘同款跳空 + 一字板可成交性）；None = 当日一字板封死卖不出。"""
+    return _exec_price(bar, float(signal["triggerPrice"]), str(signal["side"]), prev_close, state.code)
+
+
+def _conflict_event(
+    state: _PositionState,
+    bar: dict[str, Any],
+    prev_close: float | None,
+    signals: list[dict[str, Any]],
+    date: str,
+    executed_price: float,
+) -> dict[str, Any]:
+    """§5.5 conflict 事件：同日 |S|≥2；detail 记录当日计算输入快照（可核对，不承诺可复现）。
+
+    `executed` 按**实际**成交价（含双触保守分支不查一字板的口径），`suppressed[]` 各自按被选中信号
+    规则独立算价——执行价与优先级无关（§5.3），一字板封死时为 None（不造数）。
+    """
+    views: list[dict[str, Any]] = []
+    for index, signal in enumerate(signals):
+        exec_price = executed_price if index == 0 else _signal_exec(state, bar, prev_close, signal)
+        views.append({"name": signal["name"], "triggerPrice": signal["triggerPrice"], "execPrice": exec_price})
+    return {
+        "type": "conflict",
+        "date": date,
+        "code": state.code,
+        "detail": {
+            "buyPlanId": state.plan_id,
+            "signals": views,
+            "executed": signals[0]["name"],
+            "suppressed": views[1:],
+        },
+    }
+
+
+def _scan_redundant(state: _PositionState, date: str) -> None:
+    """闭环层：离场日**之后**才首触的关联 sell 信号 → 一次性 `redundant` 事件（§5.3/§5.5）。
+
+    同日败者走 conflict.suppressed，不进本判定（`sell_first_touch` 已在信号评估时登记）；
+    无 bar / 停牌日不判触发，与主循环同口径。
+    """
+    if (
+        state.mode == _MODE_CORE
+        or not state.accounted
+        or state.exit is None
+        or state.redundant_emitted
+        or state.sell_first_touch is not None
+    ):
+        return
+    bar = state.bars_by_date.get(date)
+    if bar is None or float(bar.get("volume") or 0) <= 0:
+        return
+    sell_leg = _sell_leg(state, float(bar["low"]), float(bar["high"]))
+    if sell_leg is None:
+        return
+    exit_ = state.exit
+    state.redundant_emitted = True
+    state.events.append(
+        {
+            "type": "redundant",
+            "date": date,
+            "code": state.code,
+            "detail": {
+                "sellPlanId": state.sell_plan_id,
+                "sellTriggerPrice": sell_leg[0],
+                "positionExit": {"date": exit_["date"], "price": exit_["price"]},
+            },
+        }
+    )
+
+
 def _step(state: _PositionState, date: str, window_start: str, base_nav: float) -> None:
     """单计划处理一个 bar 日：停牌 → 入场/补记开仓 → 离场判定 → mark（顺序与复盘逐字对齐）。
 
     窗前（date < window_start）只做判定不记账：入场触发/离场触发照常评估（离场判定与复盘
     同序、含入场当日同 bar），但不开仓、不 mark、不产生分配；窗前已离场 → aborted 整计划不纳入。
+    闭环层（state.mode != core）的离场判定扩展为"生效信号集 + exitMode 同日优先级"（§5.3）；
+    主层与未配对 buy 的信号集恒为 {stop, target} → 与 Task 3 逐字等价。
     """
-    if state.aborted or state.exit is not None:
-        return  # 终态：窗前已结束 / 已离场，后续日期不再有任何动作
+    if state.aborted:
+        return
+    if state.exit is not None:
+        _scan_redundant(state, date)  # 闭环层离场后的 sell 首触检测；其余状态空转
+        return
     bar = state.bars_by_date.get(date)
     if bar is None:
         return  # 该标的当日无 bar（日历错位）→ mark 由 compose_nav 前向填充
@@ -213,8 +383,7 @@ def _step(state: _PositionState, date: str, window_start: str, base_nav: float) 
         return
     prev_close = state.prev_close
     state.prev_close = close  # 与复盘同序：一字板判定用更新前的前收，随后立即滚动
-    low = float(bar["low"])
-    high = float(bar["high"])
+    low = float(bar["low"])  # 触及判定下沉到 _day_signals（闭环层要评估三信号源，需要 high）
 
     if not state.entered:
         buy_price = _exec_price(bar, state.entry, "entry", prev_close, state.code)
@@ -239,44 +408,33 @@ def _step(state: _PositionState, date: str, window_start: str, base_nav: float) 
 
     if state.exit is not None:
         return
-    stop_hit = low <= state.stop
-    target_hit = high >= state.target
-    if stop_hit and target_hit:
+    signals = _day_signals(state, bar, date)
+    if not signals:
+        if state.accounted:  # 持仓日 mark=close；窗前持仓（未计账）不留 mark
+            state.last_mark = close
+            state.marks[date] = close
+        return
+    winner = signals[0]
+    winner_name = str(winner["name"])
+    trigger = float(winner["triggerPrice"])
+    price: float | None
+    if winner_name == REASON_STOP and any(str(s["name"]) == REASON_TARGET for s in signals):
         # 同日双触保守记败（决议 3）：复盘该分支不查一字板——良构计划（target>stop）下跌停一字
         # 不可能同时上穿 target 与下穿 stop，故此处不检查可成交性即与复盘逐字等价。
         state.ambiguous = True
         open_ = float(bar["open"])
         price = open_ if open_ < state.stop else state.stop
-        if price != state.stop:
-            state.gap_fill = True
-        state.exit = {"date": date, "price": price, "reason": REASON_STOP}
-        if not state.accounted:
-            state.aborted = True  # 窗前已触发且已离场 → 窗前已结束，整计划不纳入
-        return
-    exit_price: float
-    if target_hit:
-        resolved = _exec_price(bar, state.target, REASON_TARGET, prev_close, state.code)
-        if resolved is None:
-            state.limit_deferred = True
-            return
-        exit_price = resolved
-        if exit_price != state.target:
-            state.gap_fill = True
-        state.exit = {"date": date, "price": exit_price, "reason": REASON_TARGET}
-    elif stop_hit:
-        resolved = _exec_price(bar, state.stop, REASON_STOP, prev_close, state.code)
-        if resolved is None:
-            state.limit_deferred = True
-            return
-        exit_price = resolved
-        if exit_price != state.stop:
-            state.gap_fill = True
-        state.exit = {"date": date, "price": exit_price, "reason": REASON_STOP}
     else:
-        if state.accounted:  # 持仓日 mark=close；窗前持仓（未计账）不留 mark
-            state.last_mark = close
-            state.marks[date] = close
-        return
+        price = _signal_exec(state, bar, prev_close, winner)
+        if price is None:
+            state.limit_deferred = True
+            return  # 一字跌停封死卖侧：当日无人能成交 → 整体顺延（谁也没赢，故不记冲突）
+    if price != trigger:
+        state.gap_fill = True
+    state.exit = {"date": date, "price": price, "reason": winner_name}
+    if len(signals) >= 2 and state.mode != _MODE_CORE:
+        # 主层零事件（D2 + equiv 锁）；"未配对 buy = core 行为"→ 闭环层中只有**已配对**仓位记冲突。
+        state.events.append(_conflict_event(state, bar, prev_close, signals, date, price))
     if not state.accounted:
         state.aborted = True  # 窗前已触发且已离场 → 窗前已结束，整计划不纳入
 
@@ -288,24 +446,31 @@ def replay_positions(
     today: str,
     layer: str = "core",
     links: dict[str, dict[str, Any]] | None = None,
+    link_events: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """I7：主层组合回放。返回 (positions, events)；position/事件结构见模块 docstring 与 spec §5.5。
 
     - `window_start` / `today`：YYYY-MM-DD 字符串；`bars_map` 每 code 的 bars 按 date 升序、
       未收盘 bar 已由取数层排除（日期纪律，引擎不再判收盘）。
-    - `layer` 本任务只实现 `core`（`closed` 由 Task 4 扩展，签名冻结不变）。
+    - `layer` ∈ {core, closed}（缺省 core = 主层）；越界 → ValueError（API 层映射 422）。两层的
+      **仓位集合恒为 buy**（sell 只作信号源，D2），入场/名义额/缩放与主层逐字零差异。
+    - `links`（I8 产出）只在闭环层参与判定；主层按 D2 零参与，显式忽略；闭环层中**未配对的 buy
+      = core 行为**（裁定 1）。
+    - `link_events`（I8 的 danglingRelatedPlan 诊断）在闭环层逐字透传进 `events`（排在回放事件
+      之后），主层忽略——事件流保证"可核对当日输入"，不承诺"可复现"（§5.5）。
     - `links`（I8 产出 buyPlanId→{sell, exitMode}）在闭环层才参与判定；主层按 D2 零参与，显式忽略。
     - 单趟按日期轴推进：判定 → 当日新分配等比缩放 → 离场结算 → 当日收盘 NAV（供次日分配基准）。
       缩放基准 = **当日开始时的现金**（不含当日离场回笼），与遍历顺序无关（确定性）。
     """
-    if layer != "core":
-        raise NotImplementedError(
-            "组合闭环层（layer='closed'：交易对信号源 / exitMode 四档 / 冲突与冗余事件）由 Task 4 实现"
-        )
+    if layer not in _LAYERS:
+        raise ValueError(f"layer 非法：只接受 {_LAYERS}（收到 {layer!r}）")
     if links is None:
         links = {}
 
     states = [s for s in (_build_state(p, bars_map, window_start, today) for p in plans) if s is not None]
+    if layer == "closed":  # 闭环层：把交易对挂到仓位状态上（未配对者 mode 保持 core）
+        for state in states:
+            state.attach_link(links.get(state.plan_id))
     events: list[dict[str, Any]] = []
     axis = sorted({date for state in states for date in state.bars_by_date})
     cash = NAV_START  # gross 现金（费用只在 compose_nav 的 net 线上体现）
@@ -313,8 +478,10 @@ def replay_positions(
 
     for date in axis:
         day_start_cash = cash
-        for state in states:  # 1) 判定 + 登记当日待分配意图
+        for state in states:  # 1) 判定 + 登记当日待分配意图（冲突/冗余事件按 state 缓冲，同日按计划序收割）
             _step(state, date, window_start, base_nav)
+            events.extend(state.events)
+            state.events.clear()
         intents = [s for s in states if s.pending]
         if intents:  # 2) 当日各新分配等比缩放至剩余现金（存量不动）
             requested_total = sum(s.pending_requested for s in intents)
@@ -365,6 +532,8 @@ def replay_positions(
     positions = [
         s.to_position() for s in states if not s.aborted and s.code in bars_map and (not s.entered or s.accounted)
     ]
+    if layer == "closed":  # I8 配对诊断逐字透传（裁定 3）：排在回放事件之后，主层忽略
+        events.extend(link_events or [])
     return positions, events
 
 
@@ -462,7 +631,7 @@ def _max_drawdown(series: list[float]) -> float:
 
 
 # —— 闭环层 I8：交易对配对 ——
-# 本函数只管"谁跟谁是一对"；exitMode 矩阵与 conflict/redundant 由仓位状态机（Task 4 第二段）消费。
+# 本函数只管"谁跟谁是一对"；exitMode 矩阵与 conflict/redundant 由 `_PositionState`（Task 4 第二段）消费。
 
 
 def _plan_kind(plan: dict) -> str:
