@@ -41,6 +41,18 @@ class TmpDb:
         with storage_module.SessionLocal.begin() as session:
             session.execute(update(IndustryMap).values(updated_at=cutoff))
 
+    def age_code(self, code: str, hours: int) -> None:
+        """把单个 code 的 updated_at 挪到 hours 小时前（模拟该行未被最近一轮刷新）。
+
+        评审 I-1：混合时间戳是暴露 max/min 语义差异的关键——上游自第 N 页起失败时，
+        只有前段行被刷新、后段行无限变陈，全表并非同旧。
+        """
+        from sqlalchemy import update
+
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        with storage_module.SessionLocal.begin() as session:
+            session.execute(update(IndustryMap).values(updated_at=cutoff).where(IndustryMap.code == code))
+
 
 @pytest.fixture()
 def tmp_db() -> Any:
@@ -81,6 +93,32 @@ def test_stale_tolerance(tmp_db: TmpDb) -> None:
     m, st = get_industry_map()
     assert st == "stale"
     assert m == {"600519": "白酒"}
+
+
+def test_mixed_timestamps_status_stale(tmp_db: TmpDb) -> None:
+    # 评审 I-1：混合时间戳——上游自第 N 页起失败时前段行被刷新、后段行无限变陈。
+    # 语义为"仅当整表都在最近一轮完整刷新内才算 fresh"，故任意一行 >24h 即整表 stale，
+    # 绝不允许"有任一行新"冒充全表新鲜（穿透"过期数据必须展现为过期"红线）。
+    def page1(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        if page == 1:
+            return ([{"code": "600519", "industry": "白酒"}, {"code": "000001", "industry": "银行"}], 2)
+        return ([], 2)  # 第二页空即终止
+
+    assert refresh_industry_map(fetch_page=page1) == 2
+    im.reset_process_cache()  # 掏空进程缓存，强制走 DB 判定
+
+    # 先证 min 语义不会把"全表都在窗口内"误判为 stale
+    tmp_db.age_code("600519", hours=1)
+    tmp_db.age_code("000001", hours=2)
+    m, st = get_industry_map()
+    assert st == "fresh" and m == {"600519": "白酒", "000001": "银行"}
+    im.reset_process_cache()  # fresh 读会回写进程缓存，需清掉再验混合态
+
+    # 一行仍新（1h）、一行落后期（30h）→ 整表 stale，但 map 仍返回全行（部分陈旧不丢数据）
+    tmp_db.age_code("000001", hours=30)
+    m, st = get_industry_map()
+    assert st == "stale"
+    assert m == {"600519": "白酒", "000001": "银行"}
 
 
 def test_empty(tmp_db: TmpDb, monkeypatch: pytest.MonkeyPatch) -> None:

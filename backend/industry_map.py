@@ -2,10 +2,10 @@
 
 I4 `get_industry_map()` / I5 `refresh_industry_map()`。
 
-读序（spec r3.2 观察 4）：进程缓存（TTL 86400s）→ DB 全量（updated_at 距今 ≤24h→fresh，
-否则 stale）→ 表空→({}, 'empty')。读路径**绝不内联全市场拉取**：全市场拉取只发生在后台
-APScheduler job 与显式 `refresh_industry_map()`；首启由启动后延迟预热填充，前端见 empty
-出"预热中"文案（Task 8）。
+读序（spec r3.2 观察 4）：进程缓存（TTL 86400s）→ DB 全量（**最旧行** updated_at 距今 ≤24h
+→fresh，即整表都在最近一轮完整刷新内；任一行超窗即 stale）→ 表空→({}, 'empty')。读路径
+**绝不内联全市场拉取**：全市场拉取只发生在后台 APScheduler job 与显式 `refresh_industry_map()`；
+首启由启动后延迟预热填充，前端见 empty 出"预热中"文案（Task 8）。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from backend.storage import IndustryMap
 
 logger = logging.getLogger("atlas.industry")
 
-# 进程缓存 TTL（秒）与"DB 数据新鲜"窗口：均 24h
+# 进程缓存 TTL（秒）与"DB 数据新鲜"窗口：均 24h。DB 新鲜以**最旧行** updated_at 计（见 get_industry_map）
 _PROCESS_TTL = 86400.0
 _FRESH_WINDOW = 86400.0
 # 分页拉取：每页 size、页间最小间隔（≤10 req/s）、最大页数护栏
@@ -59,7 +59,12 @@ def _default_fetch_page(page: int, size: int) -> tuple[list[dict[str, Any]], int
 
 
 def get_industry_map() -> tuple[dict[str, str], str]:
-    """返回 (code→行业 映射, status)，status ∈ 'fresh'|'stale'|'empty'。绝不触发全市场拉取。"""
+    """返回 (code→行业 映射, status)，status ∈ 'fresh'|'stale'|'empty'。绝不触发全市场拉取。
+
+    fresh 判定以**整表最旧行**的 updated_at 为基准（min）：仅当全表都在最近一轮完整刷新内
+    （最旧一行距今 ≤24h）才算 fresh；任意一行超窗即整表标 stale，使部分页刷新失败如实显为
+    过期（评审 I-1）。stale/empty 仍返回当前 DB 全量映射（部分陈旧不丢数据）。空表 → ({}, 'empty')。
+    """
     global _cache
     cached = _cache
     if cached is not None and (time.monotonic() - cached[0]) <= _PROCESS_TTL:
@@ -71,12 +76,18 @@ def get_industry_map() -> tuple[dict[str, str], str]:
         return {}, "empty"
 
     mapping = {row.code: row.name for row in rows}
-    latest = max(row.updated_at for row in rows)
-    age_seconds = (datetime.now(UTC) - latest).total_seconds()
+    oldest = min(row.updated_at for row in rows)
+    age_seconds = (datetime.now(UTC) - oldest).total_seconds()
     if age_seconds <= _FRESH_WINDOW:
+        # 仅当整表**最旧**一行仍在 24h 窗口内（= 全表都在最近一轮完整刷新内）才算 fresh。
         # 仅 fresh 回写进程缓存；stale 不回写，避免下一读被误判为 fresh
         _cache = (time.monotonic(), dict(mapping))
         return mapping, "fresh"
+    # 任意一行超出 TTL → 整表 stale。评审 I-1：不能用 max(updated_at)，否则上游从第 N 页起
+    # 持续失败时（反爬/解析错），每轮只有前段行被刷新、后段行无限变陈，而"最新行仍新"会把
+    # 全表冒充 fresh，穿透"过期数据必须展现为过期"红线。改用 min 使部分刷新失败如实显为过期。
+    # 注：退市/上游不再返回的 code 形成"幽灵行"，其 updated_at 永久停滞会长期拖住 min → 整表
+    # 长期 stale，属**有意的保守过度披露**——宁可多报过期，也绝不让陈旧子集冒充新鲜数据。
     return mapping, "stale"
 
 
