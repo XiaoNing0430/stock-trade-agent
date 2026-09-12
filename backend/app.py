@@ -21,7 +21,6 @@ from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
-    load_history,
     price_limit_ratio,
     recent_stale,
 )
@@ -113,7 +112,9 @@ FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
 
 
-def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None, str]:
+def _load_history_with_fallback(
+    code: str, limit: int, is_index: bool = False, adjustment: str = "qfq"
+) -> tuple[list, str, str | None, str]:
     """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。"""
     from backend.sources import build_router
 
@@ -123,14 +124,20 @@ def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -
         source = router.route_with_fallback(
             settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
         )
-        history = source.load_history(code, limit=limit, is_index=is_index)
-        data_as_of = save_market_bars(code, history)
+        history = source.load_history(code, limit=limit, is_index=is_index, adjustment=adjustment)
+        data_as_of = save_market_bars(code, history, adjustment=adjustment)
         return history, "live", data_as_of, source.provider_label
     except Exception:
-        bars = load_market_bars(code, limit=limit)
+        bars = load_market_bars(code, limit=limit, adjustment=adjustment)
         if not bars:
             raise
         return bars, "local", bars[-1]["date"], "local"
+
+
+def _review_bars_loader(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
+    """复盘 bars 预取 loader：走 _load_history_with_fallback（路由历史源+本地兜底），默认 bfq 口径。"""
+    history, *_ = _load_history_with_fallback(code, limit, is_index, adjustment)
+    return history
 
 
 def create_app() -> FastAPI:
@@ -518,9 +525,10 @@ def create_app() -> FastAPI:
                 plans,
                 days=days,
                 fee_rate=float(feeRate),
-                # 冒烟修复：assist_router 是能力路由器、无 load_history；bars 预取走 data_source.load_history
-                # （内含路由/重试/redis 缓存 + adjustment 参数，T2），SimpleNamespace 满足 fetch_all_bars 的 router 契约。
-                load_bars=lambda codes: plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=load_history)),
+                # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""
+                load_bars=lambda codes: plan_review.fetch_all_bars(
+                    codes, SimpleNamespace(load_history=_review_bars_loader)
+                ),
             )
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)

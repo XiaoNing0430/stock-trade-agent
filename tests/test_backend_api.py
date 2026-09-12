@@ -544,7 +544,7 @@ def test_fallback_serves_local_when_upstream_fails(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(ConnectionError("upstream down")),
     )
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=600888")
@@ -564,7 +564,7 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(ConnectionError("upstream down")),
     )
     monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
     with TestClient(app_module.create_app()) as client:
@@ -1248,7 +1248,7 @@ def test_grid_optimize_returns_candidates(monkeypatch):
     monkeypatch.setattr(
         "backend.data_source.load_history", lambda code, limit=40, is_index=False, adjustment="qfq": bars
     )
-    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history: "2026-08-30")
+    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history, adjustment="qfq": "2026-08-30")
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519", "capital": 100000, "feeBps": 3})
     assert resp.status_code == 200
@@ -1259,14 +1259,14 @@ def test_grid_optimize_returns_candidates(monkeypatch):
 def test_grid_optimize_history_failure_returns_422(monkeypatch):
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+        lambda code, limit=40, is_index=False, adjustment="qfq": (_ for _ in ()).throw(RuntimeError("no data")),
     )
     from backend.sources.eastmoney import EastMoneySource
 
     monkeypatch.setattr(
         EastMoneySource,
         "load_history",
-        lambda self, code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+        lambda self, code, limit=40, is_index=False, adjustment="qfq": (_ for _ in ()).throw(RuntimeError("no data")),
     )
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519"})

@@ -693,11 +693,11 @@ def test_scan_history_endpoint(monkeypatch):
 
 
 def test_review_endpoint_real_chain_with_load_history_facade(monkeypatch):
-    """冒烟缺陷回归：bars 预取必须走 load_history 门面（assist_router 无 load_history 时整链 502）。
+    """冒烟缺陷回归：bars 预取必须走路由历史路径 _load_history_with_fallback（旧接线 assist_router
+    无 load_history → fetch_all_bars 对每个 code 抛 AttributeError → ReviewUpstreamError → 502）。
 
-    真实 review_plans/fetch_all_bars/slice_window/replay_plan 链路，只在最外层
-    load_history（app 模块名）与 storage 缓存读写打桩。旧接线（assist_router）下
-    fetch_all_bars 对每个 code 抛 AttributeError → ReviewUpstreamError → 502，本用例必红。
+    真实 review_plans/fetch_all_bars/slice_window/replay_plan 链路，只在历史路径
+    （app 模块名）与 storage 缓存读写两个边界打桩；bfq 口径 adjustment="" 须全程透传。
     """
     now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
     plan = {
@@ -727,8 +727,14 @@ def test_review_endpoint_real_chain_with_load_history_facade(monkeypatch):
         for d in range(9, 1, -1)  # 8 根：创建日(now-10d)之后、今天之前的连续日期
     ]
     saved: list = []
+    calls: list[dict] = []
+
+    def fake_with_fallback(code, limit, is_index=False, adjustment="qfq"):
+        calls.append({"code": code, "limit": limit, "is_index": is_index, "adjustment": adjustment})
+        return list(bars), "live", None, "tencent"
+
     monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": [plan]})
-    monkeypatch.setattr(app_module, "load_history", lambda code, **k: list(bars))
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", fake_with_fallback)
     monkeypatch.setattr(storage, "load_market_bars", lambda *a, **k: [])
     monkeypatch.setattr(storage, "save_market_bars", lambda code, rows, adjustment="": saved.append((code, adjustment)))
     r = client.get("/api/plans/review", params={"days": 90})
@@ -737,3 +743,6 @@ def test_review_endpoint_real_chain_with_load_history_facade(monkeypatch):
     assert body["kpis"]["total"] == 1 and body["kpis"]["winRate"] == 1.0
     assert body["items"][0]["outcome"] == "win" and body["items"][0]["netR"] == 1.97
     assert saved and saved[0] == ("600519", "")  # bfq 落缓存，adjustment 恒空串
+    # 复盘走路由历史路径且 bfq 口径透传：adjustment=""、limit=300、非指数
+    assert len(calls) == 1 and calls[0]["adjustment"] == ""
+    assert calls[0]["code"] == "600519" and calls[0]["limit"] == 300 and calls[0]["is_index"] is False
