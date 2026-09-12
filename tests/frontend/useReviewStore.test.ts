@@ -96,18 +96,19 @@ describe('useReviewStore', () => {
     expect(codes()).toEqual(['600001', '600003', '600002']);
   });
 
-  it('fetchReview 失败 → 错误状态可见化 + review 置空 + 复位可重试（终审 F3 红线）', async () => {
+  it('fetchReview 失败 → reviewError 可见 + review 置空 + 复位可重试（终审 F3 红线 / N4）', async () => {
     requestJson.mockRejectedValueOnce(new Error('502 Bad Gateway'));
     const s = useReviewStore();
     await s.toggle();                                   // 首次展开 → fetchReview 抛错
     expect(s.review).toBeNull();                        // 失败即无可信数据，不保留旧面板
-    expect(s.error).toBe('复盘数据加载失败：502 Bad Gateway');
-    // fetchedOnce 复位：折叠后再次展开应重新拉取（可重试），成功后清除 error
+    expect(s.reviewError).toBe('复盘数据加载失败：502 Bad Gateway');
+    expect(s.traceError).toBeNull();                    // 复盘失败不污染 traceError
+    // fetchedOnce 复位：折叠后再次展开应重新拉取（可重试），成功后清除 reviewError
     requestJson.mockResolvedValueOnce(payload);
     s.expanded = false;
     await s.toggle();
     expect(s.review?.kpis.total).toBe(2);
-    expect(s.error).toBeNull();                         // 成功清除错误状态
+    expect(s.reviewError).toBeNull();                   // 成功清除复盘错误
   });
 
   it('fetchTrace 面板钳制为 10 条（§6：请求 limit=30，展示降序前 10）', async () => {
@@ -123,12 +124,42 @@ describe('useReviewStore', () => {
     expect(s.trace?.[0]?.runAtMs).toBe(1_789_000_000_000); // 保留后端降序首条
   });
 
-  it('fetchTrace 失败 → 错误状态 + trace 置空（F3）', async () => {
+  it('fetchTrace 失败 → traceError 可见 + trace 置空（F3/N4）', async () => {
     requestJson.mockRejectedValue(new Error('boom'));
     const s = useReviewStore();
     await s.fetchTrace('trend_breakout');
     expect(s.trace).toBeNull();
-    expect(s.error).toBe('扫描留痕加载失败：boom');
+    expect(s.traceError).toBe('扫描留痕加载失败：boom');
+    expect(s.reviewError).toBeNull();                    // 留痕失败不污染 reviewError
+  });
+
+  it('reviewError 与 traceError 相互独立：一路成功只清自身错误，另一路保留（N4）', async () => {
+    requestJson.mockRejectedValueOnce(new Error('rev down'));
+    const s = useReviewStore();
+    await s.fetchReview(90);
+    expect(s.reviewError).toBe('复盘数据加载失败：rev down');
+    expect(s.traceError).toBeNull();                     // 复盘失败不污染 traceError
+    requestJson.mockRejectedValueOnce(new Error('trace down'));
+    await s.fetchTrace('trend_breakout');
+    expect(s.traceError).toBe('扫描留痕加载失败：trace down');
+    expect(s.reviewError).toBe('复盘数据加载失败：rev down'); // 留痕失败不清 reviewError
+    requestJson.mockResolvedValueOnce({ history: [] });
+    await s.fetchTrace('trend_breakout');
+    expect(s.traceError).toBeNull();                     // 留痕成功仅清 traceError
+    expect(s.reviewError).toBe('复盘数据加载失败：rev down'); // reviewError 保留
+    requestJson.mockResolvedValueOnce(payload);          // 复盘成功（source 无 scan: → 不触发 fetchTrace）
+    await s.fetchReview(90);
+    expect(s.reviewError).toBeNull();
+  });
+
+  it('degraded 字段透传 + 容忍缺省 undefined（N1）', async () => {
+    requestJson.mockResolvedValue({ ...payload, degraded: ['600519', '000001'] });
+    const s = useReviewStore();
+    await s.fetchReview(90);
+    expect(s.review?.degraded).toEqual(['600519', '000001']);
+    requestJson.mockResolvedValueOnce(payload);          // payload 无 degraded → undefined，不报错
+    await s.fetchReview(90);
+    expect(s.review?.degraded).toBeUndefined();
   });
 
   it('runAtMs null 行原样保留（app.py 解析失败下发 null，不造时间；F5）', async () => {

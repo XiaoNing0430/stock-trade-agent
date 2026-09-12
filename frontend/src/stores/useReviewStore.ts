@@ -23,6 +23,8 @@ export interface ReviewPayload {
   kpis: ReviewKpis;
   groups: { source: ReviewGroupRow[]; direction: ReviewGroupRow[]; validity: ReviewGroupRow[]; createdMonth: ReviewGroupRow[] };
   items: ReviewItem[];
+  // 降级披露（N1）：这些代码由后端本地持久化兜底提供，数据可能陈旧；缺省（undefined）= 无降级。
+  degraded?: string[];
 }
 
 // 扫描留痕行 = GET /api/screener/scan/history 列表行 camelCase（FR-4）。
@@ -44,8 +46,10 @@ export const useReviewStore = defineStore('review', () => {
   const sortDir = ref<'asc' | 'desc'>('desc');
   const trace = ref<ScanTraceRow[] | null>(null);
   const traceLoading = ref(false);
-  // 错误状态（终审 F3 红线）：复盘/留痕加载失败时展现为可见错误，绝不静默保留旧面板。
-  const error = ref<string | null>(null);
+  // 错误状态（终审 F3 红线 / N4）：复盘与留痕各自独立错误态，互不覆盖——trace 成功只清 traceError，
+  // reviewError 保留至下次复盘成功；反之亦然，避免一路成功误抹另一路的可见错误。
+  const reviewError = ref<string | null>(null);
+  const traceError = ref<string | null>(null);
 
   async function fetchReview(d?: 0 | 30 | 90) {
     if (d !== undefined) days.value = d;
@@ -53,13 +57,13 @@ export const useReviewStore = defineStore('review', () => {
     try {
       review.value = await requestJson<ReviewPayload>(`/api/plans/review?days=${days.value}`, { method: 'GET' });
       fetchedOnce.value = true;
-      error.value = null;
+      reviewError.value = null;
       void syncTrace();
     } catch (e) {
       // 红线：加载失败即无可信数据 → 清空 review，并复位 fetchedOnce 使再次展开可重新拉取（可重试）。
       review.value = null;
       fetchedOnce.value = false;
-      error.value = `复盘数据加载失败：${(e as Error).message}`;
+      reviewError.value = `复盘数据加载失败：${(e as Error).message}`;
     } finally {
       loading.value = false;
     }
@@ -79,10 +83,10 @@ export const useReviewStore = defineStore('review', () => {
         `/api/screener/scan/history?strategyId=${encodeURIComponent(strategyId)}&limit=30`, { method: 'GET' });
       // §6：请求取 30 条（后端按 runAt 降序），面板仅展示前 10 条。
       trace.value = (res.history ?? []).slice(0, 10);
-      error.value = null;
+      traceError.value = null;
     } catch (e) {
       trace.value = null;
-      error.value = `扫描留痕加载失败：${(e as Error).message}`;
+      traceError.value = `扫描留痕加载失败：${(e as Error).message}`;
     } finally {
       traceLoading.value = false;
     }
@@ -104,6 +108,6 @@ export const useReviewStore = defineStore('review', () => {
   function formatR(v: number | null | undefined): string {
     return v === null || v === undefined ? '--' : v.toFixed(2);
   }
-  return { review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading, error,
+  return { review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading, reviewError, traceError,
            fetchReview, toggle, setGroup, setDays: fetchReview, toggleSort, fetchTrace, formatRatio, formatR };
 });

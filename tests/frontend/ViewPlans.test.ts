@@ -155,7 +155,7 @@ describe('ViewPlans', () => {
     expect(wrapper.text()).not.toContain('样本不足，仅供参考');
   });
 
-  it('复盘加载失败 → 渲染可见错误条 review-error（终审 F3 红线）', async () => {
+  it('复盘加载失败 → 渲染 review-error 且不误渲染 review-trace-error（N4 分离）', async () => {
     vi.mocked(requestJson).mockRejectedValue(new Error('网络中断'));
     const wrapper = mount(ViewPlans);
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
@@ -164,6 +164,50 @@ describe('ViewPlans', () => {
     expect(err.exists()).toBe(true);
     expect(err.text()).toContain('复盘数据加载失败');
     expect(err.text()).toContain('网络中断');
+    expect(wrapper.find('[data-testid="review-trace-error"]').exists()).toBe(false); // 复盘错误不触发留痕错误条
+  });
+
+  it('仅留痕加载失败 → 渲染 review-trace-error 且无 review-error（N4 分离）', async () => {
+    const withScan = {
+      ...reviewPayload,
+      groups: { ...reviewPayload.groups,
+        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 2, flatCount: 0, wins: 1,
+                   winRate: 0.5, expectancyR: 0.4, smallSample: false }] },
+    };
+    vi.mocked(requestJson).mockImplementation((url: unknown) =>
+      String(url).includes('/api/plans/review')
+        ? Promise.resolve(withScan)                                    // 复盘成功 → reviewError null
+        : Promise.reject(new Error('留痕上游不可用')),                  // 留痕失败 → traceError
+    );
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-error"]').exists()).toBe(false);
+    const te = wrapper.find('[data-testid="review-trace-error"]');
+    expect(te.exists()).toBe(true);
+    expect(te.text()).toContain('扫描留痕加载失败');
+    expect(te.text()).toContain('留痕上游不可用');
+    expect(wrapper.find('[data-testid="review-trace"]').exists()).toBe(false); // trace 失败置空，不留半截面板
+  });
+
+  it('降级披露：degraded 非空 → 渲染 review-degraded 且含各代码（N1）', async () => {
+    vi.mocked(requestJson).mockResolvedValue({ ...reviewPayload, degraded: ['600519', '000001'] });
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const line = wrapper.find('[data-testid="review-degraded"]');
+    expect(line.exists()).toBe(true);
+    expect(line.text()).toContain('600519');
+    expect(line.text()).toContain('000001');
+    expect(line.text()).toContain('本地历史兜底');
+  });
+
+  it('降级披露：degraded 缺省 → 不渲染 review-degraded（N1）', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-degraded"]').exists()).toBe(false);
   });
 
   it('扫描留痕降序渲染至多 10 条、runAtMs null 行渲染 --（终审 F4/F5）', async () => {

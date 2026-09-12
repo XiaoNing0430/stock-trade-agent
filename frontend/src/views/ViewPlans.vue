@@ -47,7 +47,8 @@
           <i data-lucide="chevron-down" :class="{ flipped: review.expanded }"></i>
         </button>
         <template v-if="review.expanded">
-          <p v-if="review.error" class="plan-draft-error" data-testid="review-error" role="alert">{{ review.error }}</p>
+          <p v-if="review.reviewError" class="plan-draft-error" data-testid="review-error" role="alert">{{ review.reviewError }}</p>
+          <p v-if="review.review?.degraded?.length" class="muted" data-testid="review-degraded">以下代码使用本地历史兜底，数据可能陈旧：{{ review.review?.degraded?.join('、') }}</p>
           <div class="review-days">
             <button v-for="d in REVIEW_DAYS" :key="d" type="button"
                     :class="{ active: review.days === d }" @click="review.setDays(d)">
@@ -88,6 +89,7 @@
               </tr>
             </tbody>
           </table>
+          <p v-if="review.traceError" class="plan-draft-error" data-testid="review-trace-error" role="alert">{{ review.traceError }}</p>
           <div v-if="activeScanTrace.length" data-testid="review-trace" class="review-trace">
             <p class="muted">{{ traceSummary }}</p>
             <p v-for="(t, i) in activeScanTrace" :key="t.runAtMs ?? i" class="muted">{{ t.runAtMs == null ? '--' : formatTime(t.runAtMs) }} · {{ t.status }} · 命中 {{ t.hitCount }} / 新增 {{ t.newCount }}</p>
