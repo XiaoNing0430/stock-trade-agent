@@ -186,6 +186,48 @@ def test_workspace_put_rejects_bad_link_422(workspace_client):
     assert get_ws(workspace_client)["plans"] == []
 
 
+def test_exit_mode_whitelist(workspace_client):
+    # Fix round 1（评审 I-1）：exitMode 四值白名单，写路径整表校验（不限 sell）
+    msg = validate_plan_links([{"id": "b1", "code": "600519", "direction": "buy", "exitMode": "banana"}])
+    assert msg is not None
+    assert "banana" in msg
+    assert all(v in msg for v in ("race", "sell_priority", "sell_stop_only", "sell_only"))  # 消息列合法四值
+    assert validate_plan_links([{"id": "b1", "code": "600519", "direction": "buy", "exitMode": "x" * 40}])
+    # 超长旧路径会走 PG 列宽 500 兜底，现须白名单先行拒绝
+    for legal in ("race", "sell_priority", "sell_stop_only", "sell_only"):
+        assert validate_plan_links([{"id": "s1", "code": "600519", "direction": "sell", "exitMode": legal}]) is None
+    # 空串/缺省=留空≡race（save_workspace or None 映射），恒通过
+    assert validate_plan_links([{"id": "s1", "code": "600519", "direction": "sell", "exitMode": ""}]) is None
+    assert validate_plan_links([{"id": "s1", "code": "600519", "direction": "sell"}]) is None
+    # HTTP：banana PUT → 422 VALIDATION_ERROR 且不落盘
+    response = workspace_client.put(
+        "/api/workspace",
+        params={"workspace": WS},
+        json={
+            "watchlist": [],
+            "plans": [
+                {
+                    "id": "b1",
+                    "code": "600519",
+                    "direction": "buy",
+                    "entry": 10,
+                    "stop": 9.5,
+                    "target": 11,
+                    "position": 10,
+                    "status": "执行中",
+                    "validity": "30天",
+                    "exitMode": "banana",
+                }
+            ],
+            "alerts": [],
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "VALIDATION_ERROR"
+    assert "离场模式" in response.json()["detail"]["error"]
+    assert get_ws(workspace_client)["plans"] == []
+
+
 def test_total_position_cap_default_and_clamp():
     # I3：设置 +1 键 totalPositionCapPct（int 默认 100，clamp 20..300）
     from backend.storage import DEFAULT_WORKSPACE_SETTINGS, _normalize_workspace_settings

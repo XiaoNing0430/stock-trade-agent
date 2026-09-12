@@ -398,10 +398,21 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
 def validate_plan_links(plans_payload: list[dict[str, Any]]) -> str | None:
     """交易对关联写路径校验（spec §3 规则）。None=通过；返回中文错误串即 422 detail。
 
-    规则：仅 sell 可携带 relatedPlan；目标须存在、为 buy、workspace 内、非归档；
+    规则：exitMode 若设置须落四值白名单（整表校验，不限 sell；留空≡race）；
+    仅 sell 可携带 relatedPlan；目标须存在、为 buy、workspace 内、非归档；
     禁自引用；同 code；一 buy 至多被一 sell 关联。悬空（目标已删）消息含"请先解除关联"
     指引；悬空数据的引擎侧容错（孤儿 + degraded 标注）由回放任务负责，不在此处。
     """
+    # 评审 I-1（fix round 1）：exitMode 白名单先跑，杜绝任意串落库与超长 500 兜底
+    exit_modes = {"race", "sell_priority", "sell_stop_only", "sell_only"}
+    for item in plans_payload:
+        mode = item.get("exitMode")
+        if mode and str(mode) not in exit_modes:
+            sid = str(item.get("id") or "")
+            return (
+                f"计划「{sid}」的离场模式「{mode}」无效；"
+                f"合法值：race / sell_priority / sell_stop_only / sell_only（留空≡race）"
+            )
     by_id = {str(item.get("id")): item for item in plans_payload if item.get("id")}
     linked_buy: dict[str, str] = {}  # buy id → 首个关联它的 sell id（一 buy 一 sell）
     for item in plans_payload:
