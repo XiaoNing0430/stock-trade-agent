@@ -124,12 +124,14 @@ class EastMoneySource(DataSource):
         quotes = [self._parse_quote(item) for item in raw_list]
         return [quote for quote in quotes if quote is not None]
 
-    def load_history(self, code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
+    def load_history(
+        self, code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq"
+    ) -> list[dict[str, Any]]:
         secid = _INDEX_SECID.get(code, _secid(code)) if is_index else _secid(code)
         params: dict[str, Any] = {
             "secid": secid,
             "klt": 101,  # 日线
-            "fqt": 1,  # 前复权
+            "fqt": 1 if adjustment == "qfq" else (2 if adjustment == "hfq" else 0),  # 前复权/后复权/不复权
             "end": "20500101",
             "lmt": limit,
             # 缺 fields1/fields2 时接口返回空 klines（实测 2026-09）

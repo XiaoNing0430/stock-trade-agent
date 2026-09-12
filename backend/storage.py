@@ -40,6 +40,7 @@ class TradePlan(Base):
     note: Mapped[str] = mapped_column(String(2000), default="")
     status: Mapped[str] = mapped_column(String(32), default="执行中", index=True)
     triggered: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -283,6 +284,7 @@ def _plan_dict(plan: TradePlan) -> dict[str, Any]:
         "note": plan.note,
         "status": plan.status,
         "triggered": plan.triggered or {},
+        "source": plan.source,
         "createdAt": plan.created_at.astimezone().strftime("%H:%M"),
         "createdAtMs": int(plan.created_at.timestamp() * 1000),
     }
@@ -451,6 +453,7 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
             plan.note = item.get("note", "")
             plan.status = item.get("status", "执行中")
             plan.triggered = item.get("triggered") or {}
+            plan.source = item.get("source") or None
 
         alerts_payload = [item for item in payload.get("alerts", []) if item.get("id")]
         alert_ids = {item["id"] for item in alerts_payload}

@@ -134,6 +134,20 @@ describe('useAssistStore', () => {
       });
     });
 
+    it('openFor 携带 source 时写入同一 draft 状态对象（B6：与 code 同路，确认落计划透传）', async () => {
+      vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) })));
+      const assist = useAssistStore();
+      await assist.openFor({ code: '600519', source: 'scan:trend_breakout' });
+      expect(assist.draft?.source).toBe('scan:trend_breakout');
+    });
+
+    it('openFor 未传 source 时 draft.source 为空（计划构造点兜底 manual）', async () => {
+      vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) })));
+      const assist = useAssistStore();
+      await assist.openFor({ code: '600519' });
+      expect(assist.draft?.source).toBeUndefined();
+    });
+
     it('上游错误透传 detail.error 并 error toast', async () => {
       const workspace = useWorkspaceStore();
       const toastSpy = vi.spyOn(workspace, 'showToast');

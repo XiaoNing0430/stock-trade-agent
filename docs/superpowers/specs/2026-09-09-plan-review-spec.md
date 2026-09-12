@@ -37,7 +37,7 @@ r3 → r3.1（批准附带）：①窗口终点措辞消歧（"当日或之前"�
   - **涨跌停/停牌（FR-2c）**：复用 AGENTS 网格回测规则——停牌（`volume ≤ 0`）当日跳过（无成交可能）；**一字板（`high == low`，`volume > 0`）判定按前收盘价计算的涨跌停价（r3，B5）**：`limitUp = round(prevClose × (1 + pct), 2)`、`limitDown = round(prevClose × (1 − pct), 2)`，pct 按 `classify_code()` 板块（北交所 30%、创业板/科创板 20%、其他 10%）；prevClose 取窗口首根 bar 的前一根收盘价（**该根同样须满足已收盘条件——B2 规则 `barDate < 今天` 天然覆盖，显式写明，r3.1**），不可得时该 bar 跳过一字板判定（披露）。**买入方向不可成交**于涨停一字板日、**卖出方向不可成交**于跌停一字板日——受影响事件（入场/离场）**顺延到下一可成交 bar**；**顺延后触发价恒为原 entry/stop/target，不因顺延改用开盘价成交**（r3.1，决议 20）；顺延后的 bar 未触及触发价 → 继续顺延，窗口闭合仍未成交入场 → 未入场；已入场但无法离场且窗口闭合 → 平出（exit = 末收盘）。已知限制（披露，r3 B5）：ST ±5% 与新股上市初期特殊幅度不建模（回放上下文无名称/上市日信息）——误差方向：ST 高波动日一字板可能漏判（误判为可成交，偏乐观）；窗口内 bars ≤ 5 视为新股初期，同样披露。
   - 窗口闭合仍未决 → **进行中**（不算胜负）；入场后窗口内 target/stop 均未触 → **平出**（exit = 窗口末已收盘 bar 收盘价，R 按实际值）。
   - 首个触及入场价当日若同时触及 target/stop → 该日即计入双触裁定（不延迟到次日）。
-- **FR-3 聚合 API**：`GET /api/plans/review?days=30|90|0&feeRate=`（0=全部，默认 90；feeRate 可选默认 0.0015，**校验 0 ≤ feeRate ≤ 0.05**，越界 422；决议 12/17）→ 顶层键 `{kpis, groups, items}`：
+- **FR-3 聚合 API**：`GET /api/plans/review?days=30|90|0&feeRate=`（0=全部，默认 90；feeRate 可选默认 0.0015，**校验 0 ≤ feeRate ≤ 0.05**，越界 422；决议 12/17）→ 顶层键 `{kpis, groups, items, degraded}`（`degraded: string[]`：命中本地持久化兜底的代码，终审 N1 增补；无则空数组）：
   - **净 R（按止损距离归一，r3 B4）**：每计划 `costR = feeRate × entry / |entry − stop|`（双边费用率 feeRate——佣金+印花税+过户费+滑点合计，占名义本金比例——折算成风险单位 R）；`netR = R − costR`。不同止损距离的计划成本公平摊销；近似性（常数 feeRate、未建模流动性/部分成交/冲击成本）已披露。
   - `kpis`（**命名统一 r3 B3**）：`{total, decided, flatCount, winRate, avgWinR, avgLossR, payoffRatio, expectancyR, notEnteredRate, openCount, invalidCount}`：
     - `decided = 胜 + 败`（winRate 分母）；`winRate = 胜 / decided`（胜 = 触及 target，决议 11）；

@@ -6,6 +6,7 @@ import time
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
+from backend import plan_review
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -70,6 +72,7 @@ from backend.storage import (
     list_enabled_scan_configs,
     list_grid_strategies,
     list_scan_configs,
+    list_scan_history,
     list_strategies,
     load_market_bars,
     save_grid_backtest,
@@ -96,6 +99,7 @@ ERR_NOT_FOUND = "NOT_FOUND"  # 404 资源不存在
 ERR_RATE_LIMITED = "RATE_LIMITED"  # 429 草案限频
 
 logger = logging.getLogger("atlas.assist")
+review_logger = logging.getLogger("atlas.review")  # 计划复盘独立通道：上游失败 codes 落日志（r3.1）
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -108,21 +112,28 @@ FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
 
 
-def _load_history_with_fallback(code: str, limit: int, is_index: bool = False) -> tuple[list, str, str | None, str]:
-    """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。"""
-    from backend.sources import build_router
+def _load_history_with_fallback(
+    code: str, limit: int, is_index: bool = False, adjustment: str = "qfq", source: Any = None
+) -> tuple[list, str, str | None, str]:
+    """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。
 
-    settings = get_workspace_settings("default")
-    router = build_router()
+    source 可由调用方预解析注入（复盘按请求解析一次，免逐码重建 settings+router）；缺省按当前 settings 现场路由。
+    """
+    if source is None:
+        from backend.sources import build_router
+
+        settings = get_workspace_settings("default")
+        router = build_router()
     try:
-        source = router.route_with_fallback(
-            settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
-        )
-        history = source.load_history(code, limit=limit, is_index=is_index)
-        data_as_of = save_market_bars(code, history)
+        if source is None:
+            source = router.route_with_fallback(
+                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+            )
+        history = source.load_history(code, limit=limit, is_index=is_index, adjustment=adjustment)
+        data_as_of = save_market_bars(code, history, adjustment=adjustment)
         return history, "live", data_as_of, source.provider_label
     except Exception:
-        bars = load_market_bars(code, limit=limit)
+        bars = load_market_bars(code, limit=limit, adjustment=adjustment)
         if not bars:
             raise
         return bars, "local", bars[-1]["date"], "local"
@@ -478,6 +489,87 @@ def create_app() -> FastAPI:
                 }
             )
         return {"hits": hits}
+
+    def _scan_history_out(row: dict[str, Any]) -> dict[str, Any]:
+        """扫描历史行 → camelCase 出参。list_scan_history 行键已是 camelCase（storage.py:875），
+        仅把 runAt（datetime）转为机器时间戳 runAtMs（毫秒，同 _plan_dict createdAtMs 惯例）。"""
+        run_at = row.get("runAt")
+        return {
+            "strategyId": row.get("strategyId"),
+            "runAtMs": int(run_at.timestamp() * 1000) if run_at is not None else None,
+            "status": row.get("status"),
+            "hitCount": row.get("hitCount"),
+            "newCount": row.get("newCount"),
+            "elapsedMs": row.get("elapsedMs"),
+            "traceId": row.get("traceId"),
+        }
+
+    @app.get("/api/screener/scan/history")
+    def scan_history(strategyId: str | None = None, limit: int = 30) -> dict[str, Any]:
+        """扫描运行留痕（只读，最新在前）：limit 夹取 1..200。"""
+        limit = max(1, min(int(limit), 200))
+        rows = list_scan_history(strategy_id=strategyId or None, limit=limit)
+        return {"history": [_scan_history_out(r) for r in rows]}
+
+    @app.get("/api/plans/review")
+    def plans_review(days: int = 90, feeRate: float = plan_review.DEFAULT_FEE_RATE) -> dict[str, Any]:
+        """计划绩效复盘（只读，设计口径回算；红线：零写 plans）。"""
+        if days not in (0, 30, 90):
+            raise api_error(422, ERR_VALIDATION_ERROR, "days 仅支持 0/30/90")
+        if not (0.0 <= feeRate <= 0.05):
+            raise api_error(422, ERR_VALIDATION_ERROR, "feeRate 须在 [0, 0.05]")
+        plans = get_workspace().get("plans") or []
+        # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""；
+        # 命中本地兜底的 code 记入 degraded 如实披露（红线：降级不得静默），历史源按请求解析一次
+        t0 = time.perf_counter()
+        stats = {"upstream": 0}
+        degraded: list[str] = []
+        history_source: Any = None
+        try:
+            from backend.sources import build_router
+
+            settings = get_workspace_settings("default")
+            history_source = build_router().route_with_fallback(
+                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+            )
+        except Exception:  # 构造失败 → helper 逐码现场路由（与旧行为一致）
+            history_source = None
+
+        def _loader(codes: list[str]) -> dict[str, list[dict[str, Any]]]:
+            def _counting(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
+                stats["upstream"] += 1
+                history, flag, as_of, _ = _load_history_with_fallback(
+                    code, limit, is_index, adjustment, source=history_source
+                )
+                if flag == "local":
+                    degraded.append(code)
+                    review_logger.warning("review_degraded code=%s as_of=%s", code, as_of)
+                return history
+
+            return plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=_counting))
+
+        try:
+            result = plan_review.review_plans(
+                plans,
+                days=days,
+                fee_rate=float(feeRate),
+                load_bars=_loader,
+            )
+        except plan_review.ReviewUpstreamError as exc:
+            review_logger.error("review_upstream_failed codes=%s", exc.codes)
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
+        result["degraded"] = sorted(set(degraded))
+        review_logger.info(
+            "review_ok plans=%d window_days=%d codes=%d upstream=%d degraded=%s fee_rate=%.4f elapsed_ms=%d",
+            len(plans),
+            days,
+            len({str(r.get("code")) for r in result.get("items", []) if r.get("code")}),
+            stats["upstream"],
+            ",".join(result["degraded"]) or "-",
+            float(feeRate),
+            int((time.perf_counter() - t0) * 1000),
+        )
+        return result
 
     @app.post("/api/assist/plan-draft", response_model=PlanDraftResponse)
     def assist_plan_draft(payload: PlanDraftIn) -> PlanDraftResponse:

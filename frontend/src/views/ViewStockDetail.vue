@@ -69,6 +69,7 @@ async function openDraft() {
     name: stock?.name,
     price: stock?.price ?? null,
     asOfMs: stock?.updatedAt ?? null,
+    source: 'monitor',
   });
 }
 

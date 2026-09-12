@@ -107,7 +107,9 @@ describe('App.vue 扫描项代码片（spec §8）', () => {
 
     await chip.trigger('click');
     expect(openForSpy).toHaveBeenCalledTimes(1);
-    expect(openForSpy).toHaveBeenCalledWith(expect.objectContaining({ code: '300750' }));
+    expect(openForSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ code: '300750', source: 'scan:trend_breakout' })
+    );
     // markSeen 效果落盘：atlas.scan.seen.{strategyId} 写入毫秒时间戳 → 扫描项视为已读
     expect(Number(localStorage.getItem('atlas.scan.seen.trend_breakout'))).toBeGreaterThan(0);
     expect(scan.unreadScanCount).toBe(0);

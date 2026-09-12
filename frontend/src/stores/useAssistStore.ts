@@ -19,6 +19,15 @@ export interface AssistRecalcInput {
   equity: number;
 }
 
+/** 草案统一入口输入：source 为入口归因（scan:{strategyId} | screener | monitor），确认落计划时透传、缺省兜底 manual。 */
+export interface AssistOpenInput {
+  code: string;
+  name?: string;
+  price?: number | null;
+  asOfMs?: number | null;
+  source?: string;
+}
+
 /**
  * 交易辅助 store：草案获取（openFor）→ 本地调参重算（recalc，纯 assistCalc）→ 确认落计划（confirmDraft）。
  * confirmDraft 接收与 usePlansStore.savePlan 完全同形的 plan（额外容忍 createdAt 显示串），
@@ -54,7 +63,7 @@ export const useAssistStore = defineStore('assist', () => {
   });
 
   /** 草案统一入口：screener 行 / 个股详情快照携带价格与时间戳（null → 后端取实时价）。 */
-  async function openFor(payload: { code: string; name?: string; price?: number | null; asOfMs?: number | null }) {
+  async function openFor(payload: AssistOpenInput) {
     visible.value = true;
     loading.value = true;
     error.value = '';
@@ -69,8 +78,8 @@ export const useAssistStore = defineStore('assist', () => {
           entryAsOfMs: payload.asOfMs ?? null,
         }),
       });
-      // 响应包裹 {data: 草案}（与 /api/settings 的 data 包裹一致）
-      draft.value = (result?.data ?? result) as AssistDraft;
+      // 响应包裹 {data: 草案}（与 /api/settings 的 data 包裹一致）；source 与 code 同路写入同一 draft 状态对象（B6）
+      draft.value = { ...((result?.data ?? result) as AssistDraft), source: payload.source };
     } catch (e: any) {
       const message = typeof e?.message === 'string' ? e.message : '';
       // 网络层失败（fetch 抛出）统一兜底文案；服务端 detail.error 中文信息原样透传

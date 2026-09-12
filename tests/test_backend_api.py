@@ -221,7 +221,7 @@ def test_history_returns_daily_kline(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
 
-    def fake_history(code, limit=40, is_index=False):
+    def fake_history(code, limit=40, is_index=False, adjustment="qfq"):
         return [{"date": "2026-08-06", "open": 10, "close": 11, "high": 12, "low": 9, "volume": 1000}]
 
     monkeypatch.setattr("backend.data_source.load_history", fake_history)
@@ -544,7 +544,9 @@ def test_fallback_serves_local_when_upstream_fails(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(
+            ConnectionError("upstream down")
+        ),
     )
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=600888")
@@ -564,7 +566,9 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(
+            ConnectionError("upstream down")
+        ),
     )
     monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
     with TestClient(app_module.create_app()) as client:
@@ -931,6 +935,12 @@ def test_price_limit_ratio_by_board():
     assert data_source.price_limit_ratio("600519") == 0.10
 
 
+def test_price_limit_ratio_bj_920_segment():
+    # 920xxx 北交所新码段（评审 I1）：classify_code 旧元组 ("4","8") 漏 92 → 未知 → 误回 0.10
+    assert data_source.classify_code("920001")["exchange"] == "北交所"
+    assert data_source.price_limit_ratio("920001") == 0.30
+
+
 def test_http_get_raises_after_retries_exhausted(monkeypatch):
     def always_fail(url, params=None, headers=None, timeout=None):
         raise data_source.requests.ConnectionError("boom")
@@ -1239,8 +1249,10 @@ def test_grid_optimize_returns_candidates(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
     bars = _strategy_bars(60)
-    monkeypatch.setattr("backend.data_source.load_history", lambda code, limit=40, is_index=False: bars)
-    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history: "2026-08-30")
+    monkeypatch.setattr(
+        "backend.data_source.load_history", lambda code, limit=40, is_index=False, adjustment="qfq": bars
+    )
+    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history, adjustment="qfq": "2026-08-30")
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519", "capital": 100000, "feeBps": 3})
     assert resp.status_code == 200
@@ -1251,14 +1263,14 @@ def test_grid_optimize_returns_candidates(monkeypatch):
 def test_grid_optimize_history_failure_returns_422(monkeypatch):
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+        lambda code, limit=40, is_index=False, adjustment="qfq": (_ for _ in ()).throw(RuntimeError("no data")),
     )
     from backend.sources.eastmoney import EastMoneySource
 
     monkeypatch.setattr(
         EastMoneySource,
         "load_history",
-        lambda self, code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+        lambda self, code, limit=40, is_index=False, adjustment="qfq": (_ for _ in ()).throw(RuntimeError("no data")),
     )
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519"})

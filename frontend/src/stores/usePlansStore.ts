@@ -104,6 +104,7 @@ export const usePlansStore = defineStore('plans', () => {
     const plan = {
       id: `plan-${draft.code}-${Date.now()}`,
       code: draft.code,
+      source: 'manual', // 手动新建入口归因（ViewPlans 表单流程）
       direction: draft.direction,
       entry: Number(draft.entry),
       stop: Number(draft.stop),

@@ -1,15 +1,36 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewPlans from '@/views/ViewPlans.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { usePlansStore } from '@/stores/usePlansStore';
 import type { Plan } from '@/types/models';
+import { requestJson } from '@/api/client';
 
 // renderIcons() 在 onMounted 时调用 createIcons 扫描 DOM，测试中替换为 no-op。
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
+// 绩效复盘面板（Task 8）：mock @/api/client，照抄 ViewScreener.test.ts 模式
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>();
+  return { ...actual, requestJson: vi.fn() };
+});
+
+const reviewPayload = {
+  kpis: { total: 2, decided: 1, flatCount: 0, winRate: 1, avgWinR: 1.97, avgLossR: null,
+          payoffRatio: null, expectancyR: 1.97, notEnteredRate: 0, openCount: 1, invalidCount: 0 },
+  groups: {
+    source: [{ key: 'manual', label: '手动新建', decided: 1, flatCount: 0, wins: 1,
+               winRate: 1, expectancyR: 1.97, smallSample: true }],
+    direction: [{ key: 'buy', label: '买入', decided: 1, flatCount: 0, wins: 1,
+                  winRate: 1, expectancyR: 1.97, smallSample: false }],
+  },
+  items: [{ planId: 'p1', code: '300750', source: 'manual', direction: 'buy', entry: 10,
+            stop: 9.5, target: 11, validity: '本月内', status: '执行中', outcome: 'win',
+            rValue: 2, netR: 1.97, costR: 0.03, entryDate: '2026-09-14', exitDate: '2026-09-15',
+            ambiguous: false, gapFill: false, limitDeferred: false }],
+};
 
 const activePlan: Plan = {
   id: 'p1',
@@ -104,5 +125,118 @@ describe('ViewPlans', () => {
     expect(wrapper.find('.plan-count strong').text()).toBe('1');
     expect(wrapper.text()).toContain('600519');
     expect(wrapper.text()).not.toContain('还没有交易计划');
+  });
+
+  it('展开绩效面板时首次拉取并渲染 testids', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(requestJson).mock.calls.some((c) => String(c[0]).includes('/api/plans/review'))).toBe(true);
+    expect(wrapper.find('[data-testid="review-kpis"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-disclaimer"]').text()).toContain('不构成投资建议');
+    expect(wrapper.find('[data-testid="review-fee-note"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-items"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-toggle"]').text()).toContain('近 90 天');
+  });
+
+  it('分组 Tab 切换与 smallSample 徽标', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const tabs = wrapper.findAll('[data-testid="review-group-tab"]');
+    expect(tabs.length).toBeGreaterThanOrEqual(4);
+    expect(wrapper.text()).toContain('样本不足，仅供参考');
+    await tabs[1].trigger('click');
+    await nextTick();
+    expect(wrapper.find('[data-testid="review-items"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('买入');
+    expect(wrapper.text()).not.toContain('样本不足，仅供参考');
+  });
+
+  it('复盘加载失败 → 渲染 review-error 且不误渲染 review-trace-error（N4 分离）', async () => {
+    vi.mocked(requestJson).mockRejectedValue(new Error('网络中断'));
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const err = wrapper.find('[data-testid="review-error"]');
+    expect(err.exists()).toBe(true);
+    expect(err.text()).toContain('复盘数据加载失败');
+    expect(err.text()).toContain('网络中断');
+    expect(wrapper.find('[data-testid="review-trace-error"]').exists()).toBe(false); // 复盘错误不触发留痕错误条
+  });
+
+  it('仅留痕加载失败 → 渲染 review-trace-error 且无 review-error（N4 分离）', async () => {
+    const withScan = {
+      ...reviewPayload,
+      groups: { ...reviewPayload.groups,
+        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 2, flatCount: 0, wins: 1,
+                   winRate: 0.5, expectancyR: 0.4, smallSample: false }] },
+    };
+    vi.mocked(requestJson).mockImplementation((url: unknown) =>
+      String(url).includes('/api/plans/review')
+        ? Promise.resolve(withScan)                                    // 复盘成功 → reviewError null
+        : Promise.reject(new Error('留痕上游不可用')),                  // 留痕失败 → traceError
+    );
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-error"]').exists()).toBe(false);
+    const te = wrapper.find('[data-testid="review-trace-error"]');
+    expect(te.exists()).toBe(true);
+    expect(te.text()).toContain('扫描留痕加载失败');
+    expect(te.text()).toContain('留痕上游不可用');
+    expect(wrapper.find('[data-testid="review-trace"]').exists()).toBe(false); // trace 失败置空，不留半截面板
+  });
+
+  it('降级披露：degraded 非空 → 渲染 review-degraded 且含各代码（N1）', async () => {
+    vi.mocked(requestJson).mockResolvedValue({ ...reviewPayload, degraded: ['600519', '000001'] });
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const line = wrapper.find('[data-testid="review-degraded"]');
+    expect(line.exists()).toBe(true);
+    expect(line.text()).toContain('600519');
+    expect(line.text()).toContain('000001');
+    expect(line.text()).toContain('本地历史兜底');
+  });
+
+  it('降级披露：degraded 缺省 → 不渲染 review-degraded（N1）', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-degraded"]').exists()).toBe(false);
+  });
+
+  it('扫描留痕降序渲染至多 10 条、runAtMs null 行渲染 --（终审 F4/F5）', async () => {
+    const withScan = {
+      ...reviewPayload,
+      groups: {
+        ...reviewPayload.groups,
+        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 2, flatCount: 0, wins: 1,
+                   winRate: 0.5, expectancyR: 0.4, smallSample: false }],
+      },
+    };
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      strategyId: 'trend_breakout', runAtMs: i === 0 ? null : 1_789_000_000_000 - i, status: 'ok',
+      hitCount: 2, newCount: 1, elapsedMs: 1200, traceId: `t${i}`,
+    }));
+    vi.mocked(requestJson).mockImplementation((url: unknown) =>
+      String(url).includes('/api/plans/review')
+        ? Promise.resolve(withScan)
+        : Promise.resolve({ history: rows }),
+    );
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const trace = wrapper.find('[data-testid="review-trace"]');
+    expect(trace.exists()).toBe(true);
+    // 行 `<p>` 含「/ 新增」，概览 `<p>`（近 30 天运行 … 平均命中 …）不含，据此仅取数据行。
+    const rowTexts = trace.findAll('p.muted').filter((p) => p.text().includes('新增')).map((p) => p.text());
+    expect(rowTexts).toHaveLength(10);                  // 12 → 钳制 10
+    expect(rowTexts[0]).toContain('--');                // 首行 runAtMs null → 占位，不崩溃
+    expect(rowTexts.some((t) => !t.startsWith('--'))).toBe(true); // 其余行正常显示时间
   });
 });

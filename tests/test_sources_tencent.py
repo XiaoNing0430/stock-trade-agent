@@ -47,7 +47,7 @@ def test_tencent_source_load_quotes_delegates(monkeypatch) -> None:
 def test_tencent_source_load_history_delegates(monkeypatch) -> None:
     called: list[tuple[str, int, bool]] = []
 
-    def fake_load_history(code: str, limit: int, is_index: bool) -> list[dict[str, Any]]:
+    def fake_load_history(code: str, limit: int, is_index: bool, adjustment: str = "qfq") -> list[dict[str, Any]]:
         called.append((code, limit, is_index))
         return [{"date": "2026-09-02", "close": 1500.0}]
 
@@ -60,7 +60,7 @@ def test_tencent_source_load_history_delegates(monkeypatch) -> None:
 def test_tencent_source_load_history_defaults(monkeypatch) -> None:
     called: list[tuple[str, int, bool]] = []
 
-    def fake_load_history(code: str, limit: int, is_index: bool) -> list[dict[str, Any]]:
+    def fake_load_history(code: str, limit: int, is_index: bool, adjustment: str = "qfq") -> list[dict[str, Any]]:
         called.append((code, limit, is_index))
         return []
 

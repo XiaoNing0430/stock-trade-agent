@@ -92,6 +92,7 @@ async function onConfirm() {
   const plan = {
     id: `plan-${d.code}-${Date.now()}`,
     code: d.code,
+    source: d.source || 'manual', // 入口归因：scan:{strategyId} | screener | monitor | manual（缺省兜底）
     direction: d.direction === 'sell' ? 'sell' : 'buy',
     entry: Number(Number(params.entryInput).toFixed(2)),
     stop: Number(s.stop.toFixed(2)),
@@ -174,6 +175,7 @@ async function onConfirm() {
                 aria-label="入场价"
               >
             </dd>
+            <p class="field-hint" data-testid="draft-price-scope-note">计划价格以原始实时价为准；K 线图为前复权价，请勿直接照抄图表价位。</p>
           </div>
         </dl>
 
