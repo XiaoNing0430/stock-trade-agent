@@ -122,7 +122,9 @@ export function multiLineSvg(
     return '<div class="chart-empty">暂无足够的组合净值数据</div>';
   }
   const width = 640;
-  const height = opts.height ?? 150;
+  // 收尾硬化 L5：外部传非数 height 会一路流入 viewBox/坐标属性——Number 化+有限性兜底。
+  const rawH = Number(opts.height);
+  const height = Number.isFinite(rawH) && rawH > 0 ? rawH : 150;
   const pad = { top: 12, right: 12, bottom: 24, left: 12 };
   const innerWidth = width - pad.left - pad.right;
   const innerHeight = height - pad.top - pad.bottom;
