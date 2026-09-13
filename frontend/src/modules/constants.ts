@@ -51,6 +51,7 @@ export const NAV_ITEMS = [
   { id: 'grid', label: '策略', icon: 'grid-3x3' },
   { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
   { id: 'monitor', label: '盯盘中心', icon: 'radar' },
+  { id: 'portfolio', label: '组合风险', icon: 'gauge' },
   { id: 'settings', label: '个人中心', icon: 'user-round' },
 ] as const;
 
@@ -60,6 +61,7 @@ export const VIEW_META = {
   grid: ['策略', '网格、双均线、定投与 MACD 的统一回测实验室'],
   plans: ['交易计划', '把想法写成可以执行的规则'],
   monitor: ['盯盘中心', '添加标的并开启自动扫描，触发结果进入个人中心'],
+  portfolio: ['组合风险', '计划组合的模拟回放敞口与集中度（设计口径，非真实成交）'],
   settings: ['个人中心', '提醒中心与网站设置的统一入口'],
   'stock-detail': ['个股详情', '报价、走势与操作入口'],
 };

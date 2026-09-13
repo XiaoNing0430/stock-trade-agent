@@ -239,4 +239,190 @@ describe('ViewPlans', () => {
     expect(rowTexts[0]).toContain('--');                // 首行 runAtMs null → 占位，不崩溃
     expect(rowTexts.some((t) => !t.startsWith('--'))).toBe(true); // 其余行正常显示时间
   });
+
+  // ── Task 9 交易对关联：sell 行内 关联建仓下拉 + exitMode 四档 + sell_only 二次确认 ──
+  describe('交易对关联（Task 9）', () => {
+    // s1 已配 b1；b2 被归档卖单 s2 占用（后端先到先得整表扫描，归档卖家同样占坑）；b3 跨 code。
+    const sellS1: Plan = { ...activePlan, id: 's1', direction: 'sell', status: '已触发', relatedPlan: 'b1' };
+    const buyB1: Plan = { ...activePlan, id: 'b1' };
+    const buyTaken: Plan = { ...activePlan, id: 'b2' };
+    const sellTaker: Plan = { ...activePlan, id: 's2', direction: 'sell', status: '已归档', relatedPlan: 'b2' };
+    const buyOtherCode: Plan = { ...activePlan, id: 'b3', code: '000001' };
+
+    function seedLinked() {
+      const workspace = useWorkspaceStore();
+      workspace.plans = [sellS1, buyB1, buyTaken, sellTaker, buyOtherCode];
+      return workspace;
+    }
+
+    it('sell 行渲染关联控件；下拉仅列同 code 未配对 buy（已归档/跨 code/被占排除，当前关联回显）', () => {
+      seedLinked();
+      const wrapper = mount(ViewPlans);
+      const pair = wrapper.find('[data-testid="pair-select"]');
+      const exit = wrapper.find('[data-testid="exit-mode-select"]');
+      expect(pair.exists()).toBe(true); // activePlans 仅 执行中/已触发：归档 s2 与全部 buy 行无控件
+      expect(exit.exists()).toBe(true);
+      expect(wrapper.findAll('[data-testid="pair-select"]')).toHaveLength(1);
+      const values = pair.findAll('option').map((o) => (o.element as HTMLOptionElement).value);
+      expect(values).toEqual(['', 'b1']);
+      expect((pair.element as HTMLSelectElement).value).toBe('b1'); // 当前关联回显
+      expect(pair.findAll('option')[0].text()).toContain('解除关联');
+      const exitOptions = exit.findAll('option'); // 四档中文标签 + 后端值，默认回显 race（NULL≡race）
+      expect(exitOptions.map((o) => (o.element as HTMLOptionElement).value)).toEqual([
+        'race',
+        'sell_priority',
+        'sell_stop_only',
+        'sell_only',
+      ]);
+      expect(exitOptions.map((o) => o.text())).toEqual(['先到先平', '平仓单优先', '止损优先', '仅平仓单']);
+      expect((exit.element as HTMLSelectElement).value).toBe('race');
+    });
+
+    it('未关联 sell：空值选项为（未关联）且列出全部可用 buy', () => {
+      const workspace = useWorkspaceStore();
+      workspace.plans = [
+        { ...activePlan, id: 's3', direction: 'sell', status: '执行中' },
+        buyB1,
+        buyTaken,
+      ];
+      const wrapper = mount(ViewPlans);
+      const pair = wrapper.find('[data-testid="pair-select"]');
+      const values = pair.findAll('option').map((o) => (o.element as HTMLOptionElement).value);
+      expect(values).toEqual(['', 'b1', 'b2']);
+      expect(pair.findAll('option')[0].text()).toContain('未关联');
+    });
+
+    it('选择（解除关联）→ updatePlanLinkage(s1, { relatedPlan: null })', async () => {
+      seedLinked();
+      const plans = usePlansStore();
+      const action = vi.fn().mockResolvedValue(undefined);
+      plans.updatePlanLinkage = action;
+      const wrapper = mount(ViewPlans);
+      await wrapper.find('[data-testid="pair-select"]').setValue('');
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(action).toHaveBeenCalledWith('s1', { relatedPlan: null });
+    });
+
+    it('sell_only 取消二次确认 → 不写不调用，下拉回退 race', async () => {
+      const confirmMock = vi.fn((_message?: string) => false);
+      vi.stubGlobal('confirm', confirmMock);
+      try {
+        seedLinked();
+        const plans = usePlansStore();
+        const action = vi.fn().mockResolvedValue(undefined);
+        plans.updatePlanLinkage = action;
+        const wrapper = mount(ViewPlans);
+        const exit = wrapper.find('[data-testid="exit-mode-select"]');
+        await exit.setValue('sell_only');
+        expect(confirmMock).toHaveBeenCalledTimes(1);
+        expect(String(confirmMock.mock.calls[0][0])).toContain('仅由关联平仓单离场，无止损保护');
+        expect(action).not.toHaveBeenCalled();
+        expect(useWorkspaceStore().plans.find((p) => p.id === 's1')?.exitMode).toBeUndefined();
+        expect((exit.element as HTMLSelectElement).value).toBe('race'); // 取消=回退显示
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('sell_only 确认通过 → 真实 action 写入 exitMode 并触发保存（persist）', async () => {
+      const confirmMock = vi.fn(() => true);
+      vi.stubGlobal('confirm', confirmMock);
+      try {
+        const workspace = seedLinked();
+        const persistSpy = vi.spyOn(workspace, 'persist');
+        const wrapper = mount(ViewPlans);
+        await wrapper.find('[data-testid="exit-mode-select"]').setValue('sell_only');
+        await flushPromises();
+        const stored = workspace.plans.find((p) => p.id === 's1');
+        expect(stored?.exitMode).toBe('sell_only'); // 真实 action 落库字段（workspaceSynced=false → syncNow 视作成功）
+        expect(stored?.relatedPlan).toBe('b1'); // 不误伤既有交易对关联
+        expect(persistSpy).toHaveBeenCalled(); // 走既有保存 action
+        expect(confirmMock).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('exitMode 非 sell_only 档不弹 confirm，直接写入', async () => {
+      const confirmMock = vi.fn(() => true);
+      vi.stubGlobal('confirm', confirmMock);
+      try {
+        const workspace = seedLinked();
+        const wrapper = mount(ViewPlans);
+        await wrapper.find('[data-testid="exit-mode-select"]').setValue('sell_stop_only');
+        await flushPromises();
+        expect(confirmMock).not.toHaveBeenCalled();
+        expect(workspace.plans.find((p) => p.id === 's1')?.exitMode).toBe('sell_stop_only');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('保存失败（store reject 后端 422 中文 detail）→ error toast 透传消息且下拉回退', async () => {
+      const workspace = seedLinked();
+      const toastSpy = vi.spyOn(workspace, 'showToast');
+      const plans = usePlansStore();
+      plans.updatePlanLinkage = vi.fn().mockRejectedValue(
+        new Error('建仓计划「b2」已被卖出计划「s2」关联，不能被「s1」重复关联；如需换绑请先解除原关联')
+      );
+      const wrapper = mount(ViewPlans);
+      const pair = wrapper.find('[data-testid="pair-select"]');
+      await pair.setValue(''); // 以解除关联动作触发失败路径（本用例只钉失败语义）
+      await flushPromises();
+      expect(toastSpy).toHaveBeenCalledTimes(1);
+      expect(toastSpy.mock.calls[0][0]).toContain('重复关联');
+      expect(toastSpy.mock.calls[0][1]).toBe('error');
+      expect((pair.element as HTMLSelectElement).value).toBe('b1'); // 失败回退到数据真值
+    });
+  });
+
+  // ── Task 9 写路径（真实 updatePlanLinkage + 真实 syncNow + fetch 桩）：成功 PUT / 422 回滚 ──
+  describe('usePlansStore.updatePlanLinkage 写路径（Task 9）', () => {
+    function jsonResponse(payload: unknown, ok = true, status = 200) {
+      return { ok, status, headers: { get: () => null }, json: async () => payload };
+    }
+    const sell: Plan = { ...activePlan, id: 's1', direction: 'sell', relatedPlan: 'b1' };
+    const buy: Plan = { ...activePlan, id: 'b1' };
+
+    it('workspaceSynced=true 成功：本地写入 + PUT 携带 relatedPlan/exitMode + 成功 toast', async () => {
+      const workspace = useWorkspaceStore();
+      workspace.workspaceSynced = true;
+      workspace.plans = [sell, buy];
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 9 }));
+      vi.stubGlobal('fetch', fetchMock);
+      const toastSpy = vi.spyOn(workspace, 'showToast');
+      try {
+        await usePlansStore().updatePlanLinkage('s1', { exitMode: 'sell_priority' });
+        expect(workspace.plans.find((p) => p.id === 's1')?.exitMode).toBe('sell_priority');
+        const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+        const s1 = body.plans.find((p: { id: string }) => p.id === 's1');
+        expect(s1.relatedPlan).toBe('b1');
+        expect(s1.exitMode).toBe('sell_priority');
+        expect(toastSpy).toHaveBeenCalledTimes(1);
+        expect(toastSpy.mock.calls[0][1]).not.toBe('error');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('后端 422（双配竞态中文 detail）：回滚本地字段 + toast 透传后端消息', async () => {
+      const workspace = useWorkspaceStore();
+      workspace.workspaceSynced = true;
+      workspace.plans = [sell, buy];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse({ detail: { error: '建仓计划「b1」已被卖出计划「s9」关联' } }, false, 422))
+      );
+      const toastSpy = vi.spyOn(workspace, 'showToast');
+      try {
+        await expect(usePlansStore().updatePlanLinkage('s1', { relatedPlan: null })).rejects.toThrow(
+          '建仓计划「b1」已被卖出计划「s9」关联'
+        );
+        expect(workspace.plans.find((p) => p.id === 's1')?.relatedPlan).toBe('b1'); // 已回滚
+        expect(toastSpy).not.toHaveBeenCalled(); // toast 由视图 catch 负责，store 不加戏
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

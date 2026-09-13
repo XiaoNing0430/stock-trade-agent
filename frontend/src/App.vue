@@ -233,6 +233,7 @@
 
         <view-plans v-else-if="view === 'plans' || execShowsPlans"></view-plans>
         <view-monitor v-else-if="view === 'monitor' || execShowsAlerts"></view-monitor>
+        <view-portfolio v-else-if="view === 'portfolio'"></view-portfolio>
         <view-settings v-else-if="view === 'settings'"></view-settings>
 
         <footer class="app-footer">

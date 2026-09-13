@@ -100,3 +100,80 @@ export function compareChartSvg(
     </div>
   `;
 }
+
+// 多线归一图（组合风险 NAV 曲线用）：任意条数系列、点值可 null（断线不连线，分段 M 起点）；
+// 所有文本插值过 escapeHtml（chartSvg 同款 XSS 纪律，label 可能含用户数据）。
+export interface MultiLineSeries {
+  label: string;
+  points: (number | null)[];
+  style: 'solid' | 'dash';
+  color: string;
+}
+
+export function multiLineSvg(
+  series: MultiLineSeries[],
+  opts: { height?: number; ariaLabel?: string; legend?: boolean } = {}
+): string {
+  const valid = (Array.isArray(series) ? series : []).filter(
+    (s) => Array.isArray(s?.points) && s.points.some((p) => p !== null && Number.isFinite(Number(p)))
+  );
+  const hasCurve = valid.some((s) => s.points.filter((p) => p !== null).length >= 2);
+  if (!valid.length || !hasCurve) {
+    return '<div class="chart-empty">暂无足够的组合净值数据</div>';
+  }
+  const width = 640;
+  const height = opts.height ?? 150;
+  const pad = { top: 12, right: 12, bottom: 24, left: 12 };
+  const innerWidth = width - pad.left - pad.right;
+  const innerHeight = height - pad.top - pad.bottom;
+  const maxLen = Math.max(...valid.map((s) => s.points.length));
+  const xSpan = Math.max(maxLen - 1, 1);
+  const flat = valid.flatMap((s) => s.points.filter((p): p is number => p !== null).map(Number));
+  const min = Math.min(...flat);
+  const max = Math.max(...flat);
+  const range = max - min || 1;
+  const paths = valid
+    .map((s) => {
+      // null 断线：连续非空段各成一条子路径（段首 M，段内 L），互不连线。
+      const segments: string[] = [];
+      let current: string[] = [];
+      s.points.forEach((raw, index) => {
+        if (raw === null || !Number.isFinite(Number(raw))) {
+          if (current.length) segments.push(current.join(' '));
+          current = [];
+          return;
+        }
+        const x = pad.left + (index / xSpan) * innerWidth;
+        const y = pad.top + (1 - (Number(raw) - min) / range) * innerHeight;
+        current.push(`${current.length ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`);
+      });
+      if (current.length) segments.push(current.join(' '));
+      const dash = s.style === 'dash' ? ' stroke-dasharray="4 3"' : '';
+      return `<path class="chart-line multi-line-path" style="stroke:${escapeHtml(s.color)}"${dash} d="${segments.join(' ')}"></path>`;
+    })
+    .join('');
+  const grid = [0.25, 0.5, 0.75]
+    .map((ratio) => {
+      const y = pad.top + innerHeight * ratio;
+      return `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}"></line>`;
+    })
+    .join('');
+  const label = escapeHtml(opts.ariaLabel ?? '组合净值多线对比');
+  const legend =
+    opts.legend === false
+      ? ''
+      : `<div class="chart-legend">${valid
+          .map(
+            (s) =>
+              `<span><i class="legend-line multi-line-legend" style="border-color:${escapeHtml(s.color)}${s.style === 'dash' ? ';border-top-style:dashed' : ''}"></i>${escapeHtml(s.label)}</span>`
+          )
+          .join('')}</div>`;
+  return `
+    <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${label}">
+      <title>${label}</title>
+      ${grid}
+      ${paths}
+    </svg>
+    ${legend}
+  `;
+}

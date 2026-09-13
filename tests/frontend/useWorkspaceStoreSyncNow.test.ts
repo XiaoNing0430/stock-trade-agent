@@ -47,7 +47,7 @@ describe('useWorkspaceStore syncNow', () => {
     expect(body.plans[0].code).toBe('600519');
   });
 
-  it('409 返回 { ok:false, conflict:true } 且绝不自动重试', async () => {
+  it('409 返回 { ok:false, conflict:true }（不透传 message，策略处理在调用方）且绝不自动重试', async () => {
     const workspace = useWorkspaceStore();
     workspace.workspaceSynced = true;
     const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ detail: { error: '冲突' } }, false, 409));
@@ -57,12 +57,12 @@ describe('useWorkspaceStore syncNow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('非 409 失败返回 { ok:false }', async () => {
+  it('非 409 失败返回 { ok:false, message }（Task 9：透传后端中文 detail 供调用方 toast）', async () => {
     const workspace = useWorkspaceStore();
     workspace.workspaceSynced = true;
     vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ detail: { error: '服务不可用' } }, false, 503)));
     const result = await workspace.syncNow();
-    expect(result).toEqual({ ok: false });
+    expect(result).toEqual({ ok: false, message: '服务不可用' });
   });
 
   it('workspaceSynced=false 时直接返回 { ok:true }（未初始化不发 PUT）', async () => {

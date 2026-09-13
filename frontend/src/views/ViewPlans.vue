@@ -34,6 +34,11 @@
           <article v-for="plan in activePlans" :key="plan.id" class="plan-card">
             <div class="plan-card-head"><div class="plan-card-identity"><span class="stock-dot stock-dot-coral">{{ quoteFor(plan.code)?.name?.slice(0, 1) || plan.code.slice(0, 1) }}</span><div><strong>{{ quoteFor(plan.code)?.name || plan.code }}</strong><span>{{ plan.code }} · {{ plan.direction === 'buy' ? '买入计划' : '卖出计划' }}</span></div></div><span :class="['plan-status', plan.status === '已触发' ? 'plan-status-triggered' : '']">{{ plan.status }}</span></div>
             <div class="plan-card-body"><div class="plan-card-metric"><span>计划价</span><strong>{{ formatNumber(plan.entry) }}</strong></div><div class="plan-card-metric"><span>止损</span><strong>{{ formatNumber(plan.stop) }}</strong></div><div class="plan-card-metric"><span>目标</span><strong>{{ formatNumber(plan.target) }}</strong></div><div class="plan-card-metric"><span>盈亏比</span><strong>{{ calculateRr(plan).toFixed(2) }}</strong></div></div>
+            <!-- Task 9 交易对关联：仅 sell 行显示（activePlans 已限定 执行中/已触发）；写路径 = updatePlanLinkage → 既有 workspace PUT -->
+            <div v-if="plan.direction === 'sell'" class="plan-pairing" data-testid="plan-pairing">
+              <label class="field"><span>关联建仓计划</span><select data-testid="pair-select" :value="plan.relatedPlan ?? ''" @change="onPairChange(plan, $event)"><option value="">{{ plan.relatedPlan ? '（解除关联）' : '（未关联）' }}</option><option v-for="buy in candidateBuys(plan)" :key="buy.id" :value="buy.id">{{ quoteFor(buy.code)?.name || buy.code }} · 计划价 {{ formatNumber(buy.entry) }}（{{ buy.id }}）</option></select></label>
+              <label class="field"><span>离场模式</span><select data-testid="exit-mode-select" :value="plan.exitMode ?? 'race'" @change="onExitModeChange(plan, $event)"><option v-for="mode in EXIT_MODES" :key="mode.value" :value="mode.value">{{ mode.label }}</option></select></label>
+            </div>
             <div class="plan-card-foot"><span>{{ plan.validity }} · {{ calculateShares(plan).toLocaleString() }} 股</span><div class="plan-card-actions"><button type="button" @click="monitorPlan(plan)">盯盘</button><button type="button" @click="archivePlan(plan.id)">归档</button></div></div>
           </article>
         </div>
@@ -106,6 +111,7 @@ import { computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { formatMoney, formatNumber, formatTime } from '@/modules/format';
 import { calculateRr, calculateShares } from '@/modules/planUtils';
+import type { Plan } from '@/types/models';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { usePlansStore } from '@/stores/usePlansStore';
@@ -117,11 +123,62 @@ const plans = usePlansStore();
 const review = useReviewStore();
 
 const { activePlans, draftDirty } = storeToRefs(workspace);
-const { refreshAll, renderIcons } = workspace;
+const { refreshAll, renderIcons, showToast } = workspace;
 const { draft, planOptions, planMetrics } = storeToRefs(plans);
 const { quoteFor } = quotes;
 const { switchView } = quotes;
-const { savePlan, monitorPlan, archivePlan } = plans;
+const { savePlan, monitorPlan, archivePlan, updatePlanLinkage } = plans;
+
+// ── Task 9 交易对关联：sell 行 → 关联建仓下拉 + exitMode 四档 ──
+// 后端语义（storage.validate_plan_links）：仅 sell 可携带 relatedPlan；目标须存在/buy/同 code/非归档；
+// 一 buy 至多被一 sell 关联（先到先得）。前端仅做简单过滤兜底，规则冲突以后端 422 为准。
+const EXIT_MODES: Array<{ value: NonNullable<Plan['exitMode']>; label: string }> = [
+  { value: 'race', label: '先到先平' },
+  { value: 'sell_priority', label: '平仓单优先' },
+  { value: 'sell_stop_only', label: '止损优先' },
+  { value: 'sell_only', label: '仅平仓单' },
+];
+
+function candidateBuys(sell: Plan): Plan[] {
+  const taken = new Set(
+    workspace.plans
+      .filter((item) => item.direction === 'sell' && item.id !== sell.id && item.relatedPlan)
+      .map((item) => item.relatedPlan as string)
+  );
+  return workspace.plans.filter(
+    (item) =>
+      item.direction === 'buy' &&
+      item.code === sell.code &&
+      item.status !== '已归档' &&
+      !taken.has(item.id)
+  );
+}
+
+async function onPairChange(plan: Plan, ev: Event) {
+  const select = ev.target as HTMLSelectElement;
+  try {
+    await updatePlanLinkage(plan.id, { relatedPlan: select.value || null });
+  } catch (error: any) {
+    // store 已回滚并重新入队同步；这里仅把 DOM 选择框拨回数据真值（无重渲染不会自动复原）
+    select.value = plan.relatedPlan ?? '';
+    showToast(error?.message || '计划关联保存失败', 'error');
+  }
+}
+
+async function onExitModeChange(plan: Plan, ev: Event) {
+  const select = ev.target as HTMLSelectElement;
+  const mode = select.value as NonNullable<Plan['exitMode']>;
+  if (mode === 'sell_only' && !window.confirm('切换为「仅平仓单（sell_only）」后，该卖出计划将仅由关联平仓单离场，无止损保护。确认切换？')) {
+    select.value = plan.exitMode ?? 'race';
+    return;
+  }
+  try {
+    await updatePlanLinkage(plan.id, { exitMode: mode });
+  } catch (error: any) {
+    select.value = plan.exitMode ?? 'race';
+    showToast(error?.message || '离场模式保存失败', 'error');
+  }
+}
 
 // ── 绩效复盘（Task 8）：四维分组 + 明细排序 + 扫描留痕（store 的 syncTrace 在 fetchReview/setGroup 后自动触发，组件无额外 watch）
 const GROUPS = [

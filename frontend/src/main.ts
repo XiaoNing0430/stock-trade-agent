@@ -10,6 +10,7 @@ import ViewStockDetail from './views/ViewStockDetail.vue';
 import ViewGrid from './views/ViewGrid.vue';
 import ViewPlans from './views/ViewPlans.vue';
 import ViewMonitor from './views/ViewMonitor.vue';
+import ViewPortfolio from './views/ViewPortfolio.vue';
 import ViewSettings from './views/ViewSettings.vue';
 
 const app = createApp(App);
@@ -20,5 +21,6 @@ app.component('view-stock-detail', ViewStockDetail);
 app.component('view-grid', ViewGrid);
 app.component('view-plans', ViewPlans);
 app.component('view-monitor', ViewMonitor);
+app.component('view-portfolio', ViewPortfolio);
 app.component('view-settings', ViewSettings);
 app.mount('#app');
