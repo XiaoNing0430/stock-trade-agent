@@ -81,7 +81,7 @@ tests/
   test_portfolio_api.py   存储校验（交易对五规则/exitMode 白名单）+ /api/portfolio/risk 端点
   test_industry_map.py    行业映射双层缓存：fresh/stale/empty 判定 + 整表 min() 时龄
   test_strategy_engines.py
-  frontend/               20 个 vitest 测试文件（共 201 项测试）
+  frontend/               21 个 vitest 测试文件（共 209 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -120,8 +120,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（201 项，20 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（494 项，快速离线 monkeypatch 模式）
+npx vitest run                        # 前端单元测试（209 项，21 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（497 项，快速离线 monkeypatch 模式）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
