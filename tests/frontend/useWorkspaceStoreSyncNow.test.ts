@@ -103,7 +103,7 @@ describe('useWorkspaceStore syncNow', () => {
     }
   });
 
-  it('syncNow 等待上限 3s：锁始终被持有时返回 { ok:false }（不可让 UI 假死）', async () => {
+  it('syncNow 等待上限 3s：锁始终被持有时返回 { ok:false, message }（不可让 UI 假死；收尾硬化 L2 补文案）', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const workspace = useWorkspaceStore();
@@ -117,7 +117,7 @@ describe('useWorkspaceStore syncNow', () => {
       await vi.advanceTimersByTimeAsync(360); // 350ms 防抖到期 → 定时同步持有锁
       expect(workspace.workspaceSyncTimer).toBeTruthy();
       const result = await workspace.syncNow(); // 3s 等待循环在假计时器下瞬时推进
-      expect(result).toEqual({ ok: false });
+      expect(result).toEqual({ ok: false, message: '同步超时（定时同步长时间占用），请稍后重试' });
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();
