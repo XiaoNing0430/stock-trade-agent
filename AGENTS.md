@@ -35,8 +35,10 @@ backend/
   grid_strategy.py        网格策略计算：build_grid, suggest_grid, backtest_grid, optimize_grid（含基准/风险指标）
   grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）
   plan_review.py          计划绩效复盘：设计口径日线回放引擎（窗口/微结构/聚合，只读，零写 plans）
+  portfolio_risk.py       组合风险引擎：交易对 build_links、名义额静态分配回放、四档 exitMode、NAV 双线、聚合（纯函数，只读）
+  industry_map.py         行业映射双层缓存（进程 TTL + industry_map 表；API 只读缓存，预热走后台 job）
   schemas.py              24 个 Pydantic 请求/响应模型（+ 1 个别名）
-  storage.py              SQLAlchemy 模型 + 持久化助手（12 张表）
+  storage.py              SQLAlchemy 模型 + 持久化助手（13 张表）
   strategy_engines.py     通用策略引擎（网格, SMA, DCA, MACD）
   settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN）
   migrations/             Alembic 迁移脚本（基线 + 前向迁移）
@@ -51,17 +53,18 @@ frontend/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
     api/
       client.ts           类似 Axios 的 fetch 封装
-    stores/               11 个 Pinia 状态仓库
+    stores/               12 个 Pinia 状态仓库
       useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
       useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
       useAlertsStore.ts / useSettingsStore.ts / useAssistStore.ts
-      useScanStore.ts / useReviewStore.ts
+      useScanStore.ts / useReviewStore.ts / usePortfolioStore.ts
     modules/              纯逻辑模块
       constants.ts / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
-    views/                7 个 SFC 视图
+    views/                8 个 SFC 视图
       ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
       ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
+      ViewPortfolio.vue  组合风险（第 8 视图：毛/净 NAV 多线、敞口/集中度、交易对与事件折叠区）
     types/
       models.ts           TypeScript 类型定义
 tests/
@@ -73,8 +76,12 @@ tests/
   test_storage_coverage.py
   test_scan.py            策略扫描去重引擎 + 编排护栏 + 扫描 API
   test_plan_review.py     计划复盘：source 存取 + bfq 链路 + 回放引擎 + 聚合 + API 端点
+  test_portfolio_engine.py   组合回放引擎：core 状态机 + 闭环 exitMode 矩阵 + 复盘微结构等价（equiv 场景）
+  test_portfolio_aggregate.py 聚合层：KPI/敞口/行业集中度/信号看板/自选观察指数/假想线
+  test_portfolio_api.py   存储校验（交易对五规则/exitMode 白名单）+ /api/portfolio/risk 端点
+  test_industry_map.py    行业映射双层缓存：fresh/stale/empty 判定 + 整表 min() 时龄
   test_strategy_engines.py
-  frontend/               18 个 vitest 测试文件（共 149 项测试）
+  frontend/               20 个 vitest 测试文件（共 201 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -113,8 +120,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（149 项，18 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（384 项，快速离线 monkeypatch 模式）
+npx vitest run                        # 前端单元测试（201 项，20 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（494 项，快速离线 monkeypatch 模式）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -123,7 +130,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 
 注意：
 
-- 后端 pytest 运行覆盖率（≥80% 门禁，当前 96.3%）。
+- 后端 pytest 运行覆盖率（≥80% 门禁，当前 96.1%）。
 - Pre-commit 钩子（`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`）在 `git commit` 时自动执行。
 - `npm run build` 也会在 Vite 打包前执行 `vue-tsc --noEmit` 作为类型检查门禁。
 
