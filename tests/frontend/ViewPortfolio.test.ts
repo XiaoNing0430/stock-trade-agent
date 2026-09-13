@@ -266,6 +266,11 @@ describe('ViewPortfolio', () => {
     expect(chart.text()).toContain('净净值');
     expect(html).toContain('stroke-dasharray');
     expect(wrapper.find('[data-testid="portfolio-watch-note"]').exists()).toBe(false);
+    // F1：现金层披露（§7 现金底线不绘 0 基线 + 费用后净值=虚线）
+    const cashNote = wrapper.find('[data-testid="portfolio-cash-note"]');
+    expect(cashNote.exists()).toBe(true);
+    expect(cashNote.text()).toContain('现金不计入曲线');
+    expect(cashNote.text()).toContain('虚线');
   });
 
   it('watchIndex 非空 → 三线（毛/净/自选）且出自选叠线注记', async () => {
@@ -278,6 +283,31 @@ describe('ViewPortfolio', () => {
     expect((chart.html().match(/multi-line-path/g) ?? []).length).toBe(3);
     expect(chart.text()).toContain('自选观察指数');
     expect(wrapper.find('[data-testid="portfolio-watch-note"]').text()).toContain('自选观察组合（等权指数，非持仓）');
+  });
+
+  it('watchIndex dates 长度与 nav.dates 不一致 → 不叠自选线（仅毛/净两 path）', async () => {
+    const wrapper = await mountWith(
+      makePayload({
+        watchIndex: {
+          dates: dates.slice(0, 3),
+          values: [1, 1.01, 1.02, 1.03],
+          equityStart: 1,
+          note: '自选观察组合（等权指数，非持仓）',
+        },
+      })
+    );
+    const chart = wrapper.find('[data-testid="portfolio-nav-chart"]');
+    expect((chart.html().match(/multi-line-path/g) ?? []).length).toBe(2);
+  });
+
+  it('fetch reject → portfolio-error 红线可见且曲线区走空态不炸', async () => {
+    vi.mocked(requestJson).mockReset().mockRejectedValue(new Error('500'));
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    const err = wrapper.find('[data-testid="portfolio-error"]');
+    expect(err.exists()).toBe(true);
+    expect(err.text()).toContain('组合风险计算失败');
+    expect(wrapper.find('[data-testid="portfolio-empty"]').exists()).toBe(true);
   });
 
   it('无净值点 → 曲线区空态文案', async () => {

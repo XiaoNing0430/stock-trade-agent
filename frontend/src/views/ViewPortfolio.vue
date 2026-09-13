@@ -138,8 +138,11 @@
       </div>
       <template v-else>
         <div class="pf-chart" data-testid="portfolio-nav-chart" v-html="navSvg"></div>
+        <p class="muted" data-testid="portfolio-cash-note">
+          现金不计入曲线（不绘 0 基线，现金水平见「现金占比 / 期末现金」）；费用后净值见灰色虚线。
+        </p>
         <p v-if="watchIndex" class="muted" data-testid="portfolio-watch-note">
-          {{ watchIndex.note || '自选观察组合（等权指数，非持仓）' }}——已按窗首毛净值折算叠加，仅作走势对比
+          {{ watchIndex.note || '自选观察组合（等权指数，非持仓）' }}——已按首个非空毛净值折算叠加，仅作走势对比
         </p>
       </template>
     </section>
@@ -473,7 +476,7 @@ const warming = computed(() => {
   return c.known === 0 && c.total > 0;
 });
 
-// —— NAV 曲线：gross 主实线 / net 灰虚线 / watchIndex 灰虚第二线（存在才叠，等权指数按窗首毛净值折算） ——
+// —— NAV 曲线：gross 主实线 / net 灰虚线 / watchIndex 灰虚第二线（存在且 dates 与净值轴等长才叠，等权指数按首个非空 gross 折算） ——
 const NAV_COLORS = { gross: '#ef6d53', net: '#7d8798', watch: '#9aa6b8' };
 const navHasData = computed(() => {
   const nav = payload.value?.nav;
@@ -492,7 +495,14 @@ const navSeries = computed<MultiLineSeries[]>(() => {
   }
   const watch = watchIndex.value;
   const base = nav.gross?.find((v) => v !== null && Number.isFinite(Number(v)));
-  if (watch?.values?.some((v) => v !== null) && base !== undefined && base !== null) {
+  // F3 对齐守卫：watch.dates 与 nav.dates 长度不一致 → 时间轴会静默错位，不叠该线。
+  if (
+    watch &&
+    watch.dates?.length === nav.dates.length &&
+    watch.values?.some((v) => v !== null) &&
+    base !== undefined &&
+    base !== null
+  ) {
     out.push({
       label: '自选观察指数',
       points: watch.values.map((v) => (v === null ? null : v * Number(base))),

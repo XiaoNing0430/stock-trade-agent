@@ -97,6 +97,7 @@ describe('App.vue 扫描项代码片（spec §8）', () => {
           'view-grid': stubView,
           'view-plans': stubView,
           'view-monitor': stubView,
+          'view-portfolio': stubView,
           'view-settings': stubView,
         },
       },
