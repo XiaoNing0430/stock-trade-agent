@@ -1,12 +1,11 @@
-"""组合风险视图 Task 5（段1）：aggregate_portfolio 主区块（kpis/nav/exposure/pairs/orphans/events cap 族）。
+"""组合风险视图 Task 5：aggregate_portfolio（§6 主区块 + 集中度/信号看板/自选指数/假想线）。
 
 brief 五例先行（exposure / kpis+planCount / pairs / orphans / cap50+*Total）+ 最小全键形状例
-（占位键在位：concentration=None、signals={items,note} 空、watchIndex 占位、meta.industryCoverage 占位）
++ T5b 段（集中度权重/HHI/未知桶/coverage、看板锚点与尾窗、自选等权指数、假想线门控）
 + T4 顺带钉（closed 层 sell.entry 脏值 0/None → relatedSell 只按 target 触发，`0 < price` 守卫承重，
 直调 replay_positions closed 层）。
 
 I10 逐字签名 / §6 顶层键：见 .superpowers/sdd/2026-09-12-portfolio-risk-view/task-5-context.md。
-集中度主体 / 信号看板 / 假想线 / 自选指数计算全部留 T5b（段2）。
 bar 元组顺序与引擎测试一致：(date, open, close, high, low, volume)。
 钉死事实：CREATED_MS = 1_767_312_000_000 = 2026-01-02（周五）08:00 Asia/Shanghai。
 """
@@ -183,11 +182,26 @@ def test_kpis_and_plan_count() -> None:
     assert k["mdd"] == pytest.approx(0.1), "峰值起锚 NAV₀=1：1−0.9/1.0"
     assert k["mddNet"] == pytest.approx(0.11), "1−0.89/1.0"
     # 期末持仓市值 = B1 0.05 股 × 10.0 = 0.5（B2 期末日前已离场、B3 未入场）
-    assert k["exposurePct"] == pytest.approx(0.5 / 0.95), "NAV 占比口径（0..1，§6 cashPct 同款公式字面）"
+    assert k["exposurePct"] == pytest.approx(0.5 / 0.95), (
+        "NAV 占比口径（0..1，控制器裁定：期末现金÷期末 gross；spec §6 无字面公式）"
+    )
     assert k["cashPct"] == pytest.approx((0.95 - 0.5) / 0.95)
     assert pytest.approx(k["exposurePct"] + k["cashPct"]) == 1.0
-    assert k["planCount"] == {"active": 3, "triggered": 2, "closedInWindow": 1, "notEntered": 1}
+    assert k["planCount"] == {"active": 2, "triggered": 1, "closedInWindow": 1, "notEntered": 1}, (
+        "I-1：active/triggered 只数 buy（B1/B3=2、B2=1）；S1/S2 虽 执行中/已触发 也不进"
+    )
     assert k["orphanSellCount"] == 1 and k["pairCount"] == 1 and k["scalingCount"] == 2
+
+    # I-1 反向钉：两条 sell 各带 执行中/已触发（B1 已过期不入计数）→ planCount 恒零，sell 只走单列键
+    sell_only = agg(
+        plans=[a_plan(id="B1", status="已过期"), paired_sell, orphan_sell],
+        links={"B1": {"sell": paired_sell, "exitMode": "race"}},
+    )
+    assert sell_only["kpis"]["planCount"]["active"] == 0 and sell_only["kpis"]["planCount"]["triggered"] == 0, (
+        "I-1 反向钉：sell（执行中/已触发）不进 planCount——orphanSellCount/pairCount 单列，勿双计"
+    )
+    assert sell_only["kpis"]["orphanSellCount"] == 1 and sell_only["kpis"]["pairCount"] == 1
+    assert sell_only["exposure"]["plannedPct"] == pytest.approx(0.0)
 
 
 # —— brief 用例：pairs（links 已配对）——
@@ -220,7 +234,7 @@ def test_pairs_list_built() -> None:
     assert out["orphans"] == [], "已配对 sell 不进 orphans"
 
 
-# —— brief 用例：orphans（未配对 sell；signalDate 段1恒 None + T5b TODO）——
+# —— brief 用例：orphans（未配对 sell；signalDate=看板锚点回填，无锚点 → None）——
 
 
 def test_orphans_list_built() -> None:
@@ -251,7 +265,7 @@ def test_lists_cap_50_with_total() -> None:
     out = agg(plans=buys + paired + orphans, links=links, events=events)
     assert len(out["pairs"]) == 50 and out["pairsTotal"] == 51
     assert len(out["orphans"]) == 50 and out["orphansTotal"] == 51
-    assert out["signals"]["items"] == [] and out["signalsTotal"] == 0  # 看板主体在 T5b
+    assert out["signals"]["items"] == [] and out["signalsTotal"] == 0  # 无 bars → 无锚点 → items 空
     assert len(out["events"]) == 50 and out["eventsTotal"] == 51
     assert out["events"][0]["date"] is None, "date=None 视同最早（排序选择，报告注明）"
     assert out["events"][1]["date"] == "2026-01-02", "date 字符串升序"
@@ -300,7 +314,7 @@ def test_aggregate_shape_placeholders() -> None:
     assert out["meta"]["layer"] == "core" and out["meta"]["windowStart"] == WINDOW_START
     assert out["meta"]["equity"] == pytest.approx(100_000.0) and out["meta"]["feeRate"] == FEE
     assert out["meta"]["industryCoverage"] == {"known": 0, "total": 0, "staleCount": 0}
-    assert "truncatedAt" not in out["meta"], "无截断省略键（§6 truncatedAt? 可选）"
+    assert "truncatedAt" not in out["meta"], "聚合层不产该键（归还 spec 原义，T6 端点填）"
 
     on = agg(with_watch=True, dates=["2026-01-05", "2026-01-06"])
     assert set(on["watchIndex"]) == {"dates", "values", "equityStart", "note"}
@@ -554,6 +568,51 @@ def test_signal_board_gap_and_suspension() -> None:
     assert item["signalDate"] == "2026-01-07" and item["basePrice"] == pytest.approx(7.5)
     assert item["chg5"] is None and item["maxRebound"] is None and item["maxDrawdown"] is None
     assert item["feeEstPct"] == pytest.approx(0.003)
+
+
+def test_signal_board_chg_tail_window_skips_suspended_bars() -> None:
+    """评审 I-2：chgN 按「标的自身交易日序」取 t+N——停牌 bar（volume≤0，close 可为 0/陈值）不得占位。
+
+    本例 raw 轴 t+5 恰是停牌行（close=0）：修复前产出 0/9−1=−100% 假涨跌幅（违 §5.4 不造数红线）；
+    修复后顺延至下一可交易收盘（01-13 的 10.0），且可交易尾窗不足 → chg10/20 仍 null。
+    """
+    sell = a_plan(id="S1", direction="sell", code="600519", stop=9.0, target=999.0, position=30)
+    bars = {
+        "600519": make_bars(
+            [
+                ("2026-01-05", 9.2, 9.1, 9.3, 8.9, 1000.0),  # 信号日：low 8.9 ≤ stop 9 → 基准 9.0
+                ("2026-01-06", 9.4, 9.5, 9.5, 9.3, 1000.0),  # 交易日 t+1
+                ("2026-01-07", 9.5, 9.6, 9.7, 9.4, 1000.0),  # t+2
+                ("2026-01-08", 9.6, 9.7, 9.8, 9.5, 1000.0),  # t+3
+                ("2026-01-09", 9.7, 9.8, 9.9, 9.6, 1000.0),  # t+4
+                ("2026-01-12", 0.0, 0.0, 0.0, 0.0, 0.0),  # 停牌：raw 轴第 5 根——不得成为 chg5 取数
+                ("2026-01-13", 9.9, 10.0, 10.1, 9.8, 1000.0),  # 可交易轴 t+5 → chg5 = 10/9−1
+            ]
+        )
+    }
+    dates = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-12", "2026-01-13"]
+    out = agg(plans=[sell], bars_map=bars, dates=dates)
+    item = out["signals"]["items"][0]
+    assert item["signalDate"] == "2026-01-05" and item["basePrice"] == pytest.approx(9.0)
+    assert item["chg5"] == pytest.approx(10.0 / 9.0 - 1), "停牌行顺延，绝非 0/9−1=−100%"
+    assert item["chg10"] is None and item["chg20"] is None, "可交易日不足 N → null（不造数）"
+    assert item["maxRebound"] == pytest.approx(10.1 / 9.0 - 1)
+    assert item["maxDrawdown"] == pytest.approx(9.3 / 9.0 - 1), "极值区间同样走可交易子轴（停牌 0 不伪造低点）"
+
+    # 截掉可交易末日 01-13 → 信号日之后仅剩 4 根可交易 + 停牌行：chg5 交易日数不足 → null
+    # （既不落停牌造 −100%，也绝不"顺延"造数）
+    truncated_bars = make_bars(
+        [
+            ("2026-01-05", 9.2, 9.1, 9.3, 8.9, 1000.0),
+            ("2026-01-06", 9.4, 9.5, 9.5, 9.3, 1000.0),
+            ("2026-01-07", 9.5, 9.6, 9.7, 9.4, 1000.0),
+            ("2026-01-08", 9.6, 9.7, 9.8, 9.5, 1000.0),
+            ("2026-01-09", 9.7, 9.8, 9.9, 9.6, 1000.0),
+            ("2026-01-12", 0.0, 0.0, 0.0, 0.0, 0.0),  # raw 轴 t+5 = 停牌行
+        ]
+    )
+    null_out = agg(plans=[sell], bars_map={"600519": truncated_bars}, dates=dates)
+    assert null_out["signals"]["items"][0]["chg5"] is None, "可交易尾窗不足 → null（不造数）"
 
 
 def test_signal_board_cap_50_with_total() -> None:

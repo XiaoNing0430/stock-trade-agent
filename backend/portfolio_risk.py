@@ -764,6 +764,8 @@ def _end_mark_value(pos: dict[str, Any], last_date: str) -> float | None:
         if day <= last_date and day >= best_day:
             best_day, best_price = day, float(price)
     if not best_day:
+        # N-1 边角（实际不可达：入场日必有 mark）：marks 全晚于窗尾时此处回落 entryPrice，
+        # 而 compose_nav 前向填充取首个未来 mark——两函数仅此一角分歧，仅文档性。
         best_price = float(pos.get("entryPrice") or 0.0)
     return shares * best_price
 
@@ -835,7 +837,7 @@ def _concentration_block(
         "total": total_codes,
         "staleCount": total_codes if str(industry_status) != "fresh" else 0,
     }
-    watch_codes = list(dict.fromkeys(str(code) for code in (watchlist or []) if str(code)))
+    watch_codes = list(dict.fromkeys(c for c in (watchlist or []) if isinstance(c, str) and c.strip()))
     n = len(watch_codes)
     watch_pool: dict[str, Any] | None = None
     hypothetical: dict[str, Any] | None = None
@@ -927,7 +929,9 @@ def _signal_items(
             continue
         code = _plan_code(plan)
         if code not in axes:
-            axes[code] = _bar_axis(bars_map, code, today)
+            # 评审 I-2：看板一律走「可交易子轴」（volume>0）——chgN 语义是 §5.4 的"交易日序"，
+            # 停牌行（close=0/陈值）不得占 t+N 位。前置过滤与锚点内 volume 跳过 + prev_close 沿用逐字等价。
+            axes[code] = [b for b in _bar_axis(bars_map, code, today) if _as_float(b.get("volume")) > 0.0]
         axis = axes[code]
         anchor = _signal_anchor(plan, axis, window_start)
         base = anchor[2] if anchor else None
@@ -950,7 +954,7 @@ def _signal_items(
                 tail = index + n
                 if tail < len(axis):
                     item[key] = _as_float(axis[tail].get("close")) / base - 1.0
-            forward = [b for b in axis[index + 1 : index + 21] if _as_float(b.get("volume")) > 0.0]
+            forward = axis[index + 1 : index + 21]  # axis 已是可交易子轴：天然覆盖"之后 20 个交易日"
             if forward:  # 区间=信号日之后 → +20 交易日或轴尾（信号日自身极值不算，执行价已在其中）
                 item["maxRebound"] = max(_as_float(b.get("high")) for b in forward) / base - 1.0
                 item["maxDrawdown"] = min(_as_float(b.get("low")) for b in forward) / base - 1.0
@@ -975,7 +979,7 @@ def _watch_index(watchlist: list[Any], bars_map: dict[str, Any], dates: list[str
     每个标的的日收益取**它自己 bar 轴**的 `close/close_prev−1`（缺 bar 当日不贡献、序列该日 null，
     绝不做前向填充造数）；当日无一个标的可算 → 指数该日 null，之后的日子仍以前一个可见值续乘。
     """
-    codes = list(dict.fromkeys(str(code) for code in (watchlist or []) if str(code)))
+    codes = list(dict.fromkeys(c for c in (watchlist or []) if isinstance(c, str) and c.strip()))
     returns: list[dict[str, float]] = []
     for code in codes:
         per_day: dict[str, float] = {}
@@ -1033,10 +1037,12 @@ def aggregate_portfolio(
     - *Total 四键（pairsTotal/orphansTotal/signalsTotal/eventsTotal）一律顶层，与 §6 逐字所示
       `eventsTotal` 同级。**列表截断披露 = 各 *Total 与 len(items) 的对比**（前端显「共 N 条已截断」）；
       `meta.truncatedAt` 归还 spec 原义 = ALL 窗 300-bar 起点截断日披露，**由 T6 端点填，本层不产该键**。
-    - kpis.exposurePct/cashPct 取 **NAV 占比口径（0..1）**——§6 cashPct 公式字面"期末现金/期末 gross"；
+    - kpis.exposurePct/cashPct 取 **NAV 占比口径（0..1）**——控制器裁定口径（spec §6 无字面公式；
+      §5.4「当前仓位/现金%」措辞的比率化落地：期末现金 ÷ 期末 gross，与 cashPct 互补和=1）；
       exposure.plannedPct/capPct 则是百分数（positionPct 口径）。
     - events 原 dict 透传（date None / code "" 容忍），排序 date 升序、None 视同最早（"" 键）。
-    - planCount.active/triggered 计**全部类型计划**按状态（sell 亦是计划）；closedInWindow/notEntered
+    - planCount.active/triggered **只计 buy 型计划**按状态（评审 I-1：§5.2「sell 主层零参与」/D2；
+      sell 走 orphanSellCount/pairCount 单列勿双计）；closedInWindow/notEntered
       取 positions（to_position 产物）口径。
     - watchIndex 键名：with_watch=True 时挂**顶层** `{dates, values, equityStart, note}`（spec 未钉死，
       与 concentration 并列）；False → null（键恒在，形状稳定）。
@@ -1098,8 +1104,8 @@ def aggregate_portfolio(
             {
                 "planId": _plan_id(plan),
                 "code": _plan_code(plan),
-                # TODO(T5b): signalDate = 信号看板锚点（窗内 stop/target 任一首次触及日，同日双触保守取
-                # stop）——需 bar 轴计算，段1 恒 None（不造数），段2 与 signals.items 同步补上。
+                # 信号看板锚点（窗内 stop/target 任一首次触及日，同日双触保守取 stop）——
+                # 下方与 signals.items 同锚点回填（board_items），无信号 → 保持 None 不造数。
                 "signalDate": None,
             }
         )
@@ -1112,15 +1118,19 @@ def aggregate_portfolio(
     events_total = len(ordered_events)
 
     # —— exposure（D5）+ planCount：只算 buy 型且 执行中/已触发（未入场也占）——
+    # I-1（评审 C1）：active/triggered 同样 buy-only——§5.2「sell 主层零参与」/D2；sell 由
+    # orphanSellCount/pairCount 单列，计入 planCount 即双计。layer=closed 亦同（sell 仅平仓信号源）。
     planned_pct = 0.0
     active = triggered = 0
     for plan in plans:
+        if _plan_kind(plan) != "buy":
+            continue
         status = str(plan.get("status") or "")
         if status == "执行中":
             active += 1
         elif status == "已触发":
             triggered += 1
-        if _plan_kind(plan) == "buy" and status in ("执行中", "已触发"):
+        if status in ("执行中", "已触发"):
             planned_pct += _as_float(plan.get("position"))
     cap_pct = _as_float(settings.get("totalPositionCapPct"))
     if cap_pct <= 0:
@@ -1137,7 +1147,9 @@ def aggregate_portfolio(
     if g_end is not None and g_end > 0 and dates:
         value_end = _holding_value_end(list(positions), str(dates[-1]))
         exposure_pct = value_end / g_end
-        cash_pct = (g_end - value_end) / g_end  # §6：期末现金/期末 gross（gross 线不计费 → 现金端即 gross−市值）
+        cash_pct = (
+            g_end - value_end
+        ) / g_end  # 控制器口径：期末现金÷期末 gross（gross 线不计费 → 现金端即 gross−市值）
 
     # —— 信号看板源（§5.4）：孤儿 sell + redundant 事件涉及的 sell（已配对但事后冗余）——
     redundant_sell_ids = {
@@ -1209,8 +1221,8 @@ def aggregate_portfolio(
             "planCount": {
                 "active": active,
                 "triggered": triggered,
-                "closedInWindow": sum(1 for p in positions if p.get("exit") is not None),
-                "notEntered": sum(1 for p in positions if p.get("status") == "notEntered"),
+                "closedInWindow": sum(1 for p in positions if isinstance(p, dict) and p.get("exit") is not None),
+                "notEntered": sum(1 for p in positions if isinstance(p, dict) and p.get("status") == "notEntered"),
             },
             "orphanSellCount": orphans_total,
             "pairCount": pairs_total,
