@@ -14,38 +14,63 @@ import { usePortfolioStore } from '@/stores/usePortfolioStore';
 // degraded: string[]、watchIndex 顶层可 null、kpis.planCount 嵌套、concentration 可 null。
 const payload = {
   kpis: {
-    navNow: 105000, navNowNet: 104200, mdd: 0.12, mddNet: 0.13, exposurePct: 0.6, cashPct: 0.4,
+    navNow: 105000,
+    navNowNet: 104200,
+    mdd: 0.12,
+    mddNet: 0.13,
+    exposurePct: 0.6,
+    cashPct: 0.4,
     planCount: { active: 2, triggered: 1, closedInWindow: 3, notEntered: 1 },
-    orphanSellCount: 1, pairCount: 1, scalingCount: 0,
+    orphanSellCount: 1,
+    pairCount: 1,
+    scalingCount: 0,
   },
   nav: {
     dates: ['2026-09-10', '2026-09-11'],
-    gross: [100000, 105000], net: [100000, 104200],
-    feeCum: [0, 800], feeSum: 800,
+    gross: [100000, 105000],
+    net: [100000, 104200],
+    feeCum: [0, 800],
+    feeSum: 800,
   },
   exposure: { plannedPct: 60, capPct: 80, overCap: false, cashPct: 40, amountByEquity: 60000 },
   concentration: {
-    top3: 70, hhi: 0.25,
-    industries: [{ key: '电池', label: '电池', pct: 70 }, { key: '未知', label: '未知', pct: 30 }],
-    unknownPct: 30, watchPool: null, hypothetical: null,
+    top3: 70,
+    hhi: 0.25,
+    industries: [
+      { key: '电池', label: '电池', pct: 70 },
+      { key: '未知', label: '未知', pct: 30 },
+    ],
+    unknownPct: 30,
+    watchPool: null,
+    hypothetical: null,
   },
-  pairs: [], pairsTotal: 0,
-  orphans: [], orphansTotal: 0,
-  signals: { items: [], note: '口径：信号日=窗内 stop/target 任一首次触及……' }, signalsTotal: 0,
-  events: [], eventsTotal: 0,
+  pairs: [],
+  pairsTotal: 0,
+  orphans: [],
+  orphansTotal: 0,
+  signals: { items: [], note: '口径：信号日=窗内 stop/target 任一首次触及……' },
+  signalsTotal: 0,
+  events: [],
+  eventsTotal: 0,
   watchIndex: null,
   degraded: [],
   meta: {
-    layer: 'core', windowStart: '2026-06-14',
+    layer: 'core',
+    windowStart: '2026-06-14',
     industryCoverage: { known: 1, total: 2, staleCount: 0 },
-    equity: 100000, feeRate: 0.0015,
+    equity: 100000,
+    feeRate: 0.0015,
   },
 };
 
 const urlOf = (i: number) => String(requestJson.mock.calls[i]?.[0]);
 
 describe('usePortfolioStore', () => {
-  beforeEach(() => { localStorage.clear(); setActivePinia(createPinia()); requestJson.mockReset(); });
+  beforeEach(() => {
+    localStorage.clear();
+    setActivePinia(createPinia());
+    requestJson.mockReset();
+  });
 
   // ── 拼参（spec §6：days 默认 90；start 优先且完全忽略 days；withWatch 字面量；feeRate 非空才带）──
   it('默认拼参：/api/portfolio/risk?days=90&layer=core&withWatch=false，不带 start/feeRate', async () => {
@@ -70,7 +95,7 @@ describe('usePortfolioStore', () => {
     await s.fetchRisk();
     expect(urlOf(0)).toContain('start=2026-06-01');
     expect(urlOf(0)).not.toContain('days=');
-    s.setParam('start', '');                       // 清空起始日 → 回到 days 档
+    s.setParam('start', ''); // 清空起始日 → 回到 days 档
     await s.fetchRisk();
     expect(urlOf(1)).toContain('days=90');
     expect(urlOf(1)).not.toContain('start=');
@@ -93,7 +118,7 @@ describe('usePortfolioStore', () => {
     s.setParam('feeRate', '0.002');
     await s.fetchRisk();
     expect(urlOf(1)).toContain('feeRate=0.002');
-    s.setParam('feeRate', '');                     // 清空 → 回落服务端默认，参数省略
+    s.setParam('feeRate', ''); // 清空 → 回落服务端默认，参数省略
     await s.fetchRisk();
     expect(urlOf(2)).not.toContain('feeRate=');
   });
@@ -104,12 +129,12 @@ describe('usePortfolioStore', () => {
     const s = usePortfolioStore();
     await s.fetchRisk();
     expect(s.error).toBe('组合风险计算失败，请稍后重试');
-    expect(s.payload).toBeNull();                  // 失败即无可信数据，不保留旧面板
-    expect(s.fetchedOnce).toBe(false);             // 复位 → 再入视图可重新拉取
+    expect(s.payload).toBeNull(); // 失败即无可信数据，不保留旧面板
+    expect(s.fetchedOnce).toBe(false); // 复位 → 再入视图可重新拉取
     expect(s.loading).toBe(false);
     requestJson.mockResolvedValueOnce(payload);
     await s.fetchRisk();
-    expect(s.error).toBeNull();                    // 成功清 error
+    expect(s.error).toBeNull(); // 成功清 error
     expect(s.fetchedOnce).toBe(true);
     expect(s.payload?.kpis.planCount.active).toBe(2);
   });
@@ -119,7 +144,7 @@ describe('usePortfolioStore', () => {
     const s = usePortfolioStore();
     await s.fetchRisk();
     expect(s.payload?.nav.gross).toEqual([100000, 105000]);
-    expect(s.payload?.nav).not.toHaveProperty('values');   // r3.2：gross 命名，values 已废
+    expect(s.payload?.nav).not.toHaveProperty('values'); // r3.2：gross 命名，values 已废
     expect(s.payload?.nav.feeCum).toEqual([0, 800]);
     expect(s.payload?.nav.feeSum).toBe(800);
     expect(s.payload?.watchIndex).toBeNull();
@@ -128,12 +153,17 @@ describe('usePortfolioStore', () => {
     requestJson.mockResolvedValueOnce({
       ...payload,
       nav: { ...payload.nav, gross: [null, 105000] },
-      watchIndex: { dates: ['2026-09-10', '2026-09-11'], values: [null, 1.02], equityStart: 1, note: '自选观察组合（等权指数，非持仓）' },
+      watchIndex: {
+        dates: ['2026-09-10', '2026-09-11'],
+        values: [null, 1.02],
+        equityStart: 1,
+        note: '自选观察组合（等权指数，非持仓）',
+      },
       concentration: null,
       degraded: ['600519'],
     });
     await s.fetchRisk();
-    expect(s.payload?.nav.gross[0]).toBeNull();            // 不造数：null 起点原样透传
+    expect(s.payload?.nav.gross[0]).toBeNull(); // 不造数：null 起点原样透传
     expect(s.payload?.watchIndex?.values[1]).toBe(1.02);
     expect(s.payload?.concentration).toBeNull();
     expect(s.payload?.degraded).toEqual(['600519']);
@@ -165,7 +195,7 @@ describe('usePortfolioStore', () => {
     s.setParam('withWatch', true);
     s.setParam('feeRate', '0.01');
     s.setParam('start', '2026-01-05');
-    setActivePinia(createPinia());                 // 模拟应用重启后重新 init
+    setActivePinia(createPinia()); // 模拟应用重启后重新 init
     const s2 = usePortfolioStore();
     expect(s2.days).toBe(180);
     expect(s2.withWatch).toBe(true);

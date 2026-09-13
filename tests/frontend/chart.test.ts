@@ -118,3 +118,12 @@ test('multiLineSvg 全 null 或无有效系列返回空状态', () => {
   );
   assert.equal(multiLineSvg([], {}), '<div class="chart-empty">暂无足够的组合净值数据</div>');
 });
+
+test('multiLineSvg 非数 height 防御：合法字符串数归一、非法值回默认（收尾硬化 L5）', () => {
+  const s = [{ label: 'a', points: [1, 2], style: 'solid' as const, color: '#000' }];
+  assert.match(multiLineSvg(s, { height: '180' as unknown as number }), /viewBox="0 0 640 180"/);
+  // 注入串/负数/NaN 一律回默认 150，viewBox 永不含外来字符
+  for (const bad of ['200px" onload="x', -5, 'abc'] as unknown as number[]) {
+    assert.match(multiLineSvg(s, { height: bad }), /viewBox="0 0 640 150"/);
+  }
+});

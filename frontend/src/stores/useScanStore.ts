@@ -160,7 +160,15 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   return {
-    hits, loaded, fetchHits, scanAlerts, unreadScanCount, isUnseen, markSeen,
-    loadConfig, saveConfig, runScanNow,
+    hits,
+    loaded,
+    fetchHits,
+    scanAlerts,
+    unreadScanCount,
+    isUnseen,
+    markSeen,
+    loadConfig,
+    saveConfig,
+    runScanNow,
   };
 });

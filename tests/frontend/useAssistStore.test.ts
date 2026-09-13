@@ -62,7 +62,15 @@ describe('useAssistStore', () => {
   });
 
   describe('recalc', () => {
-    const baseInput = { entry: 10, stopMode: 'atr' as const, rrRatio: 2, riskPct: 1, capPct: 25, manualStop: null, equity: 100000 };
+    const baseInput = {
+      entry: 10,
+      stopMode: 'atr' as const,
+      rrRatio: 2,
+      riskPct: 1,
+      capPct: 25,
+      manualStop: null,
+      equity: 100000,
+    };
 
     it('recalc 用 assistCalc 重算 shares 与 target（零 API）', () => {
       const assist = useAssistStore();
@@ -114,7 +122,9 @@ describe('useAssistStore', () => {
   describe('openFor', () => {
     it('请求草案端点并解包 {data} 包裹填充 draft', async () => {
       const workspace = useWorkspaceStore();
-      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) }));
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({ data: structuredClone(DRAFT) })
+      );
       vi.stubGlobal('fetch', fetchMock);
       const assist = useAssistStore();
       await assist.openFor({ code: '600519', name: '贵州茅台', price: 10, asOfMs: 1 });
@@ -135,14 +145,20 @@ describe('useAssistStore', () => {
     });
 
     it('openFor 携带 source 时写入同一 draft 状态对象（B6：与 code 同路，确认落计划透传）', async () => {
-      vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) }))
+      );
       const assist = useAssistStore();
       await assist.openFor({ code: '600519', source: 'scan:trend_breakout' });
       expect(assist.draft?.source).toBe('scan:trend_breakout');
     });
 
     it('openFor 未传 source 时 draft.source 为空（计划构造点兜底 manual）', async () => {
-      vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ data: structuredClone(DRAFT) }))
+      );
       const assist = useAssistStore();
       await assist.openFor({ code: '600519' });
       expect(assist.draft?.source).toBeUndefined();
@@ -151,7 +167,12 @@ describe('useAssistStore', () => {
     it('上游错误透传 detail.error 并 error toast', async () => {
       const workspace = useWorkspaceStore();
       const toastSpy = vi.spyOn(workspace, 'showToast');
-      vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ detail: { error: '行情数据不可用' } }, false, 502)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+          jsonResponse({ detail: { error: '行情数据不可用' } }, false, 502)
+        )
+      );
       const assist = useAssistStore();
       await assist.openFor({ code: '600519' });
       expect(assist.error).toBe('行情数据不可用');
@@ -168,7 +189,7 @@ describe('useAssistStore', () => {
         'fetch',
         vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
           throw new TypeError('Failed to fetch');
-        }),
+        })
       );
       const assist = useAssistStore();
       await assist.openFor({ code: '600519' });
@@ -221,7 +242,9 @@ describe('useAssistStore', () => {
       const workspace = useWorkspaceStore();
       workspace.workspaceSynced = true;
       workspace.plans = [{ ...basePlan }];
-      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ detail: { error: '冲突' } }, false, 409));
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({ detail: { error: '冲突' } }, false, 409)
+      );
       vi.stubGlobal('fetch', fetchMock);
       const toastSpy = vi.spyOn(workspace, 'showToast');
       const assist = useAssistStore();
@@ -291,8 +314,8 @@ describe('useAssistStore', () => {
             new Promise((resolve) => {
               resolveOnce = () =>
                 resolve({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ revision: 2 }) });
-            }),
-        ),
+            })
+        )
       );
       const assist = useAssistStore();
       const makePlan = (suffix: number): Plan => ({
@@ -322,7 +345,10 @@ describe('useAssistStore', () => {
     it('未自选代码确认后自动加入自选', async () => {
       const workspace = useWorkspaceStore();
       workspace.watchlistCodes = ['000001'];
-      vi.stubGlobal('fetch', vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 2 })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 2 }))
+      );
       const assist = useAssistStore();
       await assist.confirmDraft({ ...basePlan, code: '600519', id: 'plan-600519-9' });
       expect(workspace.watchlistCodes).toContain('600519');

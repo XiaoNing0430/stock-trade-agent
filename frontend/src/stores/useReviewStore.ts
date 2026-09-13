@@ -3,25 +3,56 @@ import { ref } from 'vue';
 import { requestJson } from '@/api/client';
 
 export interface ReviewKpis {
-  total: number; decided: number; flatCount: number; winRate: number | null;
-  avgWinR: number | null; avgLossR: number | null; payoffRatio: number | null;
-  expectancyR: number | null; notEnteredRate: number | null; openCount: number; invalidCount: number;
+  total: number;
+  decided: number;
+  flatCount: number;
+  winRate: number | null;
+  avgWinR: number | null;
+  avgLossR: number | null;
+  payoffRatio: number | null;
+  expectancyR: number | null;
+  notEnteredRate: number | null;
+  openCount: number;
+  invalidCount: number;
 }
 export interface ReviewGroupRow {
-  key: string; label: string; decided: number; flatCount: number; wins: number;
-  winRate: number | null; expectancyR: number | null; smallSample: boolean;
+  key: string;
+  label: string;
+  decided: number;
+  flatCount: number;
+  wins: number;
+  winRate: number | null;
+  expectancyR: number | null;
+  smallSample: boolean;
 }
 export interface ReviewItem {
-  planId: string; code: string; source: string; direction: string;
-  entry: number; stop: number; target: number; validity: string; status: string;
+  planId: string;
+  code: string;
+  source: string;
+  direction: string;
+  entry: number;
+  stop: number;
+  target: number;
+  validity: string;
+  status: string;
   outcome: 'win' | 'loss' | 'flat' | 'notEntered' | 'open' | 'invalid';
-  rValue: number | null; netR: number | null; costR: number | null;
-  entryDate: string | null; exitDate: string | null;
-  ambiguous: boolean; gapFill: boolean; limitDeferred: boolean;
+  rValue: number | null;
+  netR: number | null;
+  costR: number | null;
+  entryDate: string | null;
+  exitDate: string | null;
+  ambiguous: boolean;
+  gapFill: boolean;
+  limitDeferred: boolean;
 }
 export interface ReviewPayload {
   kpis: ReviewKpis;
-  groups: { source: ReviewGroupRow[]; direction: ReviewGroupRow[]; validity: ReviewGroupRow[]; createdMonth: ReviewGroupRow[] };
+  groups: {
+    source: ReviewGroupRow[];
+    direction: ReviewGroupRow[];
+    validity: ReviewGroupRow[];
+    createdMonth: ReviewGroupRow[];
+  };
   items: ReviewItem[];
   // 降级披露（N1）：这些代码由后端本地持久化兜底提供，数据可能陈旧；缺省（undefined）= 无降级。
   degraded?: string[];
@@ -31,8 +62,13 @@ export interface ReviewPayload {
 // 无 mode 字段——T6 裁定：存储无 mode 列，brief 中的 mode 以裁定为准移除。
 // runAtMs 可为 null：app.py 在日期解析失败时下发 null（终审 F5），视图据此渲染占位而非造时间。
 export interface ScanTraceRow {
-  strategyId: string; runAtMs: number | null; status: string; hitCount: number;
-  newCount: number; elapsedMs: number; traceId: string;
+  strategyId: string;
+  runAtMs: number | null;
+  status: string;
+  hitCount: number;
+  newCount: number;
+  elapsedMs: number;
+  traceId: string;
 }
 
 export const useReviewStore = defineStore('review', () => {
@@ -74,13 +110,18 @@ export const useReviewStore = defineStore('review', () => {
   }
   function toggleSort(key: 'netR' | 'outcome') {
     if (sortKey.value === key) sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc';
-    else { sortKey.value = key; sortDir.value = 'desc'; }
+    else {
+      sortKey.value = key;
+      sortDir.value = 'desc';
+    }
   }
   async function fetchTrace(strategyId: string) {
     traceLoading.value = true;
     try {
       const res = await requestJson<{ history: ScanTraceRow[] }>(
-        `/api/screener/scan/history?strategyId=${encodeURIComponent(strategyId)}&limit=30`, { method: 'GET' });
+        `/api/screener/scan/history?strategyId=${encodeURIComponent(strategyId)}&limit=30`,
+        { method: 'GET' }
+      );
       // §6：请求取 30 条（后端按 runAt 降序），面板仅展示前 10 条。
       trace.value = (res.history ?? []).slice(0, 10);
       traceError.value = null;
@@ -93,7 +134,10 @@ export const useReviewStore = defineStore('review', () => {
   }
   function syncTrace() {
     // 来源分组下存在 scan:{strategyId} 行时自动拉取该策略近 30 天留痕（评审 B5）
-    if (activeGroup.value !== 'source') { trace.value = null; return; }
+    if (activeGroup.value !== 'source') {
+      trace.value = null;
+      return;
+    }
     const row = (review.value?.groups.source ?? []).find((r) => r.key.startsWith('scan:'));
     if (row) void fetchTrace(row.key.slice(5));
     else trace.value = null;
@@ -108,6 +152,25 @@ export const useReviewStore = defineStore('review', () => {
   function formatR(v: number | null | undefined): string {
     return v === null || v === undefined ? '--' : v.toFixed(2);
   }
-  return { review, loading, days, activeGroup, expanded, sortKey, sortDir, trace, traceLoading, reviewError, traceError,
-           fetchReview, toggle, setGroup, setDays: fetchReview, toggleSort, fetchTrace, formatRatio, formatR };
+  return {
+    review,
+    loading,
+    days,
+    activeGroup,
+    expanded,
+    sortKey,
+    sortDir,
+    trace,
+    traceLoading,
+    reviewError,
+    traceError,
+    fetchReview,
+    toggle,
+    setGroup,
+    setDays: fetchReview,
+    toggleSort,
+    fetchTrace,
+    formatRatio,
+    formatR,
+  };
 });

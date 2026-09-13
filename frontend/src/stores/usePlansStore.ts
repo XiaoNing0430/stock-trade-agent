@@ -163,7 +163,9 @@ export const usePlansStore = defineStore('plans', () => {
     if (!result.ok) {
       Object.assign(plan, prev);
       workspace.persist();
-      throw new Error(result.message || (result.conflict ? '工作区有新变更，请刷新后重试' : '关联保存失败，服务器暂不可用'));
+      throw new Error(
+        result.message || (result.conflict ? '工作区有新变更，请刷新后重试' : '关联保存失败，服务器暂不可用')
+      );
     }
     workspace.showToast('计划关联已更新');
   }

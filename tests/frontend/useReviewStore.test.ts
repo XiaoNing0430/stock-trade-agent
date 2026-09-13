@@ -15,18 +15,63 @@ import { useReviewStore } from '@/stores/useReviewStore';
 import ViewPlans from '@/views/ViewPlans.vue';
 
 const payload = {
-  kpis: { total: 2, decided: 1, flatCount: 0, winRate: 1, avgWinR: 1.97, avgLossR: null,
-          payoffRatio: null, expectancyR: 1.97, notEnteredRate: 0, openCount: 1, invalidCount: 0 },
-  groups: { source: [{ key: 'manual', label: '手动新建', decided: 1, flatCount: 0, wins: 1,
-                       winRate: 1, expectancyR: 1.97, smallSample: true }] },
-  items: [{ planId: 'p1', code: '300750', source: 'manual', direction: 'buy', entry: 10,
-            stop: 9.5, target: 11, validity: '本月内', status: '执行中', outcome: 'win',
-            rValue: 2, netR: 1.97, costR: 0.03, entryDate: '2026-09-14', exitDate: '2026-09-15',
-            ambiguous: false, gapFill: false, limitDeferred: false }],
+  kpis: {
+    total: 2,
+    decided: 1,
+    flatCount: 0,
+    winRate: 1,
+    avgWinR: 1.97,
+    avgLossR: null,
+    payoffRatio: null,
+    expectancyR: 1.97,
+    notEnteredRate: 0,
+    openCount: 1,
+    invalidCount: 0,
+  },
+  groups: {
+    source: [
+      {
+        key: 'manual',
+        label: '手动新建',
+        decided: 1,
+        flatCount: 0,
+        wins: 1,
+        winRate: 1,
+        expectancyR: 1.97,
+        smallSample: true,
+      },
+    ],
+  },
+  items: [
+    {
+      planId: 'p1',
+      code: '300750',
+      source: 'manual',
+      direction: 'buy',
+      entry: 10,
+      stop: 9.5,
+      target: 11,
+      validity: '本月内',
+      status: '执行中',
+      outcome: 'win',
+      rValue: 2,
+      netR: 1.97,
+      costR: 0.03,
+      entryDate: '2026-09-14',
+      exitDate: '2026-09-15',
+      ambiguous: false,
+      gapFill: false,
+      limitDeferred: false,
+    },
+  ],
 };
 
 describe('useReviewStore', () => {
-  beforeEach(() => { localStorage.clear(); setActivePinia(createPinia()); requestJson.mockReset(); });
+  beforeEach(() => {
+    localStorage.clear();
+    setActivePinia(createPinia());
+    requestJson.mockReset();
+  });
 
   it('fetchReview 请求 /api/plans/review 并存 review', async () => {
     requestJson.mockResolvedValue(payload);
@@ -44,39 +89,120 @@ describe('useReviewStore', () => {
   });
 
   it('来源分组含 scan: 行时自动拉取留痕（评审 B5）', async () => {
-    const withScan = { ...payload,
-      groups: { ...payload.groups,
-        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 1, flatCount: 0,
-                   wins: 1, winRate: 1, expectancyR: 1.97, smallSample: true }] } };
+    const withScan = {
+      ...payload,
+      groups: {
+        ...payload.groups,
+        source: [
+          {
+            key: 'scan:trend_breakout',
+            label: '扫描·趋势突破',
+            decided: 1,
+            flatCount: 0,
+            wins: 1,
+            winRate: 1,
+            expectancyR: 1.97,
+            smallSample: true,
+          },
+        ],
+      },
+    };
     requestJson.mockImplementation((url: string) => {
       if (String(url).includes('/api/plans/review')) return Promise.resolve(withScan);
       if (String(url).includes('/api/screener/scan/history')) {
-        return Promise.resolve({ history: [{ strategyId: 'trend_breakout', runAtMs: 1_789_000_000_000,
-          status: 'ok', hitCount: 3, newCount: 1, elapsedMs: 1200, traceId: 't1' }] });
+        return Promise.resolve({
+          history: [
+            {
+              strategyId: 'trend_breakout',
+              runAtMs: 1_789_000_000_000,
+              status: 'ok',
+              hitCount: 3,
+              newCount: 1,
+              elapsedMs: 1200,
+              traceId: 't1',
+            },
+          ],
+        });
       }
       return Promise.reject(new Error(`unexpected url ${url}`));
     });
     const s = useReviewStore();
     await s.fetchReview(90);
-    expect(s.trace?.[0]?.hitCount).toBe(3);        // fetchReview → syncTrace → fetchTrace 自动触发
-    expect(requestJson.mock.calls.some((c) => String(c[0]).includes('/api/screener/scan/history?strategyId=trend_breakout'))).toBe(true);
-    await s.setGroup('direction');                  // 切走 → trace 清空
+    expect(s.trace?.[0]?.hitCount).toBe(3); // fetchReview → syncTrace → fetchTrace 自动触发
+    expect(
+      requestJson.mock.calls.some((c) => String(c[0]).includes('/api/screener/scan/history?strategyId=trend_breakout'))
+    ).toBe(true);
+    await s.setGroup('direction'); // 切走 → trace 清空
     expect(s.trace).toBeNull();
   });
 
   it('toggleSort 排序语义：同键翻转 desc→asc / 新键重置 desc / netR null 按 ?? -Infinity 沉底（T8 评审 Minor 2）', async () => {
     // items 后端原序故意乱放：p2(-1.0) / p3(null) / p1(2.0)，使 desc 断言可证明排序真的发生
-    const sortable = { ...payload, items: [
-      { planId: 'p2', code: '600002', source: 'manual', direction: 'buy', entry: 10, stop: 9.5,
-        target: 11, validity: '本月内', status: '已过期', outcome: 'loss', rValue: -1, netR: -1.0,
-        costR: 0.03, entryDate: '2026-09-14', exitDate: '2026-09-15', ambiguous: false, gapFill: false, limitDeferred: false },
-      { planId: 'p3', code: '600003', source: 'screener', direction: 'buy', entry: 10, stop: 9.5,
-        target: 11, validity: '本月内', status: '已过期', outcome: 'open', rValue: null, netR: null,
-        costR: null, entryDate: '2026-09-14', exitDate: null, ambiguous: false, gapFill: false, limitDeferred: false },
-      { planId: 'p1', code: '600001', source: 'manual', direction: 'buy', entry: 10, stop: 9.5,
-        target: 11, validity: '本月内', status: '已过期', outcome: 'win', rValue: 2, netR: 2.0,
-        costR: 0.03, entryDate: '2026-09-14', exitDate: '2026-09-15', ambiguous: false, gapFill: false, limitDeferred: false },
-    ] };
+    const sortable = {
+      ...payload,
+      items: [
+        {
+          planId: 'p2',
+          code: '600002',
+          source: 'manual',
+          direction: 'buy',
+          entry: 10,
+          stop: 9.5,
+          target: 11,
+          validity: '本月内',
+          status: '已过期',
+          outcome: 'loss',
+          rValue: -1,
+          netR: -1.0,
+          costR: 0.03,
+          entryDate: '2026-09-14',
+          exitDate: '2026-09-15',
+          ambiguous: false,
+          gapFill: false,
+          limitDeferred: false,
+        },
+        {
+          planId: 'p3',
+          code: '600003',
+          source: 'screener',
+          direction: 'buy',
+          entry: 10,
+          stop: 9.5,
+          target: 11,
+          validity: '本月内',
+          status: '已过期',
+          outcome: 'open',
+          rValue: null,
+          netR: null,
+          costR: null,
+          entryDate: '2026-09-14',
+          exitDate: null,
+          ambiguous: false,
+          gapFill: false,
+          limitDeferred: false,
+        },
+        {
+          planId: 'p1',
+          code: '600001',
+          source: 'manual',
+          direction: 'buy',
+          entry: 10,
+          stop: 9.5,
+          target: 11,
+          validity: '本月内',
+          status: '已过期',
+          outcome: 'win',
+          rValue: 2,
+          netR: 2.0,
+          costR: 0.03,
+          entryDate: '2026-09-14',
+          exitDate: '2026-09-15',
+          ambiguous: false,
+          gapFill: false,
+          limitDeferred: false,
+        },
+      ],
+    };
     requestJson.mockResolvedValue(sortable);
     const wrapper = mount(ViewPlans);
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
@@ -84,43 +210,50 @@ describe('useReviewStore', () => {
     const s = useReviewStore();
     const codes = () => wrapper.findAll('[data-testid="review-items-detail"] tbody tr').map((r) => r.find('td').text());
     const sortBtns = () => wrapper.findAll('[data-testid="review-items-detail"] th button');
-    expect(codes()).toEqual(['600002', '600003', '600001']);   // 未选排序键 → 保持后端原序
-    await sortBtns()[1].trigger('click');                      // netR → desc：2.0 / -1.0 / null 沉底
-    expect(s.sortKey).toBe('netR'); expect(s.sortDir).toBe('desc');
+    expect(codes()).toEqual(['600002', '600003', '600001']); // 未选排序键 → 保持后端原序
+    await sortBtns()[1].trigger('click'); // netR → desc：2.0 / -1.0 / null 沉底
+    expect(s.sortKey).toBe('netR');
+    expect(s.sortDir).toBe('desc');
     expect(codes()).toEqual(['600001', '600002', '600003']);
-    await sortBtns()[1].trigger('click');                      // 同键翻转 → asc：null(-Inf) 置顶
+    await sortBtns()[1].trigger('click'); // 同键翻转 → asc：null(-Inf) 置顶
     expect(s.sortDir).toBe('asc');
     expect(codes()).toEqual(['600003', '600002', '600001']);
-    await sortBtns()[0].trigger('click');                      // 新键 outcome → 重置 desc：win/open/loss
-    expect(s.sortKey).toBe('outcome'); expect(s.sortDir).toBe('desc');
+    await sortBtns()[0].trigger('click'); // 新键 outcome → 重置 desc：win/open/loss
+    expect(s.sortKey).toBe('outcome');
+    expect(s.sortDir).toBe('desc');
     expect(codes()).toEqual(['600001', '600003', '600002']);
   });
 
   it('fetchReview 失败 → reviewError 可见 + review 置空 + 复位可重试（终审 F3 红线 / N4）', async () => {
     requestJson.mockRejectedValueOnce(new Error('502 Bad Gateway'));
     const s = useReviewStore();
-    await s.toggle();                                   // 首次展开 → fetchReview 抛错
-    expect(s.review).toBeNull();                        // 失败即无可信数据，不保留旧面板
+    await s.toggle(); // 首次展开 → fetchReview 抛错
+    expect(s.review).toBeNull(); // 失败即无可信数据，不保留旧面板
     expect(s.reviewError).toBe('复盘数据加载失败：502 Bad Gateway');
-    expect(s.traceError).toBeNull();                    // 复盘失败不污染 traceError
+    expect(s.traceError).toBeNull(); // 复盘失败不污染 traceError
     // fetchedOnce 复位：折叠后再次展开应重新拉取（可重试），成功后清除 reviewError
     requestJson.mockResolvedValueOnce(payload);
     s.expanded = false;
     await s.toggle();
     expect(s.review?.kpis.total).toBe(2);
-    expect(s.reviewError).toBeNull();                   // 成功清除复盘错误
+    expect(s.reviewError).toBeNull(); // 成功清除复盘错误
   });
 
   it('fetchTrace 面板钳制为 10 条（§6：请求 limit=30，展示降序前 10）', async () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({
-      strategyId: 'trend_breakout', runAtMs: 1_789_000_000_000 - i, status: 'ok',
-      hitCount: i, newCount: 0, elapsedMs: 1200, traceId: `t${i}`,
+      strategyId: 'trend_breakout',
+      runAtMs: 1_789_000_000_000 - i,
+      status: 'ok',
+      hitCount: i,
+      newCount: 0,
+      elapsedMs: 1200,
+      traceId: `t${i}`,
     }));
     requestJson.mockResolvedValue({ history: rows });
     const s = useReviewStore();
     await s.fetchTrace('trend_breakout');
     expect(requestJson.mock.calls.some((c) => String(c[0]).includes('limit=30'))).toBe(true);
-    expect(s.trace?.length).toBe(10);                   // 12 → 钳制 10
+    expect(s.trace?.length).toBe(10); // 12 → 钳制 10
     expect(s.trace?.[0]?.runAtMs).toBe(1_789_000_000_000); // 保留后端降序首条
   });
 
@@ -130,7 +263,7 @@ describe('useReviewStore', () => {
     await s.fetchTrace('trend_breakout');
     expect(s.trace).toBeNull();
     expect(s.traceError).toBe('扫描留痕加载失败：boom');
-    expect(s.reviewError).toBeNull();                    // 留痕失败不污染 reviewError
+    expect(s.reviewError).toBeNull(); // 留痕失败不污染 reviewError
   });
 
   it('reviewError 与 traceError 相互独立：一路成功只清自身错误，另一路保留（N4）', async () => {
@@ -138,16 +271,16 @@ describe('useReviewStore', () => {
     const s = useReviewStore();
     await s.fetchReview(90);
     expect(s.reviewError).toBe('复盘数据加载失败：rev down');
-    expect(s.traceError).toBeNull();                     // 复盘失败不污染 traceError
+    expect(s.traceError).toBeNull(); // 复盘失败不污染 traceError
     requestJson.mockRejectedValueOnce(new Error('trace down'));
     await s.fetchTrace('trend_breakout');
     expect(s.traceError).toBe('扫描留痕加载失败：trace down');
     expect(s.reviewError).toBe('复盘数据加载失败：rev down'); // 留痕失败不清 reviewError
     requestJson.mockResolvedValueOnce({ history: [] });
     await s.fetchTrace('trend_breakout');
-    expect(s.traceError).toBeNull();                     // 留痕成功仅清 traceError
+    expect(s.traceError).toBeNull(); // 留痕成功仅清 traceError
     expect(s.reviewError).toBe('复盘数据加载失败：rev down'); // reviewError 保留
-    requestJson.mockResolvedValueOnce(payload);          // 复盘成功（source 无 scan: → 不触发 fetchTrace）
+    requestJson.mockResolvedValueOnce(payload); // 复盘成功（source 无 scan: → 不触发 fetchTrace）
     await s.fetchReview(90);
     expect(s.reviewError).toBeNull();
   });
@@ -157,15 +290,17 @@ describe('useReviewStore', () => {
     const s = useReviewStore();
     await s.fetchReview(90);
     expect(s.review?.degraded).toEqual(['600519', '000001']);
-    requestJson.mockResolvedValueOnce(payload);          // payload 无 degraded → undefined，不报错
+    requestJson.mockResolvedValueOnce(payload); // payload 无 degraded → undefined，不报错
     await s.fetchReview(90);
     expect(s.review?.degraded).toBeUndefined();
   });
 
   it('runAtMs null 行原样保留（app.py 解析失败下发 null，不造时间；F5）', async () => {
-    requestJson.mockResolvedValue({ history: [
-      { strategyId: 's', runAtMs: null, status: 'ok', hitCount: 1, newCount: 0, elapsedMs: 10, traceId: 'a' },
-    ] });
+    requestJson.mockResolvedValue({
+      history: [
+        { strategyId: 's', runAtMs: null, status: 'ok', hitCount: 1, newCount: 0, elapsedMs: 10, traceId: 'a' },
+      ],
+    });
     const s = useReviewStore();
     await s.fetchTrace('s');
     expect(s.trace?.[0]?.runAtMs).toBeNull();

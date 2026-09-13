@@ -188,7 +188,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       await new Promise((resolve) => setTimeout(resolve, 120));
       waited += 120;
     }
-    if (workspaceSyncInFlight) return { ok: false };
+    if (workspaceSyncInFlight) return { ok: false, message: '同步超时（定时同步长时间占用），请稍后重试' };
     workspaceSyncInFlight = true;
     try {
       await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {

@@ -17,7 +17,15 @@ describe('ViewStockDetail', () => {
   it('页头「生成草案」按钮 → openFor 携带选中代码/名称/快照价', async () => {
     const quotes = useQuotesStore();
     quotes.market.quotes = [
-      { code: '600519', name: '贵州茅台', exchange: '上交所', board: '主板', market: '沪市主板', price: 1700, change: 2.5 },
+      {
+        code: '600519',
+        name: '贵州茅台',
+        exchange: '上交所',
+        board: '主板',
+        market: '沪市主板',
+        price: 1700,
+        change: 2.5,
+      },
     ];
     quotes.selectedCode = '600519';
     const assist = useAssistStore();

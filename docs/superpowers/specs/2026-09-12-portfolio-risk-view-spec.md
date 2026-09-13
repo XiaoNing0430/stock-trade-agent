@@ -1,6 +1,6 @@
-# 组合风险视图（P1）— 设计规格 r3.2
+# 组合风险视图（P1）— 设计规格 r3.3
 
-日期：2026-09-12 ｜ 状态：**计划评审通过项已吸收（P0/P1/观察 2·4），实施计划为唯一执行依据** ｜ 上游：ROADMAP「P1 组合风险视图：自选 + 计划合计敞口、行业集中度、虚拟组合回撤」
+日期：2026-09-12 ｜ 状态：**已交付；r3.3 为交付后勘误版（实现与本文冲突处以下文"勘误"为准，2026-09-13 收尾回写）** ｜ 上游：ROADMAP「P1 组合风险视图：自选 + 计划合计敞口、行业集中度、虚拟组合回撤」
 定位：研究向**纯计算视图**，读现有计划/自选数据，零写入计划（红线：无券商、无自动执行、绝不造数）。
 
 ## 0. 术语
@@ -40,7 +40,7 @@
 ## 4. 行业映射
 
 - 新模块 `backend/industry_map.py`：`get_industry_map() -> tuple[dict[str, str], status]`，status ∈ `fresh|stale|empty`。**双层缓存**：进程 dict（TTL 24h）+ 新表 `industry_map(code PK, name, updated_at)`（Alembic 迁移 2）持久化——重启不清零；读取顺序：进程 → DB（未过期→fresh）→ 陈旧 DB（stale 容忍）→ **表空即返回 ({}, 'empty')，绝不内联全量拉取**（首启由后台预热填充，前端见 empty 出预热文案）。
-- 数据源=东财 clist 全市场分页（`_CLIST_FIELDS` 追加 `f100`，复用 screener 既有请求构造，≤10 req/s 纪律）。**API 永不内联拉取全市场**：`GET /api/portfolio/risk` 只读缓存；拉取/刷新走后台任务（APScheduler 既有基建，每日一次 + 启动后延迟预热），进度不进面板（预热完成前集中度以已有 DB 行 + 未知桶运行，`meta.industryCoverage = {known, total, staleCount}` 如实披露，r3.2 计数命名与 status 词区分）。
+- 数据源=东财 clist 全市场分页（`_CLIST_FIELDS` 追加 `f100`，复用 screener 既有请求构造，≤10 req/s 纪律）。**r3.3 勘误（交付后）**：① fs 四段组合实覆盖沪深主板/创业板/科创板（代码前缀 0/3/6 实测 5223 行），**不含北交所（4/8 起）**——北交所标的行业入"未知"桶如实披露；② 主站 `push2.eastmoney.com` 域名级失联（RST/502）时行业分页回退 `push2delay.eastmoney.com` 延时镜像（f100 同源、行业无价格鲜度要求）；选股器 `load_screener_paged` 不共享此回退（延时价格参与排序即失真，失败如实上抛）。**API 永不内联拉取全市场**：`GET /api/portfolio/risk` 只读缓存；拉取/刷新走后台任务（APScheduler 既有基建，每日一次 + 启动后延迟预热），进度不进面板（预热完成前集中度以已有 DB 行 + 未知桶运行，`meta.industryCoverage = {known, total, staleCount}` 如实披露，r3.2 计数命名与 status 词区分）。
 - 腾讯排名接口无行业字段 → 行业模块与 historySource 设置**无关**（固定东财，文档如实写明，同"复盘 bars 走路由源"的披露风格）。
 - 失败：保留上次 DB 数据（stale 容忍）；空表且拉取失败 → 全"未知"桶 + degraded 标注。**不影响 NAV 计算（正交降级）**。
 
@@ -83,6 +83,7 @@
 - **轻量护栏**：复用 `SlidingWindowLimiter`（assist 草案先例）**20 req/min**——只防误循环/连点重算，非安全边界（单用户本地）；超限 429。
 - 顶层键：`{kpis, nav: {dates[], gross[], net[], feeCum[], feeSum}, exposure: {plannedPct, capPct, overCap, cashPct, amountByEquity}, concentration: {top3, hhi, industries[{key,label,pct}], unknownPct, watchPool{...}, hypothetical{...}|null}, pairs: [...], orphans: [...], signals: {items[], note}, events: [...], eventsTotal, degraded: [codes], meta: {layer, windowStart, truncatedAt?, industryCoverage{known,total,staleCount}, equity, feeRate}}`（r3.2：values→gross 与引擎/决策 D7 命名对齐；stale→staleCount 消除与 I4 status 词的歧义）。
 - **列表截断**：pairs/orphans/signals.items/events 各 cap 50 + 对应 `*Total` 计数（前端折叠区显示"共 N 条，已截断"）——单用户数据量下替代分页。
+- **r3.3 键清单勘误（交付后）**：① 截断计数键实为 `pairsTotal/orphansTotal/signalsTotal/eventsTotal`（顶层），且顶层另有 `watchIndex: {dates[], values[], equityStart, note}|null`（withWatch=false 或自选取数降级时整体 null）——原键清单未列，以本节与实现为准；② pct 族（positionPct/plannedPct/capPct/cashPct/top3 各项/unknownPct 等）统一 **0..1 比率**、前端 ×100 显示——§5.4 无 cashPct 字面公式，落地口径为现金占权益比率（1−Σ持仓比率，随费用单调升）；③ `truncatedAt` 判据=len(轴日)≥BARS_LIMIT（与 days==0 解耦），值=截断后轴首日，正常窗键缺席。
 - `kpis`：`{navNow, navNowNet, mdd, mddNet, exposurePct, cashPct, planCount:{active,triggered,closedInWindow,notEntered}, orphanSellCount, pairCount, scalingCount}`；金额换算锚 `defaultCapital`（meta.equity 如实回显）。
 - 上游失败：复用 `ReviewUpstreamError` → 502 `{error,code,detail.failedCodes}` + `atlas.review` 日志（同式）；空计划 → 200 全零态结构。
 - **性能参考目标（本地环境，验收观测项而非硬门禁）**：行业/bars 缓存命中 P95 < 500ms；冷启动（首拉）< 5s；ALL 窗 + 300 bars 上限下引擎单趟回放 < 200ms（表驱动基准测试记录量级）。
@@ -91,9 +92,9 @@
 
 - 新视图 **ViewPortfolio「组合风险」**（第 8 视图）：constants.ts NAV 项 `id:'portfolio'`、main.ts 注册、app.ts 快捷键表追加 `6: 'portfolio'`（现 1-5，不重排既有）。
 - `usePortfolioStore`：`days/start/layer/withWatch` 参数态 + `fetch`（URL 拼参、单请求）+ `error` 态（红线：失败可见化，复用 review 错误模式）+ `fetchedOnce`。
-- 布局（自上而下）：控制行（回看 chips｜层切换 chips｜自选观察组合开关·高级｜起始日输入·高级｜假想线开关·高级，**三项高级默认关**）→ KPI 行 → NAV 曲线（**复用 chart.ts 自研 svg**，多线：gross 主线 + net 费后虚线 + 现金底线；withWatch 时叠加"自选观察组合（等权指数，非持仓）"灰虚线，同图标注文案）→ 敞口卡（Σ vs totalPositionCapPct，超限标红）→ 集中度卡（横向条 + Top3/HHI；观察池单列行 + 假想虚线条注"假想参考，非真实持仓"）→ 折叠区：交易对/孤儿/信号看板/**回放事件（缩放/冲突/冗余/悬空）**。**面板偏好（层切换/高级开关/回看档）持久化 localStorage**（复用工程既有 localStorage 惯例），跨重启记忆。
-- **交易对管理入口在 ViewPlans**：sell 行（执行中/已触发）"关联建仓计划"按钮 → 下拉仅列同 code 的未配对 buy；行内 exitMode 四档下拉（选 sell_only 弹二次确认）；解除=置空。写路径复用 workspace PUT 整表同步（现计划编辑唯一通路），保存失败 → toast 错误 + 重拉。
-- 空态/单例：无 buy 计划 → 曲线区空态文案；`industryCoverage.known==0 且预热进行中` → 集中度卡整卡文案 **"行业数据预热中，稍后自动刷新"**（终审 R3，不误导为"全是未知行业"）；预热完成后仍有缺口 → "未知"桶 + coverage 数字如实。
+- 布局（自上而下）：控制行（回看 chips｜层切换 chips｜自选观察组合开关·高级｜起始日输入·高级｜假想线开关·高级，**三项高级默认关**）→ KPI 行 → NAV 曲线（**复用 chart.ts 自研 svg**，多线：gross 主线 + net 费后虚线 + ~~现金底线~~（**r3.3 勘误**：§6 nav 键无现金序列且 0 基线会压垮 y 轴归一——现金不绘线，改曲线下方 muted 披露行"现金不计入曲线…见现金占比/期末现金"）；withWatch 时叠加"自选观察组合（等权指数，非持仓）"灰虚线（**r3.3**：叠线按首个非空 gross 归一折算、dates 长度不等则不叠——展示口径非持仓语义，图注已披露），同图标注文案）→ 敞口卡（Σ vs totalPositionCapPct，超限标红）→ 集中度卡（横向条 + Top3/HHI；观察池单列行 + 假想虚线条注"假想参考，非真实持仓"）→ 折叠区：交易对/孤儿/信号看板/**回放事件（缩放/冲突/冗余/悬空）**。**面板偏好（层切换/高级开关/回看档）持久化 localStorage**（复用工程既有 localStorage 惯例），跨重启记忆。
+- **交易对管理入口在 ViewPlans**：sell 行（执行中/已触发）"关联建仓计划"按钮 → 下拉仅列同 code 的未配对 buy；行内 exitMode 四档下拉（选 sell_only 弹二次确认）；解除=置空。写路径复用 workspace PUT 整表同步（现计划编辑唯一通路），保存失败 → toast 错误 + 重拉（**r3.3 勘误**：实现为"回滚本地字段 + 重 PUT"——422 整表拒绝下回滚即本地=服务器态，免重拉竞态，工程上优于字面"重拉"）。
+- 空态/单例：无 buy 计划 → 曲线区空态文案；`industryCoverage.known==0 且预热进行中` → 集中度卡整卡文案 **"行业数据预热中，稍后自动刷新"**（终审 R3，不误导为"全是未知行业"；**r3.3 勘误**：payload 无预热"进行中"信号——落地条件为 known==0 且行业明细行为空，即按 coverage 判定，不区分进行中/失败）；预热完成后仍有缺口 → "未知"桶 + coverage 数字如实。
 
 ## 8. 错误处理与降级
 
