@@ -4025,3 +4025,227 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* ── 组合风险视图（Task 8）：pf- 前缀，复用 review/.kpi/.surface/.empty-state/.badge-muted 族 ── */
+.pf-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.pf-controls .review-days,
+.pf-controls .review-tabs {
+  margin: 0;
+}
+.pf-adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 5px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pf-adv-toggle .flipped {
+  transform: rotate(180deg);
+}
+.pf-adv-zone {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+}
+.pf-adv-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-strong);
+  font-size: 12px;
+}
+.pf-adv-field input[type='date'] {
+  padding: 4px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+.pf-kpis {
+  margin-bottom: 14px;
+}
+.pf-nav,
+.pf-exposure,
+.pf-concentration,
+.pf-fold {
+  padding: 14px 18px 16px;
+  margin-bottom: 14px;
+}
+.pf-chart {
+  min-height: 220px;
+}
+.pf-degraded {
+  margin: 0 0 12px;
+  padding: 9px 14px;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-small);
+  background: var(--gold-soft);
+  color: var(--gold);
+  font-size: 12px;
+}
+.pf-exposure.pf-over {
+  border-color: var(--red);
+}
+.pf-over-text {
+  color: var(--red);
+  font-size: 12px;
+}
+.pf-bar {
+  position: relative;
+  height: 10px;
+  margin: 10px 0 8px;
+  border-radius: 999px;
+  background: var(--surface-tint);
+  overflow: visible;
+}
+.pf-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--blue);
+  transition: width 160ms ease;
+}
+.pf-exposure.pf-over .pf-bar > i {
+  background: var(--red);
+}
+.pf-bar .pf-cap {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 16px;
+  background: var(--red);
+  border-radius: 1px;
+}
+.pf-exposure-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 4px 0 0;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pf-conc-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-bottom: 10px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pf-warming {
+  margin: 6px 0 2px;
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-size: 13px;
+  text-align: center;
+}
+.pf-ind-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 64px;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.pf-ind-label {
+  overflow: hidden;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pf-ind-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-tint);
+}
+.pf-ind-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--coral);
+}
+.pf-ind-pct {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.pf-ind-row-minor .pf-ind-bar > i {
+  background: var(--muted);
+}
+.pf-watchpool,
+.pf-hypo {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-strong);
+}
+.pf-hypo-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  background: var(--gold-soft);
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.pf-truncated {
+  margin: 6px 0 0;
+}
+.pf-signal-note,
+.pf-event-note {
+  margin: 2px 0 10px;
+  line-height: 1.6;
+}
+.pf-events {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pf-events li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.pf-event-type {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pf-disclaimer {
+  margin-bottom: 4px;
+}
