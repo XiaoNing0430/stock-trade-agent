@@ -194,9 +194,11 @@ _STALE_DAYS = 7
 
 
 class ReviewUpstreamError(Exception):
-    def __init__(self, codes: list[str]) -> None:
+    def __init__(self, codes: list[str], partial: dict[str, list[dict[str, Any]]] | None = None) -> None:
         super().__init__(f"history fetch failed for {len(codes)} code(s)")
         self.codes = codes
+        # 失败前已成功拉取的 bar（真实数据非造数）；外围消费方可吸收（收尾硬化 L1）。
+        self.partial = partial or {}
 
 
 def fetch_all_bars(codes: list[str], router) -> dict[str, list[dict[str, Any]]]:
@@ -221,7 +223,9 @@ def fetch_all_bars(codes: list[str], router) -> dict[str, list[dict[str, Any]]]:
             review_logger.warning("review_fetch_failed code=%s err=%r", code, exc)
             failed.append(code)
     if failed:
-        raise ReviewUpstreamError(failed)
+        # 携带已成功部分（收尾硬化 L1）：外围消费方（组合端点第二趟自选码）可吸收 partial 防过度
+        # 降级；硬依赖消费方（计划码 502 路径/复盘端点）只用 .codes，行为不变。
+        raise ReviewUpstreamError(failed, partial=out)
     return out
 
 

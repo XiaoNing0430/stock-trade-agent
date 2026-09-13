@@ -436,7 +436,10 @@ def _spy_bars_loader(
     def spy(codes: list[str], router: Any) -> dict[str, list[dict[str, Any]]]:
         calls.append(list(codes))
         if boom & set(codes):
-            raise ReviewUpstreamError([c for c in codes if c in boom])
+            failed = [c for c in codes if c in boom]
+            # 与生产 fetch_all_bars 同步的行为（收尾硬化 L1）：失败前已成功的码以 partial 携带。
+            partial = {c: [dict(b) for b in rows] for c in codes if c not in boom}
+            raise ReviewUpstreamError(failed, partial=partial)
         return {code: [dict(b) for b in rows] for code in codes}
 
     monkeypatch.setattr("backend.plan_review.fetch_all_bars", spy)
@@ -551,6 +554,18 @@ def test_risk_watch_failure_degrades_not_502(monkeypatch: pytest.MonkeyPatch, ca
     assert passes == [["600519"], ["300750"]]  # 两趟隔离：自选码绝不混进计划码趟
     assert len(body["nav"]["dates"]) == 8 and body["kpis"]["planCount"]["active"] == 1  # NAV 不被外围拖空
     assert body["watchIndex"] is not None and set(body["watchIndex"]["values"]) == {None}  # 缺 bar 全 null 不造数
+
+
+def test_risk_watch_partial_absorbed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """收尾硬化 L1：同趟部分成功不再整批丢弃——partial 码进 watchIndex，degraded 仅失败码。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()], watchlist=["300750", "301234"])
+    _spy_bars_loader(monkeypatch, fail_codes={"301234"})
+    r = client.get("/api/portfolio/risk", params={"withWatch": True})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["degraded"] == ["301234"]  # 只披露真失败的码
+    wi = body["watchIndex"]
+    assert wi is not None and any(v is not None for v in wi["values"])  # 300750 的 bar 未被连坐丢弃
 
 
 def test_risk_codes_layer_closed_and_watch_spy(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -746,6 +746,9 @@ def create_app() -> FastAPI:
             try:
                 bars_map.update(load_bars(watch_codes))
             except plan_review.ReviewUpstreamError as exc:
+                # 吸收部分成功（收尾硬化 L1）：失败前已真实拉到的自选码 bar 不整批丢弃，
+                # degraded 仅记失败码——缺 bar 的码由引擎 watchIndex 对齐全 null 段如实拖尾。
+                bars_map.update(exc.partial)
                 for code in exc.codes:
                     degraded.append(code)
                     review_logger.warning("review_degraded code=%s as_of=%s", code, "-")
