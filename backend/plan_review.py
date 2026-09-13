@@ -189,6 +189,7 @@ def _finalize(rec: dict[str, Any]) -> dict[str, Any]:
 DEFAULT_FEE_RATE = 0.0015
 FEE_RATE_MAX = 0.05  # I6：费率校验上限（复盘端点内联 0.05 与组合端点共用，杜绝漂移）
 _BARS_LIMIT = 300
+BARS_LIMIT = _BARS_LIMIT  # 公开别名（评审 F7）：端点判截断披露用，杜绝跨模块取私有
 _STALE_DAYS = 7
 
 

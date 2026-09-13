@@ -710,7 +710,7 @@ def create_app() -> FastAPI:
         links, link_events = portfolio_risk.build_links(plans)
         # codes 集合：buy 成分码 ∪ (closed 层全部 sell 码 ∪ 未配对孤儿 sell 码——看板信号也要 bar) ∪ 自选码
         paired_sell_ids = {str((link.get("sell") or {}).get("id") or "") for link in links.values()}
-        codes: list[str] = []
+        plan_codes: list[str] = []
         for plan in plans:
             if not isinstance(plan, dict):
                 continue
@@ -719,20 +719,36 @@ def create_app() -> FastAPI:
                 continue
             kind = str(plan.get("type") or plan.get("direction") or "buy").strip().lower()
             if kind == "buy":
-                codes.append(code)
+                plan_codes.append(code)
             elif layer == "closed" or str(plan.get("id") or "") not in paired_sell_ids:
-                codes.append(code)
+                plan_codes.append(code)
+        # 两趟取数（评审 F1）：计划码硬失败→502（保持现语义）；withWatch 自选码属外围，第二趟隔离——
+        # 上游不可达只并 degraded + review_degraded 告警（不 502），缺 bar 由 watchIndex null 拖尾消化（引擎零改动）。
+        plan_codes = list(dict.fromkeys(plan_codes))
+        watch_codes: list[str] = []
         if withWatch:
-            codes.extend(str(item) for item in watchlist if str(item or "").strip())
-        codes = list(dict.fromkeys(codes))
+            plan_set = set(plan_codes)
+            watch_codes = [
+                c
+                for c in dict.fromkeys(str(item).strip() for item in watchlist if str(item or "").strip())
+                if c not in plan_set
+            ]
+        codes = plan_codes + watch_codes  # 日志 codes 字段 = 两趟总取数码
 
         load_bars, stats, degraded = _resolve_history_loader()
         try:
-            bars_map = load_bars(codes) if codes else {}
             industry, industry_status = get_industry_map()  # 只读缓存：API 绝不内联拉全市场（spec §3）
+            bars_map: dict[str, list[dict[str, Any]]] = load_bars(plan_codes) if plan_codes else {}
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
+        if watch_codes:
+            try:
+                bars_map.update(load_bars(watch_codes))
+            except plan_review.ReviewUpstreamError as exc:
+                for code in exc.codes:
+                    degraded.append(code)
+                    review_logger.warning("review_degraded code=%s as_of=%s", code, "-")
 
         # —— 4. 单趟回放 + NAV 组装（compose_nav 只调一次，nav 五键同源，评审三钉）——
         positions, replay_events = portfolio_risk.replay_positions(plans, bars_map, window_start, today, layer, links)
@@ -761,8 +777,9 @@ def create_app() -> FastAPI:
         payload["nav"]["feeCum"] = nav["feeCum"]
         payload["nav"]["feeSum"] = nav["feeSum"]
         payload["degraded"] = sorted(set(degraded))  # 降级不得静默（同复盘）
-        # ALL 档 bars 受 300 根上限：无截断信号可取，按「轴被拉满 ≥_BARS_LIMIT 且 days=0」粗判窗起点截断日
-        if days == 0 and len(dates) >= plan_review._BARS_LIMIT:
+        # bars 取数受 BARS_LIMIT 根上限：轴被拉满即窗起点存在截断，如实披露（评审 F2——判据与 days/start 解耦；
+        # 值为多码并集轴首日；无截断不产该键，聚合层 T5 三处缺席钉语义不变）
+        if len(dates) >= plan_review.BARS_LIMIT:
             payload["meta"]["truncatedAt"] = dates[0]
         all_events = [*replay_events, *link_events]
         review_logger.info(
