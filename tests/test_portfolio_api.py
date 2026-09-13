@@ -7,6 +7,7 @@ module-level TestClient + workspace 读写助手）；独立文件零共享 fixt
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -337,6 +338,19 @@ def test_review_refactor_regression(monkeypatch, caplog):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _portfolio_limiter_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
+    """评审 F4：默认 20/60 limiter 是全模块共享实例，真实请求已耗大半——每例先换高容量实例斩断顺序耦合。
+
+    429 例（test_risk_429_after_limit）在体内自换 max=2 小实例，monkeypatch 后写覆盖前写，不受影响。
+    """
+    monkeypatch.setattr(
+        app_module.app.state,
+        "portfolio_limiter",
+        SlidingWindowLimiter(max_events=1000, window_seconds=60.0),
+    )
+
+
 def _risk_plan(**over: Any) -> dict[str, Any]:
     """可入场/可离线的 buy 计划（position 必填——引擎名义额分配的前提）。"""
     now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
@@ -403,6 +417,30 @@ def _stub_risk_env(
     monkeypatch.setattr(app_module, "_load_history_with_fallback", fake)
     monkeypatch.setattr(storage_module, "load_market_bars", lambda *a, **k: [])
     monkeypatch.setattr(storage_module, "save_market_bars", lambda *a, **k: None)
+
+
+def _spy_bars_loader(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fail_codes: set[str] | None = None,
+    bars: list[dict[str, Any]] | None = None,
+) -> list[list[str]]:
+    """fetch_all_bars 替身（576c84d 两趟实现的注入点）：逐趟记录 loader 收到的 codes——列表长度即趟数。
+
+    fail_codes 与该趟 codes 有交即抛 ReviewUpstreamError（只抛该趟命中的失败码），其余趟回全 bar。
+    """
+    rows = bars if bars is not None else _recent_bars()
+    boom = fail_codes or set()
+    calls: list[list[str]] = []
+
+    def spy(codes: list[str], router: Any) -> dict[str, list[dict[str, Any]]]:
+        calls.append(list(codes))
+        if boom & set(codes):
+            raise ReviewUpstreamError([c for c in codes if c in boom])
+        return {code: [dict(b) for b in rows] for code in codes}
+
+    monkeypatch.setattr("backend.plan_review.fetch_all_bars", spy)
+    return calls
 
 
 def test_risk_happy_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -494,6 +532,47 @@ def test_risk_502_failed_codes(monkeypatch: pytest.MonkeyPatch, caplog: pytest.L
     detail = r.json()["detail"]
     assert detail["code"] == "UPSTREAM_UNAVAILABLE" and detail["failedCodes"] == ["600519"]
     assert "review_upstream_failed" in caplog.text and "600519" in caplog.text
+
+
+def test_risk_watch_failure_degrades_not_502(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """评审 F1 反例：withWatch 自选码上游硬失败 = 外围失败 → 200 不 502，只并 degraded + review_degraded。
+
+    注入点即两趟实现的接缝：自选码那趟（codes 含外围码）抛 ReviewUpstreamError，计划码趟照常回 bar。
+    """
+    _stub_risk_env(monkeypatch, [_risk_plan()], watchlist=["300750"])
+    passes = _spy_bars_loader(monkeypatch, fail_codes={"300750"})
+    caplog.set_level(logging.WARNING)
+    r = client.get("/api/portfolio/risk", params={"withWatch": True})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["degraded"] == ["300750"] and "600519" not in body["degraded"]  # 只披露外围码，计划码不受染
+    assert "review_degraded code=300750" in caplog.text  # 降级不得静默（同复盘留痕）
+    assert "review_upstream_failed" not in caplog.text  # 502 路径未被误走
+    assert passes == [["600519"], ["300750"]]  # 两趟隔离：自选码绝不混进计划码趟
+    assert len(body["nav"]["dates"]) == 8 and body["kpis"]["planCount"]["active"] == 1  # NAV 不被外围拖空
+    assert body["watchIndex"] is not None and set(body["watchIndex"]["values"]) == {None}  # 缺 bar 全 null 不造数
+
+
+def test_risk_codes_layer_closed_and_watch_spy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """评审 F3：codes 集合三规则 + withWatch 生效——spy 记每趟 loader 入参断形状（配对 sell 排除/孤儿纳入/closed 全收）。"""
+    plans = [
+        _risk_plan(),  # R1 buy 600519
+        _risk_sell(id="S2", code="000002", relatedPlan="R1"),  # 已配对 sell（跨码只为让两档集合可判别）
+        _risk_sell(id="S3", code="000003", relatedPlan=None, exitMode=None),  # 孤儿 sell：看板信号也要 bar
+    ]
+    _stub_risk_env(monkeypatch, plans, watchlist=["600036"])
+    passes = _spy_bars_loader(monkeypatch)
+
+    core = client.get("/api/portfolio/risk", params={"withWatch": True})
+    assert core.status_code == 200, core.text
+    # core：配对 sell 码（000002）排除、孤儿 sell 码（000003）恒在；自选码独立第二趟
+    assert passes == [["600519", "000003"], ["600036"]]
+    assert core.json()["meta"]["layer"] == "core"
+
+    passes.clear()
+    closed = client.get("/api/portfolio/risk", params={"layer": "closed", "withWatch": True})
+    assert closed.status_code == 200, closed.text
+    assert passes == [["600519", "000002", "000003"], ["600036"]]  # closed：全部 sell 码入第一趟，自选仍隔离
 
 
 def test_risk_422_days_whitelist(monkeypatch: pytest.MonkeyPatch) -> None:
