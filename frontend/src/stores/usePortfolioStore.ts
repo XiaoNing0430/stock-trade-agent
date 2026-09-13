@@ -26,7 +26,9 @@ export interface PortfolioExposure {
 }
 export interface PortfolioIndustryRow { key: string; label: string; pct: number; }
 export interface PortfolioConcentration {
-  top3: number; hhi: number;
+  // hhi/top3 放宽 null：后端现恒为数（sum/Σ），但外部 JSON 不做运行时保证——视图守卫（null→'--'）
+  // 与类型面对齐（收尾硬化 L4，终审 low 观察）。
+  top3: number | null; hhi: number | null;
   industries: PortfolioIndustryRow[];
   unknownPct: number;
   // 观察池 / 假想线区块（T5 装配，形状由视图按需收窄）；顶层 concentration 亦可整体 null（预热中）。
