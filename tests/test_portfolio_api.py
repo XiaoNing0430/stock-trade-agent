@@ -6,11 +6,14 @@ module-level TestClient + workspace 读写助手）；独立文件零共享 fixt
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from backend import app as app_module
 from backend import storage as storage_module
+from backend.plan_review import SHANGHAI
 from backend.storage import validate_plan_links
 from fastapi.testclient import TestClient
 
@@ -237,3 +240,90 @@ def test_total_position_cap_default_and_clamp():
     assert _normalize_workspace_settings({"totalPositionCapPct": 5})["totalPositionCapPct"] == 20
     assert _normalize_workspace_settings({"totalPositionCapPct": 999})["totalPositionCapPct"] == 300
     assert _normalize_workspace_settings({"totalPositionCapPct": 150.7})["totalPositionCapPct"] == 150
+
+
+# ---------------------------------------------------------------------------
+# Task 6 提交 1：review 端点「per-request source 解析 + _counting + degraded 收集」提取为
+# 模块级 _resolve_history_loader()（组合端点复用，行为零变化）。
+# 打桩边界与 test_plan_review.py 端点段同款：app_module._load_history_with_fallback +
+# storage 缓存读写（fetch_all_bars 函数内 from backend import storage，按属性调用可 patch）。
+# ---------------------------------------------------------------------------
+
+client = TestClient(app_module.app)  # 模块级共享；各用例自 monkeypatch，互不残留
+
+
+def test_resolve_history_loader_counts_and_degrades(monkeypatch):
+    """提取物单测：(loader, stats, degraded) 三元组语义——stats 计上游命中，degraded 收 local 兜底码。"""
+    seen: list[tuple[str, int, str]] = []
+
+    def fake(code, limit, is_index=False, adjustment="qfq", source=None):
+        assert is_index is False
+        seen.append((code, limit, adjustment))
+        flag = "local" if code == "000001" else "live"
+        bar = {"date": "2026-01-05", "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2, "volume": 100}
+        return [dict(bar)], flag, "2026-01-05", "tencent"
+
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", fake)
+    monkeypatch.setattr(storage_module, "load_market_bars", lambda *a, **k: [])
+    monkeypatch.setattr(storage_module, "save_market_bars", lambda *a, **k: None)
+
+    loader, stats, degraded = app_module._resolve_history_loader()
+    bars_map = loader(["600519", "000001"])
+    assert set(bars_map) == {"600519", "000001"}
+    assert bars_map["600519"][0]["close"] == 10.2
+    assert stats["upstream"] == 2
+    assert degraded == ["000001"]  # 仅 local 兜底码入 degraded（顺序=拉取序）
+    # bfq 口径 + 300 上限透传（fetch_all_bars 冻结契约）
+    assert seen == [("600519", 300, ""), ("000001", 300, "")]
+
+
+def _review_like_plan() -> dict[str, Any]:
+    now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
+    return {
+        "id": "reg-1",
+        "code": "600519",
+        "direction": "buy",
+        "entry": 10.0,
+        "stop": 9.5,
+        "target": 11.0,
+        "validity": "长期",
+        "status": "执行中",
+        "createdAtMs": now_ms - 10 * 86_400_000,
+    }
+
+
+def _recent_bars(n_from: int = 9, n_to: int = 1) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": (datetime.now(SHANGHAI) - timedelta(days=d)).strftime("%Y-%m-%d"),
+            "open": 10.4,
+            "high": 11.5,
+            "low": 9.9,
+            "close": 11.0,
+            "volume": 1000,
+        }
+        for d in range(n_from, n_to, -1)
+    ]
+
+
+def test_review_refactor_regression(monkeypatch, caplog):
+    """提取回归钉：复盘端点走真实 review_plans/fetch_all_bars 链路，行为与提取前逐字一致
+    （degraded 收集并包 + review_degraded 告警 + feeRate 上限常量收口到 plan_review.FEE_RATE_MAX）。"""
+    bars = _recent_bars()
+
+    def fake_local(code, limit, is_index=False, adjustment="qfq", source=None):
+        return list(bars), "local", "2026-01-05", "local"
+
+    monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": [_review_like_plan()]})
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", fake_local)
+    monkeypatch.setattr(storage_module, "load_market_bars", lambda *a, **k: [])
+    monkeypatch.setattr(storage_module, "save_market_bars", lambda *a, **k: None)
+    caplog.set_level(logging.WARNING)
+    r = client.get("/api/plans/review", params={"days": 90})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["degraded"] == ["600519"] and body["items"][0]["outcome"] == "win"  # 降级不阻断回算
+    assert "review_degraded code=600519" in caplog.text
+    # 上限常量同源（0.05 字面量 → plan_review.FEE_RATE_MAX）：边界值放行、越界 422（行为零变化）
+    assert client.get("/api/plans/review", params={"days": 90, "feeRate": 0.05}).status_code == 200
+    assert client.get("/api/plans/review", params={"days": 90, "feeRate": 0.0501}).status_code == 422

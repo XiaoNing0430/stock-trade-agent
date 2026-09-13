@@ -149,6 +149,40 @@ def _load_history_with_fallback(
         return bars, "local", bars[-1]["date"], "local"
 
 
+def _resolve_history_loader() -> tuple[Any, dict[str, int], list[str]]:
+    """按请求解析一次历史源，返回 (loader, stats, degraded)——复盘/组合端点共用（Task 6 提取）。
+
+    loader(codes)：经 fetch_all_bars 做 bfq 口径（adjustment=""）预取，上限 _BARS_LIMIT=300 根；
+    stats["upstream"] 累计上游调用次数；命中本地 market_bars 兜底的 code 收进 degraded 并落
+    review_degraded 告警（红线：降级不得静默）。构造失败 → source=None 逐码现场路由（旧行为）。
+    """
+    stats = {"upstream": 0}
+    degraded: list[str] = []
+    history_source: Any = None
+    try:
+        from backend.sources import build_router
+
+        settings = get_workspace_settings("default")
+        history_source = build_router().route_with_fallback(
+            settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
+        )
+    except Exception:  # 构造失败 → helper 逐码现场路由（与旧行为一致）
+        history_source = None
+
+    def _counting(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
+        stats["upstream"] += 1
+        history, flag, as_of, _ = _load_history_with_fallback(code, limit, is_index, adjustment, source=history_source)
+        if flag == "local":
+            degraded.append(code)
+            review_logger.warning("review_degraded code=%s as_of=%s", code, as_of)
+        return history
+
+    def _loader(codes: list[str]) -> dict[str, list[dict[str, Any]]]:
+        return plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=_counting))
+
+    return _loader, stats, degraded
+
+
 def _industry_warmup_job() -> None:
     """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。"""
     try:
@@ -553,44 +587,20 @@ def create_app() -> FastAPI:
         """计划绩效复盘（只读，设计口径回算；红线：零写 plans）。"""
         if days not in (0, 30, 90):
             raise api_error(422, ERR_VALIDATION_ERROR, "days 仅支持 0/30/90")
-        if not (0.0 <= feeRate <= 0.05):
-            raise api_error(422, ERR_VALIDATION_ERROR, "feeRate 须在 [0, 0.05]")
+        if not (0.0 <= feeRate <= plan_review.FEE_RATE_MAX):
+            raise api_error(422, ERR_VALIDATION_ERROR, f"feeRate 须在 [0, {plan_review.FEE_RATE_MAX}]")
         plans = get_workspace().get("plans") or []
         # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""；
         # 命中本地兜底的 code 记入 degraded 如实披露（红线：降级不得静默），历史源按请求解析一次
         t0 = time.perf_counter()
-        stats = {"upstream": 0}
-        degraded: list[str] = []
-        history_source: Any = None
-        try:
-            from backend.sources import build_router
-
-            settings = get_workspace_settings("default")
-            history_source = build_router().route_with_fallback(
-                settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
-            )
-        except Exception:  # 构造失败 → helper 逐码现场路由（与旧行为一致）
-            history_source = None
-
-        def _loader(codes: list[str]) -> dict[str, list[dict[str, Any]]]:
-            def _counting(code: str, limit: int, is_index: bool = False, adjustment: str = "") -> list:
-                stats["upstream"] += 1
-                history, flag, as_of, _ = _load_history_with_fallback(
-                    code, limit, is_index, adjustment, source=history_source
-                )
-                if flag == "local":
-                    degraded.append(code)
-                    review_logger.warning("review_degraded code=%s as_of=%s", code, as_of)
-                return history
-
-            return plan_review.fetch_all_bars(codes, SimpleNamespace(load_history=_counting))
+        load_bars, stats, degraded = _resolve_history_loader()
 
         try:
             result = plan_review.review_plans(
                 plans,
                 days=days,
                 fee_rate=float(feeRate),
-                load_bars=_loader,
+                load_bars=load_bars,
             )
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
