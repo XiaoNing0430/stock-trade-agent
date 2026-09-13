@@ -1960,6 +1960,24 @@ textarea:focus-visible {
   background: var(--surface-soft);
 }
 
+/* Task 9 交易对关联：sell 行内 关联建仓 + 离场模式 两个紧凑下拉 */
+.plan-pairing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: 8px;
+}
+.plan-pairing .field {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.plan-pairing .field > span {
+  font-size: 11px;
+}
+.plan-pairing select {
+  width: 100%;
+}
+
 .plan-card-head,
 .plan-card-foot {
   display: flex;

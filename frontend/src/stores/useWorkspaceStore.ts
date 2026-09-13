@@ -178,8 +178,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }, 350);
   }
 
-  /** 立即执行一次工作区 PUT（对话框确认等需要确定性结果的动作用）；绝不自动重试 409。 */
-  async function syncNow(): Promise<{ ok: boolean; conflict?: boolean }> {
+  /** 立即执行一次工作区 PUT（对话框确认等需要确定性结果的动作用）；绝不自动重试 409。
+   *  失败时透传后端中文 detail（如交易对 422 规则）供调用方 toast；409 仅回 conflict 标记，策略处理留在调用方。 */
+  async function syncNow(): Promise<{ ok: boolean; conflict?: boolean; message?: string }> {
     if (!workspaceSynced.value) return { ok: true };
     let waited = 0;
     // 等待上限 3s：定时同步卡死时不可让 UI 假死（二轮评审）
@@ -197,7 +198,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return { ok: true };
     } catch (error: any) {
       if (error.status === 409) return { ok: false, conflict: true };
-      return { ok: false };
+      return { ok: false, message: error.message };
     } finally {
       workspaceSyncInFlight = false;
     }

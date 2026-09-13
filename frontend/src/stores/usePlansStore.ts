@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, nextTick, reactive } from 'vue';
 import { expiredPlans } from '@/modules/planUtils';
+import type { Plan } from '@/types/models';
 import { signalText as signalTextFor, signalClass as signalClassFor } from '@/modules/signalUtils';
 import { useWorkspaceStore } from './useWorkspaceStore';
 import { useQuotesStore } from './useQuotesStore';
@@ -145,6 +146,28 @@ export const usePlansStore = defineStore('plans', () => {
     workspace.showToast('计划已归档');
   }
 
+  /**
+   * Task 9 交易对关联写路径（assist confirmDraft 同型）：本地改写 → persist → syncNow 立即 PUT。
+   * 后端 validate_plan_links 422 整表拒绝：失败即回滚本地字段并重新入队同步（脏关联绝不滞留），
+   * 再抛出 Error（message 优先为后端中文 detail，供视图 showToast 现模式展示）；成功 toast。
+   * relatedPlan 传 null 表示解除关联（落库 undefined，JSON 序列化即缺省，后端 None≡未关联）。
+   */
+  async function updatePlanLinkage(id: string, patch: { relatedPlan?: string | null; exitMode?: Plan['exitMode'] }) {
+    const plan = workspace.plans.find((item) => item.id === id);
+    if (!plan) throw new Error('计划不存在，请刷新后重试');
+    const prev = { relatedPlan: plan.relatedPlan, exitMode: plan.exitMode };
+    if ('relatedPlan' in patch) plan.relatedPlan = patch.relatedPlan ?? undefined;
+    if ('exitMode' in patch) plan.exitMode = patch.exitMode;
+    workspace.persist();
+    const result = await workspace.syncNow();
+    if (!result.ok) {
+      Object.assign(plan, prev);
+      workspace.persist();
+      throw new Error(result.message || (result.conflict ? '工作区有新变更，请刷新后重试' : '关联保存失败，服务器暂不可用'));
+    }
+    workspace.showToast('计划关联已更新');
+  }
+
   function monitorPlan(plan: any) {
     quotes.selectedCode = plan.code;
     quotes.view = 'monitor';
@@ -206,6 +229,7 @@ export const usePlansStore = defineStore('plans', () => {
     createPlan,
     savePlan,
     archivePlan,
+    updatePlanLinkage,
     monitorPlan,
     checkPlanTriggers,
     expirePlans,
