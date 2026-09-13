@@ -15,6 +15,7 @@ stop/target 双侧检查（plan_review.py:143）→ 记 gapFill；组合只在**
 
 from __future__ import annotations
 
+from inspect import signature
 from typing import Any
 
 import pytest
@@ -771,27 +772,29 @@ def test_build_links_is_defensive_and_pure() -> None:
     assert [buy, sell] == snapshot
 
 
-# —— Task 4 第二段：闭环层状态机（关联 sell 信号 / exitMode 四档 / 冲突·冗余事件）——
+# —— Task 4 第二段：闭环层状态机（§5.3 relatedSell 单一信号 / exitMode 四档 / 冲突·冗余事件）——
 
 
 def closed_replay(
     plans: list[dict[str, Any]],
     bars_map: dict[str, list[dict[str, Any]]],
     links: dict[str, dict[str, Any]],
-    link_events: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """闭环层便捷口：显式消费 links（buyId→{sell, exitMode}），link_events 为 I8 诊断透传通道。"""
-    return replay_positions(plans, bars_map, WINDOW_START, TODAY, "closed", links, link_events)
+    """闭环层便捷口：显式消费 links（buyId→{sell, exitMode}）；I7 保持六参冻结签名（评审 I-1）。"""
+    return replay_positions(plans, bars_map, WINDOW_START, TODAY, "closed", links)
 
 
 def make_sell(**over: Any) -> dict[str, Any]:
-    """关联 sell（其 stop/target 即 buy 仓位的平仓信号档）；缺省配 P1 / race。"""
+    """关联 sell：spec §5.3 括注口径——**现价上侧触及 sell 的 entry 或 target** 即构成**单一** relatedSell
+    平仓信号；sell.stop **不是**闭环层信号源（它只服务 §5.4 的孤儿 sell 信号看板）——评审 C-1 纠正。
+    缺省配 P1 / race。
+    """
     base: dict[str, Any] = {
         "id": "S1",
         "code": "600519",
         "direction": "sell",
         "entry": 10.5,
-        "stop": 9.6,
+        "stop": 9.6,  # 非信号源（C-1）
         "target": 10.6,
         "position": 30,
         "validity": "长期",
@@ -805,138 +808,245 @@ def make_sell(**over: Any) -> dict[str, Any]:
 
 
 def test_closed_sell_signal_closes_position() -> None:
-    # brief 用例 1（race）：现价 ≥ sell.target → 止盈卖平仓，执行价/转现金走复盘同款微结构
+    # brief 用例 1（race）：现价上穿 sell 档 → 单一 relatedSell 平仓并转现金，微结构走复盘同款。
+    # 01-06 high 10.8 同时 ≥ sell.entry 10.5 与 ≥ sell.target 10.6 → **双档并触取低档 10.5**（保守裁定）；
+    # 定价用上穿口径：open 10.5 未越过 trigger 10.5 → 按 trigger 成交（不记 gapFill）。
     buy, sell = make_plan(id="P1"), make_sell()
     bars = make_bars(
         [
             ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),  # 窗外锚（prevClose 起锚）
-            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10；sell 档 9.6/10.6 均未触
-            ("2026-01-06", 10.5, 10.7, 10.8, 10.4, 1000.0),  # high 10.8 ≥ sell.target 10.6 → 平仓
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10；high 10.4 < sell.entry 10.5 → 静默
+            ("2026-01-06", 10.5, 10.7, 10.8, 10.4, 1000.0),  # 双档并触 → trigger 取低 10.5
         ]
     )
     positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
     assert [p["planId"] for p in positions] == ["P1"], "sell 不占仓位（闭环层仅作信号源）"
     pos = positions[0]
-    assert pos["status"] == "closed" and pos["exit"] == {"date": "2026-01-06", "price": 10.6, "reason": "relatedSell"}
+    assert pos["status"] == "closed" and pos["exit"] == {"date": "2026-01-06", "price": 10.5, "reason": "relatedSell"}
     assert pos["gapFill"] is False and pos["limitDeferred"] is False and pos["ambiguous"] is False
     assert pos["marks"] == {"2026-01-05": 10.3}, "离场日不留 mark（与主层同口径）"
-    assert pos["proceeds"] == pytest.approx(0.03 * 10.6)
+    assert pos["proceeds"] == pytest.approx(0.03 * 10.5)
     assert events == [], "单日单信号不构成冲突"
 
 
-def test_closed_sell_signal_defers_on_limit_down_one_price() -> None:
-    # 裁定 1：一字跌停不可卖 → 沿用既有微结构顺延（当日不成交、不 mark、不产生冲突）
-    buy, sell = make_plan(id="P1", stop=9.0, target=12.0), make_sell(stop=9.6, target=14.0)
+def test_closed_sell_leg_ignores_sell_stop_entirely() -> None:
+    # 评审 C-1 反向钉：现价下穿 sell.stop 9.6 **不**触发平仓（旧实现口径的唯一信号源已被推翻）；
+    # 只有现价上穿 sell.entry 11.0 的那日（01-08）才离场。
+    buy, sell = make_plan(id="P1", stop=9.0, target=13.0), make_sell(entry=11.0, target=12.0, stop=9.6)
     bars = make_bars(
         [
-            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
-            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10，prevClose → 10.3
-            ("2026-01-06", 9.27, 9.27, 9.27, 9.27, 1000.0),  # 跌停一字（10.3×0.9=9.27）：卖单出不去
-            ("2026-01-07", 9.5, 9.55, 9.6, 9.4, 1000.0),  # 顺延日：low 9.4 ≤ sell.stop 9.6，open 9.5 跳空更劣
+            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),  # 窗前未入场（low 10.4 > entry 10）
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10
+            ("2026-01-06", 9.65, 9.7, 9.8, 9.55, 1000.0),  # low 9.55 ≤ sell.stop 9.6 → 旧口径在此平仓
+            ("2026-01-07", 9.9, 10.4, 10.45, 9.85, 1000.0),  # high 10.45 仍 < sell.entry 11 → 继续持有
+            ("2026-01-08", 10.9, 11.1, 11.2, 10.85, 1000.0),  # high 11.2 ≥ sell.entry 11 → 平仓 @11
         ]
     )
     positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
     pos = positions[0]
-    assert pos["exit"] == {"date": "2026-01-07", "price": 9.5, "reason": "relatedSell"}, "跌停一字顺延到次日成交"
-    assert pos["limitDeferred"] is True and pos["gapFill"] is True
-    assert pos["marks"] == {"2026-01-05": 10.3}, "被封锁日不 mark（不造成交）"
+    assert pos["exit"] == {"date": "2026-01-08", "price": 11.0, "reason": "relatedSell"}, "sell.stop 不参与信号集"
+    assert pos["marks"] == {"2026-01-05": 10.3, "2026-01-06": 9.7, "2026-01-07": 10.4}, "01-06 仍在场"
+    assert events == []
+
+
+def test_closed_sell_signal_defers_on_limit_down_one_price() -> None:
+    # 裁定：一字跌停不可卖 → 复用既有微结构顺延（当日不成交、不另留 mark、零事件）。
+    # 01-05 跌停一字 10.26（round(11.4×0.9,2)）：跌停一字**可买**→ 当日建仓；同一根 bar 内现价已上穿
+    # sell.entry 10.2 → 唯一生效信号 relatedSell 被封死 → 顺延到 01-06（open 10.15 未越 trigger → 按 10.2）。
+    buy, sell = make_plan(id="P1", entry=10.5, stop=10.0, target=13.0), make_sell(entry=10.2, target=14.0)
+    bars = make_bars(
+        [
+            ("2026-01-02", 11.5, 11.4, 11.6, 11.2, 1000.0),  # 窗前未入场（low 11.2 > entry 10.5）
+            ("2026-01-05", 10.26, 10.26, 10.26, 10.26, 1000.0),  # 跌停一字：入场 @10.26，卖单出不去
+            ("2026-01-06", 10.15, 10.2, 10.25, 10.1, 1000.0),  # 顺延日成交
+        ]
+    )
+    positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
+    pos = positions[0]
+    assert pos["entryDate"] == "2026-01-05" and pos["entryPrice"] == pytest.approx(10.26)
+    assert pos["exit"] == {"date": "2026-01-06", "price": 10.2, "reason": "relatedSell"}, "跌停一字顺延到次日"
+    assert pos["limitDeferred"] is True and pos["gapFill"] is False
+    assert pos["marks"] == {"2026-01-05": 10.26}, "被封锁日不另留 mark（开仓日收盘已记）"
     assert events == []
 
 
 @pytest.mark.parametrize("mode", ["race", "sell_priority", "sell_stop_only", "sell_only"])
 def test_closed_same_day_priority_matrix(mode: str) -> None:
-    # brief 用例 2：同日 buy.stop 与关联 sell.stop 并触 → 四档优先级矩阵；败者 suppressed（非冗余）
-    buy, sell = make_plan(id="P1"), make_sell(target=12.0)  # buy stop 9.5 / sell stop 9.6
+    # brief 用例 2：同日 buy.stop（下穿 9.5）与 relatedSell（上穿 sell.entry 10.7）并触 → 四档矩阵。
+    # 信号源按 §5.3 括注取 sell.entry 10.7（sell.stop 9.6 不参与）；执行价与被选中信号各自独立：
+    # stop 侧下行穿越取 open 9.4（更劣），sell 侧上穿定价 open 9.4 < 10.7 → 按 trigger 10.7。
+    buy, sell = make_plan(id="P1", target=13.0), make_sell(entry=10.7, target=20.0, stop=9.6)
     bars = make_bars(
         [
-            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
-            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10
-            ("2026-01-06", 9.4, 9.45, 9.6, 9.3, 1000.0),  # low 9.3 同日触 9.5 与 9.6
+            ("2026-01-02", 10.6, 10.5, 10.6, 10.4, 1000.0),  # 窗前未入场（low 10.4 > entry 10）
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10；high 10.4 < 10.7 → sell 静默
+            ("2026-01-06", 9.4, 9.45, 10.8, 9.3, 1000.0),  # 同日双信号：9.3≤stop 与 high 10.8≥10.7
         ]
     )
     positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": mode}})
     pos = positions[0]
     stop_sig = {"name": "stop", "triggerPrice": 9.5, "execPrice": 9.4}
-    sell_sig = {"name": "relatedSell", "triggerPrice": 9.6, "execPrice": 9.4}
-    assert pos["exit"]["date"] == "2026-01-06" and pos["exit"]["price"] == 9.4, (
-        "执行价按胜出信号规则独立算（跳空取 open）"
-    )
+    sell_sig = {"name": "relatedSell", "triggerPrice": 10.7, "execPrice": 10.7}
+    assert pos["ambiguous"] is False, "buy 止盈 13 未触及 → 不是复盘意义上的双触"
     assert [e for e in events if e["type"] == "redundant"] == [], "同日败者=suppressed，不是 redundant"
     if mode == "sell_only":
-        # 仅 sell 生效：当日只有一个生效信号 → 无冲突事件
-        assert pos["exit"]["reason"] == "relatedSell" and events == []
+        assert pos["exit"] == {"date": "2026-01-06", "price": 10.7, "reason": "relatedSell"}
+        assert pos["gapFill"] is False and events == [], "buy 的 stop/target 全失效 → 当日仅 1 生效信号，无冲突"
         return
-    winner, loser = ("stop", sell_sig) if mode in ("race", "sell_stop_only") else ("relatedSell", stop_sig)
-    first = stop_sig if winner == "stop" else sell_sig
-    assert pos["exit"] == {"date": "2026-01-06", "price": 9.4, "reason": winner}
-    assert pos["ambiguous"] is False and pos["gapFill"] is True
+    winner, loser = (stop_sig, sell_sig) if mode in ("race", "sell_stop_only") else (sell_sig, stop_sig)
+    assert pos["exit"] == {"date": "2026-01-06", "price": winner["execPrice"], "reason": winner["name"]}
+    assert pos["gapFill"] is (winner is stop_sig)
     assert len(events) == 1 and set(events[0]) == {"type", "date", "code", "detail"}
     assert events[0]["type"] == "conflict" and events[0]["date"] == "2026-01-06" and events[0]["code"] == "600519"
     detail = events[0]["detail"]
     assert set(detail) == {"buyPlanId", "signals", "executed", "suppressed"}
-    assert detail["buyPlanId"] == "P1" and detail["executed"] == winner
-    assert detail["signals"] == [first, loser] and detail["suppressed"] == [loser]
+    assert detail["buyPlanId"] == "P1" and detail["executed"] == winner["name"]
+    assert detail["signals"] == [winner, loser], "signals 按优先级序（首位即 executed）"
+    assert detail["suppressed"] == [loser]
     assert all(set(s) == {"name", "triggerPrice", "execPrice"} for s in detail["signals"])
+
+
+@pytest.mark.parametrize("dirty", ["core", "_core", "CORE", "sell", "unknown", 7, None])
+def test_closed_dirty_exit_mode_falls_back_to_race(dirty: Any) -> None:
+    # 评审 I-2：内部档 "_core" 不在 _EXIT_ORDER 里 → 脏 exitMode（含前端 bug 传来的 "core"）一律回落
+    # race：sell 信号照常参与同日优先级，**不得**静默退化成"只按 buy stop/target 离场"。
+    buy, sell = make_plan(id="P1", target=13.0), make_sell(entry=10.7, target=20.0, stop=9.6, exitMode=None)
+    bars = make_bars(
+        [
+            ("2026-01-02", 10.6, 10.5, 10.6, 10.4, 1000.0),
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),
+            ("2026-01-06", 9.4, 9.45, 10.8, 9.3, 1000.0),
+        ]
+    )
+    race = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
+    got = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": dirty}})
+    assert got == race
+    assert len(race[1]) == 1 and race[1][0]["detail"]["executed"] == "stop", "sell 确实参与了冲突（未静默失效）"
 
 
 @pytest.mark.parametrize("mode", ["sell_priority", "sell_stop_only"])
 def test_closed_exit_mode_disables_buy_target(mode: str) -> None:
-    # brief 用例 5：止盈失效档（"让利润跑"）——buy.target 触及永不离场，直到关联 sell 信号来
-    buy, sell = make_plan(id="P1"), make_sell(stop=8.0, target=11.6, exitMode=mode)
+    # brief 用例 5：止盈失效档——buy.target 触及永不离场，直到现价上穿 sell.entry 11.5（01-07）
+    buy, sell = make_plan(id="P1"), make_sell(entry=11.5, target=12.0, exitMode=mode)
     bars = make_bars(
         [
             ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
             ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10
-            ("2026-01-06", 10.9, 11.1, 11.2, 10.8, 1000.0),  # buy.target 11 触及 → 该档下失效
-            ("2026-01-07", 11.3, 11.65, 11.7, 11.25, 1000.0),  # sell.target 11.6 触及 → 平仓
+            ("2026-01-06", 10.9, 11.1, 11.2, 10.8, 1000.0),  # buy.target 11 触及 → 该档失效（sell 11.5 未触）
+            ("2026-01-07", 11.4, 11.55, 11.6, 11.3, 1000.0),  # high 11.6 ≥ sell.entry → 平仓 @11.5
         ]
     )
     links = {"P1": {"sell": sell, "exitMode": mode}}
     positions, events = closed_replay([buy, sell], {"600519": bars}, links)
-    assert events == [], "止盈已被停用，不与 sell 构成同日冲突"
+    assert events == [], "止盈已被停用 → 与 sell 不构成同日冲突"
     pos = positions[0]
-    assert pos["exit"] == {"date": "2026-01-07", "price": 11.6, "reason": "relatedSell"}
-    assert pos["ambiguous"] is False
+    assert pos["exit"] == {"date": "2026-01-07", "price": 11.5, "reason": "relatedSell"}
+    assert pos["ambiguous"] is False and pos["gapFill"] is False
     assert pos["marks"] == {"2026-01-05": 10.3, "2026-01-06": 11.1}, "止盈失效日仍照常 mark（继续持有）"
-    # 对照：主层同 bar 在 01-06 即按 target 离场
     core = replay_positions([buy, sell], {"600519": bars}, WINDOW_START, TODAY, "core", {})[0][0]
-    assert core["exit"] == {"date": "2026-01-06", "price": 11.0, "reason": "target"}
+    assert core["exit"] == {"date": "2026-01-06", "price": 11.0, "reason": "target"}, "对照：主层 01-06 即按止盈离场"
+
+
+def test_closed_conflict_blocked_by_limit_down_defers_without_event() -> None:
+    # 评审 M-3：同日 |S|≥2 且**胜出信号**被一字跌停封死 → 当日整体顺延、**不记 conflict**（无人成交
+    # 即无人被抑制）；顺延后真正成交的那天才记冲突。附带上穿定价钉：败者 relatedSell 档 10.0 的
+    # execPrice = open 10.3（高开越价按复盘触发日同款取 open）。
+    buy, sell = make_plan(id="P1", entry=10.5, stop=10.4, target=13.0), make_sell(entry=10.0, target=20.0)
+    bars = make_bars(
+        [
+            ("2026-01-02", 11.5, 11.4, 11.6, 11.2, 1000.0),  # 窗前未入场（low 11.2 > entry 10.5）
+            ("2026-01-05", 10.26, 10.26, 10.26, 10.26, 1000.0),  # 跌停一字：入场 @10.26；stop+sell 并触皆封死
+            ("2026-01-06", 10.3, 10.35, 10.4, 10.2, 1000.0),  # 常规日：stop 胜出 @open 10.3 + 冲突事件
+        ]
+    )
+    positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
+    pos = positions[0]
+    assert pos["limitDeferred"] is True and pos["ambiguous"] is False
+    assert pos["exit"] == {"date": "2026-01-06", "price": 10.3, "reason": "stop"}, "封死日不离场"
+    assert pos["marks"] == {"2026-01-05": 10.26}, "封死日不另留 mark"
+    assert [e["date"] for e in events] == ["2026-01-06"], "零事件日：冲突只记在实际成交那一天的日落"
+    assert events[0]["type"] == "conflict"
+    assert events[0]["detail"]["signals"] == [
+        {"name": "stop", "triggerPrice": 10.4, "execPrice": 10.3},
+        {"name": "relatedSell", "triggerPrice": 10.0, "execPrice": 10.3},
+    ]
+    assert events[0]["detail"]["executed"] == "stop"
 
 
 def test_closed_redundant_sell_after_exit() -> None:
-    # brief 用例 3：stop 先离场，sell 在更晚日期才首触 → redundant 事件，仓位结果不受影响
-    buy, sell = make_plan(id="P1"), make_sell(stop=8.0, target=10.4)
+    # brief 用例 3：stop 先离场，关联 sell 在**更晚日期**才首触 → redundant 事件，离场结果不受影响
+    buy, sell = make_plan(id="P1"), make_sell(entry=10.5, target=14.0)
     bars = make_bars(
         [
             ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
-            ("2026-01-05", 10.2, 10.3, 10.35, 9.9, 1000.0),  # 入场 @10（high 10.35 < sell.target 10.4）
-            ("2026-01-06", 9.4, 9.42, 9.6, 9.3, 1000.0),  # buy.stop 9.5 跳空离场 @9.4（sell 未触）
+            ("2026-01-05", 10.2, 10.3, 10.35, 9.9, 1000.0),  # 入场 @10（high 10.35 < sell.entry 10.5）
+            ("2026-01-06", 9.4, 9.42, 9.6, 9.3, 1000.0),  # buy.stop 跳空离场 @9.4（sell 未触 → 无冲突）
             ("2026-01-07", 10.5, 10.6, 10.7, 10.4, 1000.0),  # 离场后 sell 首触 → redundant
-            ("2026-01-08", 10.6, 10.7, 10.8, 10.5, 1000.0),  # 再次触及 → 不重复记
+            ("2026-01-08", 10.6, 10.7, 10.8, 10.5, 1000.0),  # 再次上穿 → 不重复记
         ]
     )
     positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
     pos = positions[0]
     assert pos["exit"] == {"date": "2026-01-06", "price": 9.4, "reason": "stop"}, "冗余事件不改动已执行的离场"
     assert pos["proceeds"] == pytest.approx(0.03 * 9.4)
+    assert pos["marks"] == {"2026-01-05": 10.3}, "离场后不再 mark"
     redundant = [e for e in events if e["type"] == "redundant"]
     assert len(redundant) == 1, "redundant 只记离场后的首次触及"
     assert set(redundant[0]) == {"type", "date", "code", "detail"}
     assert redundant[0]["date"] == "2026-01-07" and redundant[0]["code"] == "600519"
     assert redundant[0]["detail"] == {
         "sellPlanId": "S1",
-        "sellTriggerPrice": 10.4,
+        "sellTriggerPrice": 10.5,
         "positionExit": {"date": "2026-01-06", "price": 9.4},
     }
-    assert [e for e in events if e["type"] == "conflict"] == [], "sell 未与离场同日 → 无冲突"
-    assert pos["marks"] == {"2026-01-05": 10.3}, "离场后不再 mark"
+    assert [e for e in events if e["type"] == "conflict"] == []
+
+
+def test_closed_suppressed_loser_never_redundant() -> None:
+    # 评审 M-6：同日败者（进 conflict.suppressed 的 relatedSell）**跨日再触** → 永不 redundant
+    # （首触日已登记 sell_first_touch；冗余只属于"离场之后才第一次出现"的信号）
+    buy, sell = make_plan(id="P1", target=13.0), make_sell(entry=10.6, target=20.0)
+    bars = make_bars(
+        [
+            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10（high 10.4 < sell.entry 10.6）
+            ("2026-01-06", 9.4, 9.45, 10.8, 9.3, 1000.0),  # stop 胜出、sell 同日败者 → suppressed
+            ("2026-01-07", 10.7, 10.8, 10.9, 10.6, 1000.0),  # sell 再触（high 10.9 ≥ 10.6）→ 不得记冗余
+        ]
+    )
+    positions, events = closed_replay([buy, sell], {"600519": bars}, {"P1": {"sell": sell, "exitMode": "race"}})
+    assert positions[0]["exit"] == {"date": "2026-01-06", "price": 9.4, "reason": "stop"}
+    assert [e["type"] for e in events] == ["conflict"], "只有同日冲突，没有事后冗余"
+    assert events[0]["detail"]["suppressed"] == [{"name": "relatedSell", "triggerPrice": 10.6, "execPrice": 10.6}]
+
+
+def test_closed_unpaired_buy_emits_no_conflict() -> None:
+    # 评审 M-5：conflict 只适用于**已配对**仓位——未配对 buy 同日 stop+target 双触仍走 core 保守分支
+    # （ambiguous + 取 stop），**零事件**；§5.3 表格行键是 sell 的 exitMode，未配对者无档可查。
+    buy = make_plan(id="P1")
+    orphan = make_sell(relatedPlan=None)  # 无 relatedPlan → build_links 静默跳过（不配对、不产事件）
+    bars = make_bars(
+        [
+            ("2026-01-02", 10.6, 10.5, 10.7, 10.4, 1000.0),
+            ("2026-01-05", 10.2, 10.3, 10.4, 9.9, 1000.0),  # 入场 @10
+            ("2026-01-06", 9.4, 11.2, 11.3, 9.3, 1000.0),  # 同日双触：low≤9.5 且 high≥11
+        ]
+    )
+    links, link_events = build_links([buy, orphan])
+    assert links == {} and link_events == []
+    core = replay_positions([buy, orphan], {"600519": bars}, WINDOW_START, TODAY, "core", {})
+    closed = closed_replay([buy, orphan], {"600519": bars}, links)
+    assert closed == core, "未配对 buy 在 closed 层 = core 行为（含零事件）"
+    assert closed[0][0]["ambiguous"] is True and closed[0][0]["exit"]["reason"] == "stop"
+    assert closed[0][0]["exit"]["date"] == "2026-01-06" and closed[0][0]["exit"]["price"] == 9.4
+    assert closed[1] == []
 
 
 def test_closed_unpaired_buy_and_allocation_match_core() -> None:
-    # 裁定 1/3：未配对 buy 在 closed 层 = core 行为；入场/分配/缩放事件与主层逐字零差异
+    # 裁定（§5.2/§5.3）：闭环层的入场/名义额/缩放与主层**逐字零差异**，scaling 事件不变
     p1 = make_plan(id="P1", position=60)
     p2 = make_plan(id="P2", code="000001", position=60, entry=20.0, stop=19.0, target=22.0)
-    sell = make_sell(exitMode="sell_only", stop=8.0, target=15.0)  # 永不可触的档 → 配对但不改行为
+    sell = make_sell(exitMode="sell_only", entry=15.0, target=20.0)  # 两档在本用例里永不被上穿
     bars_map = {
         "600519": make_bars(
             [
@@ -955,7 +1065,7 @@ def test_closed_unpaired_buy_and_allocation_match_core() -> None:
     links, link_events = build_links([p1, p2, sell])
     assert links == {"P1": {"sell": sell, "exitMode": "sell_only"}} and link_events == []
     core = replay_positions([p1, p2, sell], bars_map, WINDOW_START, TODAY, "core", {})
-    closed = closed_replay([p1, p2, sell], bars_map, links, link_events)
+    closed = closed_replay([p1, p2, sell], bars_map, links)
     assert closed[0] == core[0], "入场/名义额/缩放标记逐字相等"
     assert closed[1] == core[1]
     assert [e["type"] for e in closed[1]] == ["scaling", "scaling"], "同日两笔新分配 > 现金 → 等比缩放不变"
@@ -963,8 +1073,17 @@ def test_closed_unpaired_buy_and_allocation_match_core() -> None:
     assert all(p["scaled"] is True for p in closed[0]) and all(p["exit"] is None for p in closed[0])
 
 
-def test_closed_dangling_link_passthrough() -> None:
-    # brief 用例 4：配不上的 sell → danglingRelatedPlan 由 replay 透传进事件流，该 sell 按孤儿
+def test_closed_dangling_events_merged_by_aggregator() -> None:
+    # 评审 I-1：I7 回到六参冻结签名——dangling 由聚合层（T5）拼进 payload events[]，
+    # 引擎既不吞也不造；配不上的 sell → 该 buy 按 core 离场。
+    assert list(signature(replay_positions).parameters) == [
+        "plans",
+        "bars_map",
+        "window_start",
+        "today",
+        "layer",
+        "links",
+    ], "I7 签名冻结"
     buy = make_plan(id="P1")
     sell = make_sell(relatedPlan="GONE", date="2026-01-03")
     bars = make_bars(
@@ -976,10 +1095,10 @@ def test_closed_dangling_link_passthrough() -> None:
     )
     links, link_events = build_links([buy, sell])
     assert links == {} and [e["type"] for e in link_events] == ["danglingRelatedPlan"]
-    positions, events = closed_replay([buy, sell], {"600519": bars}, links, link_events)
-    assert [p["planId"] for p in positions] == ["P1"]
-    assert positions[0]["exit"] == {"date": "2026-01-06", "price": 11.0, "reason": "target"}, "悬空 → 退化为 core 行为"
-    assert [e for e in events if e["type"] == "danglingRelatedPlan"] == link_events, "I8 诊断事件逐字透传"
-    assert [e for e in events if e["type"] == "conflict"] == []
-    core_events = replay_positions([buy, sell], {"600519": bars}, WINDOW_START, TODAY, "core", {}, link_events)[1]
-    assert [e for e in core_events if e["type"] == "danglingRelatedPlan"] == [], "主层不消费配对诊断事件"
+    positions, events = closed_replay([buy, sell], {"600519": bars}, links)
+    assert [p["planId"] for p in positions] == ["P1"], "sell 按孤儿：不占仓位"
+    assert positions[0]["exit"] == {"date": "2026-01-06", "price": 11.0, "reason": "target"}
+    assert events == [], "引擎不吞 dangling"
+    payload_events = events + link_events  # T5 聚合器一次拼接（与原透传同序）
+    assert [e["type"] for e in payload_events] == ["danglingRelatedPlan"]
+    assert payload_events[0]["detail"]["reason"] == "missing" and payload_events[0]["date"] == "2026-01-03"
