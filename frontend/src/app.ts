@@ -94,7 +94,9 @@ export const appOptions = {
           event.preventDefault();
           (document.querySelector('.global-search input') as HTMLInputElement | null)?.focus();
         }
-        const shortcut = { 1: 'overview', 2: 'screener', 3: 'grid', 4: 'plans', 5: 'monitor' }[event.key];
+        const shortcut = { 1: 'overview', 2: 'screener', 3: 'grid', 4: 'plans', 5: 'monitor', 6: 'portfolio' }[
+          event.key
+        ];
         if (shortcut && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA')
           quotes.switchView(shortcut);
       });
