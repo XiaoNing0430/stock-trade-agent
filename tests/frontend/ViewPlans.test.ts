@@ -405,6 +405,24 @@ describe('ViewPlans', () => {
       }
     });
 
+    it('解除关联成功：PUT body 该 plan 键整体省略（undefined 不落 null——后端 None≡未配对）（收尾硬化 L3）', async () => {
+      const workspace = useWorkspaceStore();
+      workspace.workspaceSynced = true;
+      // 本组件级共享 sell/buy 会被写路径真实 mutate——本例用私有副本，防污染相邻用例
+      workspace.plans = [{ ...sell, exitMode: undefined }, { ...buy }];
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 10 }));
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        await usePlansStore().updatePlanLinkage('s1', { relatedPlan: null });
+        const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+        const s1 = body.plans.find((p: { id: string }) => p.id === 's1');
+        expect(s1).not.toHaveProperty('relatedPlan');
+        expect(s1).not.toHaveProperty('exitMode');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('后端 422（双配竞态中文 detail）：回滚本地字段 + toast 透传后端消息', async () => {
       const workspace = useWorkspaceStore();
       workspace.workspaceSynced = true;
