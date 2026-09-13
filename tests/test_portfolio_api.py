@@ -586,6 +586,47 @@ def test_risk_422_days_whitelist(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.get("/api/portfolio/risk", params={"days": 365}).status_code == 200
 
 
+def test_risk_422_start_window_and_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """评审 F3 校验矩阵补洞：start 上界（today+1）／下界（today−1826）双向越界与非法月日一律 422；闭区间下界放行。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    now = datetime.now(SHANGHAI)
+    too_late = (now + timedelta(days=1)).strftime("%Y-%m-%d")  # 当日/未来不可作起点（ceiling=today−1）
+    too_early = (now - timedelta(days=1826)).strftime("%Y-%m-%d")  # 下界 floor=today−1825（5 年）
+    for bad in (too_late, too_early, "2026/13/01"):
+        r = client.get("/api/portfolio/risk", params={"start": bad})
+        assert r.status_code == 422, bad
+        detail = r.json()["detail"]
+        assert detail["code"] == "VALIDATION_ERROR" and "start" in detail["error"]
+    floor_in = (now - timedelta(days=1825)).strftime("%Y-%m-%d")
+    assert client.get("/api/portfolio/risk", params={"start": floor_in}).status_code == 200  # 边界闭区间放行
+
+
+def test_risk_422_layer_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """layer 域 core/closed：复盘合法的 "both" 之类一律 422（组合端点新增档不外溢），detail 文案点出合法域。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    for bad in ("both", "CORE", ""):
+        r = client.get("/api/portfolio/risk", params={"layer": bad})
+        assert r.status_code == 422, bad
+        detail = r.json()["detail"]
+        assert detail["code"] == "VALIDATION_ERROR" and "layer 仅支持 core/closed" in detail["error"]
+
+
+def test_risk_truncated_at_gate_decoupled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """评审 F2：截断门与 days/start 解耦——反例正常窗不产键；正例降 plan_review.BARS_LIMIT 造截断，值=并集轴首日。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])  # 默认 8 根 bar << 300
+    ok = client.get("/api/portfolio/risk", params={"days": 90})
+    assert ok.status_code == 200, ok.text
+    assert "truncatedAt" not in ok.json()["meta"]  # 反例：未被拉满 → 键缺席（与 T5 聚合层缺席钉同源）
+
+    monkeypatch.setattr("backend.plan_review.BARS_LIMIT", 2)  # 公开别名（576c84d F7）：门从 300 降到 2
+    far = (datetime.now(SHANGHAI) - timedelta(days=1000)).strftime("%Y-%m-%d")
+    long_window = client.get("/api/portfolio/risk", params={"start": far})  # start 长窗：旧 days==0 门在此漏报
+    assert long_window.status_code == 200, long_window.text
+    body = long_window.json()
+    assert body["meta"]["truncatedAt"] == body["nav"]["dates"][0]  # 值=多码并集轴首日（文档化语义）
+    assert client.get("/api/portfolio/risk", params={"days": 0}).json()["meta"]["truncatedAt"]  # ALL 档同门在位
+
+
 def test_risk_degraded_and_log(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     """local 兜底一例码 → payload.degraded 含该码（降级不得静默）+ review_degraded 告警留痕（复盘同源）。"""
     _stub_risk_env(monkeypatch, [_risk_plan()])  # 先铺全链桩，再换 per-code flag 的 loader
@@ -624,7 +665,8 @@ def test_risk_portfolio_ok_log(monkeypatch: pytest.MonkeyPatch, caplog: pytest.L
     assert client.get("/api/portfolio/risk").status_code == 200
     recs = [rec for rec in caplog.records if "portfolio_ok layer=" in rec.getMessage()]
     assert len(recs) == 1 and recs[0].levelno == logging.INFO and recs[0].name == "atlas.review"
-    fields = [tok for tok in recs[0].getMessage().split() if "=" in tok]
+    msg = recs[0].getMessage()
+    fields = [tok for tok in msg.split() if "=" in tok]
     assert len(fields) == 11
     assert [f.split("=")[0] for f in fields] == [
         "layer",
@@ -639,3 +681,7 @@ def test_risk_portfolio_ok_log(monkeypatch: pytest.MonkeyPatch, caplog: pytest.L
         "degraded",
         "elapsed_ms",
     ]
+    # 评审 F5 补强：键序钉之外再钉格式串本身——前缀逐字、空降级哨兵、%.4f 精度（旧计数法对含 = 的值不免疫）
+    assert msg.startswith("portfolio_ok layer=core window=90 ")
+    assert " degraded=- elapsed_ms=" in msg  # degraded 空 → "-" 哨兵（绝不留空破坏切分）
+    assert re.search(r"gross_mdd=-?\d+\.\d{4} net_mdd=-?\d+\.\d{4} scaling=\d+ ", msg) is not None
