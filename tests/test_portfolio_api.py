@@ -13,7 +13,8 @@ from typing import Any
 import pytest
 from backend import app as app_module
 from backend import storage as storage_module
-from backend.plan_review import SHANGHAI
+from backend.assist.limiter import SlidingWindowLimiter
+from backend.plan_review import SHANGHAI, ReviewUpstreamError
 from backend.storage import validate_plan_links
 from fastapi.testclient import TestClient
 
@@ -327,3 +328,235 @@ def test_review_refactor_regression(monkeypatch, caplog):
     # 上限常量同源（0.05 字面量 → plan_review.FEE_RATE_MAX）：边界值放行、越界 422（行为零变化）
     assert client.get("/api/plans/review", params={"days": 90, "feeRate": 0.05}).status_code == 200
     assert client.get("/api/plans/review", params={"days": 90, "feeRate": 0.0501}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Task 6 段 2：GET /api/portfolio/risk 端点（校验 / 20 次分护栏 / 取数复用 / 降级与日志）
+# 离线取数沿用文件既有手法：monkeypatch app_module.get_workspace / _load_history_with_fallback
+# + storage load/save_market_bars（真实链路：_resolve_history_loader → fetch_all_bars → _counting）。
+# ---------------------------------------------------------------------------
+
+
+def _risk_plan(**over: Any) -> dict[str, Any]:
+    """可入场/可离线的 buy 计划（position 必填——引擎名义额分配的前提）。"""
+    now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
+    base: dict[str, Any] = {
+        "id": "R1",
+        "code": "600519",
+        "direction": "buy",
+        "entry": 10.0,
+        "stop": 9.0,
+        "target": 11.0,
+        "position": 30,
+        "validity": "长期",
+        "status": "执行中",
+        "createdAtMs": now_ms - 12 * 86_400_000,
+        "relatedPlan": None,
+        "exitMode": None,
+    }
+    base.update(over)
+    return base
+
+
+def _risk_sell(**over: Any) -> dict[str, Any]:
+    now_ms = int(datetime.now(SHANGHAI).timestamp() * 1000)
+    base: dict[str, Any] = {
+        "id": "S1",
+        "code": "600519",
+        "direction": "sell",
+        "entry": 10.8,
+        "stop": 9.0,
+        "target": 11.5,
+        "position": 30,
+        "validity": "长期",
+        "status": "执行中",
+        "createdAtMs": now_ms - 11 * 86_400_000,
+        "relatedPlan": "R1",
+        "exitMode": "race",
+    }
+    base.update(over)
+    return base
+
+
+def _stub_risk_env(
+    monkeypatch: pytest.MonkeyPatch,
+    plans: list[dict[str, Any]],
+    *,
+    watchlist: list[str] | None = None,
+    bars: list[dict[str, Any]] | None = None,
+    flag: str = "live",
+    settings: dict[str, Any] | None = None,
+) -> None:
+    """端点离线桩：工作区 + 历史 loader + 行业缓存（读缓存路径不触网、不触 DB）。"""
+    rows = bars if bars is not None else _recent_bars()
+    monkeypatch.setattr(app_module, "get_workspace", lambda *a, **k: {"plans": plans, "watchlist": watchlist or []})
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda *a, **k: settings or {"defaultCapital": 100000, "totalPositionCapPct": 100},
+    )
+    monkeypatch.setattr(app_module, "get_industry_map", lambda: ({}, "empty"))
+
+    def fake(code: str, limit: int, is_index: bool = False, adjustment: str = "qfq", source: Any = None) -> tuple:
+        return [dict(b) for b in rows], flag, str(rows[-1]["date"]), "tencent"
+
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", fake)
+    monkeypatch.setattr(storage_module, "load_market_bars", lambda *a, **k: [])
+    monkeypatch.setattr(storage_module, "save_market_bars", lambda *a, **k: None)
+
+
+def test_risk_happy_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """200 顶层键（brief 名单）+ nav 五键同源并包 + 默认 days=90/layer=core 档跑通全链。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    r = client.get("/api/portfolio/risk")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert {
+        "kpis",
+        "nav",
+        "exposure",
+        "concentration",
+        "pairs",
+        "orphans",
+        "signals",
+        "events",
+        "eventsTotal",
+        "degraded",
+        "meta",
+    } <= set(body)
+    assert set(body["nav"]) == {"dates", "gross", "net", "feeCum", "feeSum"}  # feeCum/feeSum 端点并包
+    assert body["meta"]["layer"] == "core" and body["meta"]["feeRate"] == 0.0015
+    assert len(body["kpis"]) == 10 and body["kpis"]["planCount"]["active"] == 1
+    assert body["degraded"] == []
+
+
+def test_risk_empty_plans_zero_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """空计划 → 200 全键零态（键恒在，前端免判空）；空仓 nav 全空数组、navNow null（不造数）。"""
+    _stub_risk_env(monkeypatch, [])
+    r = client.get("/api/portfolio/risk", params={"days": 0})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert {"kpis", "nav", "exposure", "concentration", "pairs", "orphans", "signals", "events", "meta"} <= set(body)
+    assert body["nav"] == {"dates": [], "gross": [], "net": [], "feeCum": [], "feeSum": 0.0}
+    assert body["kpis"]["navNow"] is None and body["kpis"]["pairCount"] == 0
+    assert body["pairs"] == [] and body["orphans"] == [] and body["events"] == [] and body["eventsTotal"] == 0
+    assert body["degraded"] == []
+    assert body["watchIndex"] is None  # withWatch 默认 false → 键恒在 null
+
+
+def test_risk_start_overrides_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    """start 优先：days=30 完全忽略（终审 R4），meta.windowStart 逐字回显 start（评审钉）。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    far = (datetime.now(SHANGHAI) - timedelta(days=400)).strftime("%Y-%m-%d")
+    r = client.get("/api/portfolio/risk", params={"days": 30, "start": far})
+    assert r.status_code == 200, r.text
+    assert r.json()["meta"]["windowStart"] == far
+    # 窗口 = [start, today) → 全部近期 bar 入轴（400 天窗 vs 30 天窗的判别）
+    assert len(r.json()["nav"]["dates"]) == 8
+
+
+def test_risk_fee_rate_bounds_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """feeRate 域 (0, FEE_RATE_MAX]：0 与负数与上限外一律 422；上限内放行（校验取 I6 同源常量）。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    assert client.get("/api/portfolio/risk", params={"feeRate": 0}).status_code == 422
+    assert client.get("/api/portfolio/risk", params={"feeRate": -0.1}).status_code == 422
+    assert client.get("/api/portfolio/risk", params={"feeRate": 0.0501}).status_code == 422
+    ok = client.get("/api/portfolio/risk", params={"feeRate": 0.05})
+    assert ok.status_code == 200 and ok.json()["meta"]["feeRate"] == 0.05
+    assert ok.json()["nav"]["feeSum"] > 0
+
+
+def test_risk_429_after_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """20 次/分护栏：换 max=2 小 limiter 实例直发 3 请求（不 monkeypatch 时钟、不真发 20 次，观察 5）。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    monkeypatch.setattr(
+        app_module.app.state, "portfolio_limiter", SlidingWindowLimiter(max_events=2, window_seconds=60.0)
+    )
+    assert client.get("/api/portfolio/risk").status_code == 200
+    assert client.get("/api/portfolio/risk").status_code == 200
+    r = client.get("/api/portfolio/risk")
+    assert r.status_code == 429
+    assert r.json()["detail"]["code"] == "RATE_LIMITED"
+    assert int(r.headers["Retry-After"]) >= 1
+
+
+def test_risk_502_failed_codes(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """上游取数失败 → 502 + detail.failedCodes + atlas.review 留痕（同复盘式，红线：失败可见化）。"""
+
+    def boom(codes: list[str], router: Any) -> dict[str, Any]:
+        raise ReviewUpstreamError(list(codes))
+
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    monkeypatch.setattr("backend.plan_review.fetch_all_bars", boom)
+    caplog.set_level(logging.ERROR)
+    r = client.get("/api/portfolio/risk")
+    assert r.status_code == 502
+    detail = r.json()["detail"]
+    assert detail["code"] == "UPSTREAM_UNAVAILABLE" and detail["failedCodes"] == ["600519"]
+    assert "review_upstream_failed" in caplog.text and "600519" in caplog.text
+
+
+def test_risk_422_days_whitelist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """days 白名单 0/30/90/180/365：45 不在档 → 422 中文 detail；180/365 组合端点新增档放行。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    r = client.get("/api/portfolio/risk", params={"days": 45})
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["code"] == "VALIDATION_ERROR" and "days" in detail["error"]
+    assert client.get("/api/portfolio/risk", params={"days": 180}).status_code == 200
+    assert client.get("/api/portfolio/risk", params={"days": 365}).status_code == 200
+
+
+def test_risk_degraded_and_log(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """local 兜底一例码 → payload.degraded 含该码（降级不得静默）+ review_degraded 告警留痕（复盘同源）。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])  # 先铺全链桩，再换 per-code flag 的 loader
+    rows = _recent_bars()
+
+    def fake(code: str, limit: int, is_index: bool = False, adjustment: str = "qfq", source: Any = None) -> tuple:
+        flag = "local" if code == "600519" else "live"
+        return [dict(b) for b in rows], flag, str(rows[-1]["date"]), "tencent"
+
+    monkeypatch.setattr(app_module, "_load_history_with_fallback", fake)
+    caplog.set_level(logging.WARNING)
+    r = client.get("/api/portfolio/risk")
+    assert r.status_code == 200, r.text
+    assert "600519" in r.json()["degraded"]
+    assert "review_degraded code=600519" in caplog.text
+
+
+def test_risk_nav_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """nav 恒等式三钉（评审要求，同一次 compose_nav 并包才成立）：逐日 gross[i]−net[i]==feeCum[i]、尾==feeSum、首==0。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    r = client.get("/api/portfolio/risk")
+    assert r.status_code == 200, r.text
+    nav = r.json()["nav"]
+    gross, net, fee_cum, fee_sum = nav["gross"], nav["net"], nav["feeCum"], nav["feeSum"]
+    assert len(gross) == len(net) == len(fee_cum) >= 2
+    for i in range(len(gross)):
+        assert gross[i] - net[i] == pytest.approx(fee_cum[i], abs=1e-12)
+    assert fee_cum[-1] == pytest.approx(fee_sum, abs=1e-12)
+    assert fee_cum[0] == 0
+
+
+def test_risk_portfolio_ok_log(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """成功留痕逐字钉（spec §8）：atlas.review INFO 级 portfolio_ok 行，恰 11 个 k=v 字段且顺序在位。"""
+    _stub_risk_env(monkeypatch, [_risk_plan()])
+    caplog.set_level(logging.INFO)
+    assert client.get("/api/portfolio/risk").status_code == 200
+    recs = [rec for rec in caplog.records if "portfolio_ok layer=" in rec.getMessage()]
+    assert len(recs) == 1 and recs[0].levelno == logging.INFO and recs[0].name == "atlas.review"
+    fields = [tok for tok in recs[0].getMessage().split() if "=" in tok]
+    assert len(fields) == 11
+    assert [f.split("=")[0] for f in fields] == [
+        "layer",
+        "window",
+        "plans",
+        "codes",
+        "upstream",
+        "gross_mdd",
+        "net_mdd",
+        "scaling",
+        "conflicts",
+        "degraded",
+        "elapsed_ms",
+    ]

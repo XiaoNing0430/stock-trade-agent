@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import plan_review
+from backend import plan_review, portfolio_risk
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -33,7 +33,7 @@ from backend.grid_scheduler import (
     unschedule_strategy,
 )
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
-from backend.industry_map import refresh_industry_map
+from backend.industry_map import get_industry_map, refresh_industry_map
 from backend.schemas import (
     DeleteOut,
     GridBacktestIn,
@@ -183,6 +183,48 @@ def _resolve_history_loader() -> tuple[Any, dict[str, int], list[str]]:
     return _loader, stats, degraded
 
 
+# days=0（ALL）的窗口起点哨兵：早于任何可得 bar 日期，回放/轴切按「全部可得数据」处理（spec §4 D4 回看档）。
+# bars 取数天然受 plan_review._BARS_LIMIT=300 根上限约束，真实起点由 meta.truncatedAt 如实披露（spec §11）。
+_ALL_WINDOW_START = "0001-01-01"
+
+_RISK_DAYS = (0, 30, 90, 180, 365)  # 组合风险回看白名单（0=ALL，默认 90=前端 3M）
+_RISK_LAYERS = ("core", "closed")  # 主层 / 闭环层（I7 layer 域）
+_RISK_START_MAX_DAYS = 1825  # start 下界：今天−5 年（spec §6）
+
+
+def _parse_iso_day(value: str, label: str) -> datetime:
+    """严格 YYYY-MM-DD 解析（多余时间部分/错格式一律 422 中文 detail，同复盘纪律）。"""
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise api_error(422, ERR_VALIDATION_ERROR, f"{label} 须为合法日期 YYYY-MM-DD") from exc
+
+
+def _shift_date_str(day: str, delta_days: int) -> str:
+    """日历日位移（复盘 `now_ms − days*86400_000` 同款 slice 语义的字符串形式）。"""
+    return (_parse_iso_day(day, "date") + timedelta(days=delta_days)).strftime("%Y-%m-%d")
+
+
+def _date_delta_days(from_day: str, to_day: str) -> int:
+    """含尾不含头的日差（to − from），供日志 window 字段（start 档无 days 可报）。"""
+    return int((_parse_iso_day(to_day, "date") - _parse_iso_day(from_day, "date")).total_seconds() // 86400)
+
+
+def _validated_start(start: str, today: str) -> str:
+    """自定义起始日校验（spec §6）：合法 ISO 且 ∈ [today−1825d, today−1d]（今天不可作起点——当日 bar 未收盘）。
+
+    归一返回 `YYYY-MM-DD`：`start` 优先且 days 完全忽略（终审 R4），meta.windowStart 回显该串（钉）。
+    """
+    parsed = _parse_iso_day(start, "start")
+    floor = _parse_iso_day(today, "today") - timedelta(days=_RISK_START_MAX_DAYS)
+    ceiling = _parse_iso_day(today, "today") - timedelta(days=1)
+    if not (floor.date() <= parsed.date() <= ceiling.date()):
+        raise api_error(
+            422, ERR_VALIDATION_ERROR, f"start 须在 [{floor.strftime('%Y-%m-%d')}, {ceiling.strftime('%Y-%m-%d')}] 内"
+        )
+    return parsed.strftime("%Y-%m-%d")
+
+
 def _industry_warmup_job() -> None:
     """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。"""
     try:
@@ -233,6 +275,9 @@ def create_app() -> FastAPI:
     # 交易辅助：每实例新建限频器（测试隔离）与数据源路由（与数据源端点同一构建模式，离线安全）
     app.state.assist_limiter = SlidingWindowLimiter(max_events=30, window_seconds=60.0)
     app.state.assist_router = build_router()
+    # 组合风险视图轻量护栏（spec §6：20 req/min，只防误循环/连点重算，非安全边界）：
+    # 挂在 app.state 而非模块级，测试 fixture 直接换小实例验 429（不 monkeypatch 时钟、不真发 20 次）。
+    app.state.portfolio_limiter = SlidingWindowLimiter(max_events=20, window_seconds=60.0)
     # 双轨托管：优先服务构建产物 frontend/dist（Vite），无 dist 时回退源码目录。
     # Vite 产物把静态资源放在 dist/assets/ 下，挂载目录按实际布局选择。
     assets_dir = DIST_DIR / "assets" if DIST_DIR.exists() else FRONTEND_DIR
@@ -617,6 +662,125 @@ def create_app() -> FastAPI:
             int((time.perf_counter() - t0) * 1000),
         )
         return result
+
+    @app.get("/api/portfolio/risk")
+    def portfolio_risk_view(
+        days: int = 90,
+        start: str | None = None,
+        layer: str = "core",
+        withWatch: bool = False,
+        feeRate: float = plan_review.DEFAULT_FEE_RATE,
+        workspace_id: str = Query(default="default", alias="workspace"),
+    ) -> dict[str, Any]:
+        """组合风险视图（只读，设计口径回放；红线：零写 plans、永不连券商/自动下单）。spec §6 I11。"""
+        # —— 1. 先限频后校验（429 样式照 assist_plan_draft：失败请求也计数）——
+        limiter: SlidingWindowLimiter = app.state.portfolio_limiter
+        allowed, retry_after = limiter.check()
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail={"error": "组合风险请求过于频繁，请稍后再试", "code": ERR_RATE_LIMITED},
+                headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
+            )
+
+        # —— 2. 参数校验（422 中文 detail，同复盘纪律）——
+        today = datetime.now(plan_review.SHANGHAI).strftime("%Y-%m-%d")
+        window_start: str
+        window_span: int  # 日志 window 字段：days 档给 days，start 档给起止日差
+        if start is None:
+            if days not in _RISK_DAYS:
+                raise api_error(422, ERR_VALIDATION_ERROR, "days 仅支持 0/30/90/180/365")
+            window_span = days
+            window_start = _ALL_WINDOW_START if days == 0 else _shift_date_str(today, -days)
+        else:
+            # start 优先且 days 完全忽略、不参与交叉校验（spec §6 终审 R4）——窗口 = [start, today)
+            window_start = _validated_start(start, today)
+            window_span = _date_delta_days(window_start, today)
+        if layer not in _RISK_LAYERS:
+            raise api_error(422, ERR_VALIDATION_ERROR, "layer 仅支持 core/closed")
+        if not (0.0 < float(feeRate) <= plan_review.FEE_RATE_MAX):
+            raise api_error(422, ERR_VALIDATION_ERROR, f"feeRate 须在 (0, {plan_review.FEE_RATE_MAX}]")
+
+        # —— 3. 取数（历史源按请求解析一次；stats/degraded 与复盘同源，Task 6 段 1 提取物）——
+        t0 = time.perf_counter()
+        workspace = get_workspace(workspace_id)
+        plans = workspace.get("plans") or []
+        watchlist = workspace.get("watchlist") or []
+        settings = get_workspace_settings(workspace_id)
+        links, link_events = portfolio_risk.build_links(plans)
+        # codes 集合：buy 成分码 ∪ (closed 层全部 sell 码 ∪ 未配对孤儿 sell 码——看板信号也要 bar) ∪ 自选码
+        paired_sell_ids = {str((link.get("sell") or {}).get("id") or "") for link in links.values()}
+        codes: list[str] = []
+        for plan in plans:
+            if not isinstance(plan, dict):
+                continue
+            code = str(plan.get("code") or "").strip()
+            if not code:
+                continue
+            kind = str(plan.get("type") or plan.get("direction") or "buy").strip().lower()
+            if kind == "buy":
+                codes.append(code)
+            elif layer == "closed" or str(plan.get("id") or "") not in paired_sell_ids:
+                codes.append(code)
+        if withWatch:
+            codes.extend(str(item) for item in watchlist if str(item or "").strip())
+        codes = list(dict.fromkeys(codes))
+
+        load_bars, stats, degraded = _resolve_history_loader()
+        try:
+            bars_map = load_bars(codes) if codes else {}
+            industry, industry_status = get_industry_map()  # 只读缓存：API 绝不内联拉全市场（spec §3）
+        except plan_review.ReviewUpstreamError as exc:
+            review_logger.error("review_upstream_failed codes=%s", exc.codes)
+            raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
+
+        # —— 4. 单趟回放 + NAV 组装（compose_nav 只调一次，nav 五键同源，评审三钉）——
+        positions, replay_events = portfolio_risk.replay_positions(plans, bars_map, window_start, today, layer, links)
+        dates = portfolio_risk.nav_dates(bars_map, window_start, today)
+        nav = portfolio_risk.compose_nav(positions, dates, float(feeRate))
+        payload = portfolio_risk.aggregate_portfolio(
+            plans=plans,
+            watchlist=watchlist,
+            settings=settings,
+            bars_map=bars_map,
+            positions=positions,
+            dates=nav["dates"],
+            gross=nav["gross"],
+            net=nav["net"],
+            events=[*replay_events, *link_events],
+            links=links,
+            layer=layer,
+            window_start=window_start,
+            today=today,
+            fee_rate=float(feeRate),
+            industry=industry,
+            industry_status=industry_status,
+            with_watch=withWatch,
+        )
+        # —— 5. 并包：nav 的 feeCum/feeSum 取自同一次 compose_nav（恒等式逐日成立）——
+        payload["nav"]["feeCum"] = nav["feeCum"]
+        payload["nav"]["feeSum"] = nav["feeSum"]
+        payload["degraded"] = sorted(set(degraded))  # 降级不得静默（同复盘）
+        # ALL 档 bars 受 300 根上限：无截断信号可取，按「轴被拉满 ≥_BARS_LIMIT 且 days=0」粗判窗起点截断日
+        if days == 0 and len(dates) >= plan_review._BARS_LIMIT:
+            payload["meta"]["truncatedAt"] = dates[0]
+        all_events = [*replay_events, *link_events]
+        review_logger.info(
+            "portfolio_ok layer=%s window=%d plans=%d codes=%d upstream=%d gross_mdd=%.4f net_mdd=%.4f"
+            " scaling=%d conflicts=%d degraded=%s elapsed_ms=%d",
+            layer,
+            window_span,
+            len(plans),
+            len(codes),
+            stats["upstream"],
+            float(payload["kpis"]["mdd"]),
+            float(payload["kpis"]["mddNet"]),
+            sum(1 for e in all_events if e.get("type") == "scaling"),
+            sum(1 for e in all_events if e.get("type") == "conflict"),
+            ",".join(payload["degraded"]) or "-",
+            int((time.perf_counter() - t0) * 1000),
+        )
+        return payload
 
     @app.post("/api/assist/plan-draft", response_model=PlanDraftResponse)
     def assist_plan_draft(payload: PlanDraftIn) -> PlanDraftResponse:
