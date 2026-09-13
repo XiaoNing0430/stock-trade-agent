@@ -71,8 +71,24 @@ describe('ViewSettings', () => {
     // 注入模拟数据源
     settings.dataSources = [
       { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
-      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
-      { id: 'mock_us', name: '美股模拟', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      {
+        id: 'eastmoney',
+        name: '东方财富',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
+      {
+        id: 'mock_us',
+        name: '美股模拟',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
     ];
     settings.settingsDraft.realtimeSource = 'tencent';
     settings.settingsDraft.historySource = 'eastmoney';
@@ -110,7 +126,15 @@ describe('ViewSettings', () => {
     settings.settingsTab = 'data';
     settings.dataSources = [
       { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
-      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      {
+        id: 'eastmoney',
+        name: '东方财富',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
     ];
     const wrapper = mount(ViewSettings);
     // realtime 下拉有 2 个选项
@@ -168,7 +192,15 @@ describe('ViewSettings', () => {
     settings.settingsTab = 'connection';
     settings.dataSources = [
       { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
-      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      {
+        id: 'eastmoney',
+        name: '东方财富',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
     ];
     const wrapper = mount(ViewSettings);
     expect(wrapper.text()).toContain('腾讯公开行情');

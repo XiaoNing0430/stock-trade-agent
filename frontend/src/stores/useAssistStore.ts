@@ -152,5 +152,17 @@ export const useAssistStore = defineStore('assist', () => {
     }
   }
 
-  return { visible, loading, submitting, error, draft, suggestion, assistDefaults, openFor, recalc, close, confirmDraft };
+  return {
+    visible,
+    loading,
+    submitting,
+    error,
+    draft,
+    suggestion,
+    assistDefaults,
+    openFor,
+    recalc,
+    close,
+    confirmDraft,
+  };
 });

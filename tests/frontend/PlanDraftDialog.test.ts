@@ -126,12 +126,10 @@ describe('PlanDraftDialog', () => {
     // B6：source 经 openFor 写入 draft 状态对象（与 code 同路），对话框同源读取后随确认落计划
     assist.draft = { ...structuredClone(DRAFT), source: 'scan:trend_breakout' };
     await wrapper.vm.$nextTick();
-    const confirmSpy = vi
-      .spyOn(assist, 'confirmDraft')
-      .mockImplementation(async () => {
-        assist.visible = false;
-        return 'saved';
-      });
+    const confirmSpy = vi.spyOn(assist, 'confirmDraft').mockImplementation(async () => {
+      assist.visible = false;
+      return 'saved';
+    });
     await wrapper.find('button[data-testid="confirm"]').trigger('click');
     await vi.waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
     const plan = confirmSpy.mock.calls[0][0] as Plan & { createdAt?: string };
@@ -156,12 +154,10 @@ describe('PlanDraftDialog', () => {
     const note = wrapper.find('[data-testid="draft-price-scope-note"]');
     expect(note.exists()).toBe(true);
     expect(note.text()).toContain('K 线图为前复权价，请勿直接照抄图表价位');
-    const confirmSpy = vi
-      .spyOn(assist, 'confirmDraft')
-      .mockImplementation(async () => {
-        assist.visible = false;
-        return 'saved';
-      });
+    const confirmSpy = vi.spyOn(assist, 'confirmDraft').mockImplementation(async () => {
+      assist.visible = false;
+      return 'saved';
+    });
     await wrapper.find('button[data-testid="confirm"]').trigger('click');
     await vi.waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
     const plan = confirmSpy.mock.calls[0][0] as Plan & { createdAt?: string };
@@ -171,7 +167,12 @@ describe('PlanDraftDialog', () => {
   it('确认成功后对话框关闭且计划入列（真实 confirmDraft 流程）', async () => {
     const { wrapper, assist } = await mountDialog();
     const workspace = useWorkspaceStore();
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ revision: 2 }) }));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ revision: 2 }),
+    }));
     vi.stubGlobal('fetch', fetchMock);
     await wrapper.find('button[data-testid="confirm"]').trigger('click');
     await vi.waitFor(() => expect(assist.visible).toBe(false));

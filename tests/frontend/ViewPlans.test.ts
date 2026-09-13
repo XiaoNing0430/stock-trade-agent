@@ -18,18 +18,67 @@ vi.mock('@/api/client', async (importOriginal) => {
 });
 
 const reviewPayload = {
-  kpis: { total: 2, decided: 1, flatCount: 0, winRate: 1, avgWinR: 1.97, avgLossR: null,
-          payoffRatio: null, expectancyR: 1.97, notEnteredRate: 0, openCount: 1, invalidCount: 0 },
-  groups: {
-    source: [{ key: 'manual', label: '手动新建', decided: 1, flatCount: 0, wins: 1,
-               winRate: 1, expectancyR: 1.97, smallSample: true }],
-    direction: [{ key: 'buy', label: '买入', decided: 1, flatCount: 0, wins: 1,
-                  winRate: 1, expectancyR: 1.97, smallSample: false }],
+  kpis: {
+    total: 2,
+    decided: 1,
+    flatCount: 0,
+    winRate: 1,
+    avgWinR: 1.97,
+    avgLossR: null,
+    payoffRatio: null,
+    expectancyR: 1.97,
+    notEnteredRate: 0,
+    openCount: 1,
+    invalidCount: 0,
   },
-  items: [{ planId: 'p1', code: '300750', source: 'manual', direction: 'buy', entry: 10,
-            stop: 9.5, target: 11, validity: '本月内', status: '执行中', outcome: 'win',
-            rValue: 2, netR: 1.97, costR: 0.03, entryDate: '2026-09-14', exitDate: '2026-09-15',
-            ambiguous: false, gapFill: false, limitDeferred: false }],
+  groups: {
+    source: [
+      {
+        key: 'manual',
+        label: '手动新建',
+        decided: 1,
+        flatCount: 0,
+        wins: 1,
+        winRate: 1,
+        expectancyR: 1.97,
+        smallSample: true,
+      },
+    ],
+    direction: [
+      {
+        key: 'buy',
+        label: '买入',
+        decided: 1,
+        flatCount: 0,
+        wins: 1,
+        winRate: 1,
+        expectancyR: 1.97,
+        smallSample: false,
+      },
+    ],
+  },
+  items: [
+    {
+      planId: 'p1',
+      code: '300750',
+      source: 'manual',
+      direction: 'buy',
+      entry: 10,
+      stop: 9.5,
+      target: 11,
+      validity: '本月内',
+      status: '执行中',
+      outcome: 'win',
+      rValue: 2,
+      netR: 1.97,
+      costR: 0.03,
+      entryDate: '2026-09-14',
+      exitDate: '2026-09-15',
+      ambiguous: false,
+      gapFill: false,
+      limitDeferred: false,
+    },
+  ],
 };
 
 const activePlan: Plan = {
@@ -170,14 +219,27 @@ describe('ViewPlans', () => {
   it('仅留痕加载失败 → 渲染 review-trace-error 且无 review-error（N4 分离）', async () => {
     const withScan = {
       ...reviewPayload,
-      groups: { ...reviewPayload.groups,
-        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 2, flatCount: 0, wins: 1,
-                   winRate: 0.5, expectancyR: 0.4, smallSample: false }] },
+      groups: {
+        ...reviewPayload.groups,
+        source: [
+          {
+            key: 'scan:trend_breakout',
+            label: '扫描·趋势突破',
+            decided: 2,
+            flatCount: 0,
+            wins: 1,
+            winRate: 0.5,
+            expectancyR: 0.4,
+            smallSample: false,
+          },
+        ],
+      },
     };
-    vi.mocked(requestJson).mockImplementation((url: unknown) =>
-      String(url).includes('/api/plans/review')
-        ? Promise.resolve(withScan)                                    // 复盘成功 → reviewError null
-        : Promise.reject(new Error('留痕上游不可用')),                  // 留痕失败 → traceError
+    vi.mocked(requestJson).mockImplementation(
+      (url: unknown) =>
+        String(url).includes('/api/plans/review')
+          ? Promise.resolve(withScan) // 复盘成功 → reviewError null
+          : Promise.reject(new Error('留痕上游不可用')) // 留痕失败 → traceError
     );
     const wrapper = mount(ViewPlans);
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
@@ -215,18 +277,31 @@ describe('ViewPlans', () => {
       ...reviewPayload,
       groups: {
         ...reviewPayload.groups,
-        source: [{ key: 'scan:trend_breakout', label: '扫描·趋势突破', decided: 2, flatCount: 0, wins: 1,
-                   winRate: 0.5, expectancyR: 0.4, smallSample: false }],
+        source: [
+          {
+            key: 'scan:trend_breakout',
+            label: '扫描·趋势突破',
+            decided: 2,
+            flatCount: 0,
+            wins: 1,
+            winRate: 0.5,
+            expectancyR: 0.4,
+            smallSample: false,
+          },
+        ],
       },
     };
     const rows = Array.from({ length: 12 }, (_, i) => ({
-      strategyId: 'trend_breakout', runAtMs: i === 0 ? null : 1_789_000_000_000 - i, status: 'ok',
-      hitCount: 2, newCount: 1, elapsedMs: 1200, traceId: `t${i}`,
+      strategyId: 'trend_breakout',
+      runAtMs: i === 0 ? null : 1_789_000_000_000 - i,
+      status: 'ok',
+      hitCount: 2,
+      newCount: 1,
+      elapsedMs: 1200,
+      traceId: `t${i}`,
     }));
     vi.mocked(requestJson).mockImplementation((url: unknown) =>
-      String(url).includes('/api/plans/review')
-        ? Promise.resolve(withScan)
-        : Promise.resolve({ history: rows }),
+      String(url).includes('/api/plans/review') ? Promise.resolve(withScan) : Promise.resolve({ history: rows })
     );
     const wrapper = mount(ViewPlans);
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
@@ -234,9 +309,12 @@ describe('ViewPlans', () => {
     const trace = wrapper.find('[data-testid="review-trace"]');
     expect(trace.exists()).toBe(true);
     // 行 `<p>` 含「/ 新增」，概览 `<p>`（近 30 天运行 … 平均命中 …）不含，据此仅取数据行。
-    const rowTexts = trace.findAll('p.muted').filter((p) => p.text().includes('新增')).map((p) => p.text());
-    expect(rowTexts).toHaveLength(10);                  // 12 → 钳制 10
-    expect(rowTexts[0]).toContain('--');                // 首行 runAtMs null → 占位，不崩溃
+    const rowTexts = trace
+      .findAll('p.muted')
+      .filter((p) => p.text().includes('新增'))
+      .map((p) => p.text());
+    expect(rowTexts).toHaveLength(10); // 12 → 钳制 10
+    expect(rowTexts[0]).toContain('--'); // 首行 runAtMs null → 占位，不崩溃
     expect(rowTexts.some((t) => !t.startsWith('--'))).toBe(true); // 其余行正常显示时间
   });
 
@@ -280,11 +358,7 @@ describe('ViewPlans', () => {
 
     it('未关联 sell：空值选项为（未关联）且列出全部可用 buy', () => {
       const workspace = useWorkspaceStore();
-      workspace.plans = [
-        { ...activePlan, id: 's3', direction: 'sell', status: '执行中' },
-        buyB1,
-        buyTaken,
-      ];
+      workspace.plans = [{ ...activePlan, id: 's3', direction: 'sell', status: '执行中' }, buyB1, buyTaken];
       const wrapper = mount(ViewPlans);
       const pair = wrapper.find('[data-testid="pair-select"]');
       const values = pair.findAll('option').map((o) => (o.element as HTMLOptionElement).value);
@@ -362,9 +436,11 @@ describe('ViewPlans', () => {
       const workspace = seedLinked();
       const toastSpy = vi.spyOn(workspace, 'showToast');
       const plans = usePlansStore();
-      plans.updatePlanLinkage = vi.fn().mockRejectedValue(
-        new Error('建仓计划「b2」已被卖出计划「s2」关联，不能被「s1」重复关联；如需换绑请先解除原关联')
-      );
+      plans.updatePlanLinkage = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('建仓计划「b2」已被卖出计划「s2」关联，不能被「s1」重复关联；如需换绑请先解除原关联')
+        );
       const wrapper = mount(ViewPlans);
       const pair = wrapper.find('[data-testid="pair-select"]');
       await pair.setValue(''); // 以解除关联动作触发失败路径（本用例只钉失败语义）

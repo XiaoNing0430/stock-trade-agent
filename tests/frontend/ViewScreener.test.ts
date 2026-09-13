@@ -112,7 +112,9 @@ describe('ViewScreener', () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce({
-        strategies: [{ id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 }],
+        strategies: [
+          { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+        ],
       })
       .mockResolvedValueOnce({
         strategy: 'oversold_bounce',
@@ -143,8 +145,14 @@ describe('ViewScreener', () => {
     const wrapper = mount(ViewScreener);
     const tabs = wrapper.findAll('.screener-tab');
     await tabs.find((t) => t.text() === '策略')!.trigger('click');
-    await wrapper.findAll('.screener-tab').find((t) => t.text() === '深度')!.trigger('click');
-    await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
+    await wrapper
+      .findAll('.screener-tab')
+      .find((t) => t.text() === '深度')!
+      .trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('运行策略'))!
+      .trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenLastCalledWith('/api/screener/strategy', {
@@ -161,7 +169,11 @@ describe('ViewScreener', () => {
     const ws = useWorkspaceStore();
     const fetchSpy = vi
       .fn()
-      .mockResolvedValueOnce({ strategies: [{ id: 'oversold_bounce', name: '超跌反弹', description: 'x', topN: 10, deepCap: 200, factorCount: 1 }] })
+      .mockResolvedValueOnce({
+        strategies: [
+          { id: 'oversold_bounce', name: '超跌反弹', description: 'x', topN: 10, deepCap: 200, factorCount: 1 },
+        ],
+      })
       .mockResolvedValueOnce({
         strategy: 'oversold_bounce',
         name: '超跌反弹',
@@ -179,7 +191,10 @@ describe('ViewScreener', () => {
     const wrapper = mount(ViewScreener);
     const tabs = wrapper.findAll('.screener-tab');
     await tabs.find((t) => t.text() === '策略')!.trigger('click');
-    await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('运行策略'))!
+      .trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.text()).toContain('数据可能滞后');
   });
@@ -239,7 +254,16 @@ describe('ViewScreener', () => {
     vi.mocked(requestJson)
       .mockResolvedValueOnce({
         configs: [
-          { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: false, mode: 'quick', lastRunAt: null, lastStatus: null, hitCount: 0, newCount: 0 },
+          {
+            strategyId: 'oversold_bounce',
+            strategyName: '超跌反弹',
+            enabled: false,
+            mode: 'quick',
+            lastRunAt: null,
+            lastStatus: null,
+            hitCount: 0,
+            newCount: 0,
+          },
         ],
       })
       .mockRejectedValueOnce(new Error('save failed'));
@@ -268,14 +292,35 @@ describe('ViewScreener', () => {
     vi.mocked(requestJson)
       .mockResolvedValueOnce({
         configs: [
-          { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: false, mode: 'quick', lastRunAt: null, lastStatus: null, hitCount: 0, newCount: 0 },
+          {
+            strategyId: 'oversold_bounce',
+            strategyName: '超跌反弹',
+            enabled: false,
+            mode: 'quick',
+            lastRunAt: null,
+            lastStatus: null,
+            hitCount: 0,
+            newCount: 0,
+          },
         ],
       })
-      .mockResolvedValueOnce({ config: { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: true, mode: 'quick' }, alerted: 2 })
+      .mockResolvedValueOnce({
+        config: { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: true, mode: 'quick' },
+        alerted: 2,
+      })
       .mockResolvedValueOnce({ hits: [] })
       .mockResolvedValueOnce({
         configs: [
-          { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: true, mode: 'quick', lastRunAt: '2026-09-07T07:40:00+00:00', lastStatus: 'ok', hitCount: 3, newCount: 2 },
+          {
+            strategyId: 'oversold_bounce',
+            strategyName: '超跌反弹',
+            enabled: true,
+            mode: 'quick',
+            lastRunAt: '2026-09-07T07:40:00+00:00',
+            lastStatus: 'ok',
+            hitCount: 3,
+            newCount: 2,
+          },
         ],
       });
 

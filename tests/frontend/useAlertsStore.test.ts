@@ -34,12 +34,15 @@ describe('alerts + scan 合成', () => {
       { id: 'a1', kind: 'alert', title: '价格提醒', message: '600519 到价', read: false, createdAtMs: 1 },
     ];
     scan.hits.push({
-      strategyId: 'trend_breakout', strategyName: '趋势突破', scannedAt: null, status: 'ok',
+      strategyId: 'trend_breakout',
+      strategyName: '趋势突破',
+      scannedAt: null,
+      status: 'ok',
       codes: [{ code: '300750', name: '宁德时代', score: 77, firstSeen: '2026-09-07' }],
     });
-    expect(alerts.filteredAlerts.length).toBe(2);      // 1 workspace + 1 scan
-    expect(alerts.unreadAlerts).toBe(2);               // 两边各 1 条未读
-    expect(alerts.unreadTotalCount).toBe(2);           // 铃铛徽标同样计入扫描未读
+    expect(alerts.filteredAlerts.length).toBe(2); // 1 workspace + 1 scan
+    expect(alerts.unreadAlerts).toBe(2); // 两边各 1 条未读
+    expect(alerts.unreadTotalCount).toBe(2); // 铃铛徽标同样计入扫描未读
     alerts.markScanSeen('trend_breakout');
     expect(alerts.unreadAlerts).toBe(1);
     expect(alerts.unreadTotalCount).toBe(1);
@@ -54,15 +57,15 @@ describe('alerts + scan 合成', () => {
       { id: 's1', kind: 'system', title: '行情降级', message: '部分接口失败', read: false, createdAtMs: 2 },
     ];
     scan.hits.push({
-      strategyId: 'trend_breakout', strategyName: '趋势突破', scannedAt: null, status: 'ok',
+      strategyId: 'trend_breakout',
+      strategyName: '趋势突破',
+      scannedAt: null,
+      status: 'ok',
       codes: [{ code: '300750', name: '宁德时代', score: 77, firstSeen: '2026-09-07' }],
     });
     alerts.alertFilter = 'trade';
     // 合成顺序：扫描项在前（brief allAlerts 组合式），系统提醒被盯盘过滤排除
-    expect(alerts.filteredAlerts.map((item) => item.id)).toEqual([
-      'scan:trend_breakout:300750:2026-09-07',
-      'a1',
-    ]);
+    expect(alerts.filteredAlerts.map((item) => item.id)).toEqual(['scan:trend_breakout:300750:2026-09-07', 'a1']);
     alerts.alertFilter = 'system';
     expect(alerts.filteredAlerts.map((item) => item.id)).toEqual(['s1']);
   });
@@ -79,7 +82,10 @@ describe('App.vue 扫描项代码片（spec §8）', () => {
     const scan = useScanStore();
     const firstSeen = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10); // createdAtMs < now
     scan.hits.push({
-      strategyId: 'trend_breakout', strategyName: '趋势突破', scannedAt: null, status: 'ok',
+      strategyId: 'trend_breakout',
+      strategyName: '趋势突破',
+      scannedAt: null,
+      status: 'ok',
       codes: [{ code: '300750', name: '宁德时代', score: 77, firstSeen }],
     });
     expect(scan.unreadScanCount).toBe(1);
@@ -108,9 +114,7 @@ describe('App.vue 扫描项代码片（spec §8）', () => {
 
     await chip.trigger('click');
     expect(openForSpy).toHaveBeenCalledTimes(1);
-    expect(openForSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ code: '300750', source: 'scan:trend_breakout' })
-    );
+    expect(openForSpy).toHaveBeenCalledWith(expect.objectContaining({ code: '300750', source: 'scan:trend_breakout' }));
     // markSeen 效果落盘：atlas.scan.seen.{strategyId} 写入毫秒时间戳 → 扫描项视为已读
     expect(Number(localStorage.getItem('atlas.scan.seen.trend_breakout'))).toBeGreaterThan(0);
     expect(scan.unreadScanCount).toBe(0);

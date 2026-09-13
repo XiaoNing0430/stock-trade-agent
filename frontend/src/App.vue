@@ -41,9 +41,9 @@
         >
           <i :data-lucide="item.icon" aria-hidden="true"></i>
           <span>{{ item.label }}</span>
-          <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count"
-            >{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em
-          >
+          <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
+            unreadTotalCount > 99 ? '99+' : unreadTotalCount
+          }}</em>
         </button>
       </nav>
 
@@ -87,8 +87,8 @@
           <div class="topbar-title-row">
             <h1>{{ currentViewMeta.title }}</h1>
             <span class="demo-badge" :class="{ 'demo-badge-stale': dataState !== 'live' }">
-              <span class="live-dot"></span>{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情'
-              : '行情连接中' }}
+              <span class="live-dot"></span
+              >{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情' : '行情连接中' }}
             </span>
           </div>
           <p>{{ currentViewMeta.subtitle }}</p>
@@ -115,9 +115,9 @@
               @click="toggleNotifCenter"
             >
               <i data-lucide="bell" aria-hidden="true"></i>
-              <span v-if="unreadTotalCount" class="notif-badge"
-                >{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</span
-              >
+              <span v-if="unreadTotalCount" class="notif-badge">{{
+                unreadTotalCount > 99 ? '99+' : unreadTotalCount
+              }}</span>
             </button>
             <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
             <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
@@ -127,7 +127,11 @@
               </div>
               <div class="alert-filters" role="tablist" aria-label="通知分类">
                 <button
-                  v-for="option in [{ id: 'all', label: '全部' }, { id: 'trade', label: '盯盘' }, { id: 'system', label: '系统' }]"
+                  v-for="option in [
+                    { id: 'all', label: '全部' },
+                    { id: 'trade', label: '盯盘' },
+                    { id: 'system', label: '系统' },
+                  ]"
                   :key="option.id"
                   type="button"
                   role="tab"
@@ -146,15 +150,31 @@
                   :class="{ unread: isItemUnread(alert) }"
                 >
                   <div
-                    :class="['alert-icon', alert.kind === 'success' ? 'success' : alert.kind === 'info' || alert.kind === 'system' ? 'info' : '']"
+                    :class="[
+                      'alert-icon',
+                      alert.kind === 'success'
+                        ? 'success'
+                        : alert.kind === 'info' || alert.kind === 'system'
+                          ? 'info'
+                          : '',
+                    ]"
                   >
                     <i
-                      :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : alert.kind === 'system' ? 'wrench' : 'bell-ring'"
+                      :data-lucide="
+                        alert.kind === 'success'
+                          ? 'check-circle-2'
+                          : alert.kind === 'alert'
+                            ? 'triangle-alert'
+                            : alert.kind === 'system'
+                              ? 'wrench'
+                              : 'bell-ring'
+                      "
                       aria-hidden="true"
                     ></i>
                   </div>
                   <div class="alert-copy">
-                    <strong>{{ alert.title }}</strong><span>{{ alert.message }}</span>
+                    <strong>{{ alert.title }}</strong
+                    ><span>{{ alert.message }}</span>
                     <button
                       v-if="alert.code && alert.strategyId"
                       class="text-button"
@@ -292,9 +312,18 @@ const scan = useScanStore();
 
 const { conflictVisible, adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
 const {
-  view, marketStatus, dataState, providerLabel, dataStatusText,
-  currentViewMeta, globalSearch, lastUpdatedLabel, loading,
-  mobileExecTab, execShowsPlans, execShowsAlerts,
+  view,
+  marketStatus,
+  dataState,
+  providerLabel,
+  dataStatusText,
+  currentViewMeta,
+  globalSearch,
+  lastUpdatedLabel,
+  loading,
+  mobileExecTab,
+  execShowsPlans,
+  execShowsAlerts,
 } = storeToRefs(quotes);
 const { switchView, searchSymbol } = quotes;
 const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);

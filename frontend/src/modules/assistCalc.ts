@@ -62,7 +62,12 @@ export interface SizingOutput {
 }
 
 /** 按模式选首选候选，无效（null 或 ≥ 入场价）回退备选；均无效则置空并提示手动设定。 */
-export function selectStop(entry: number, atr14: number | null, ma20: number | null, stopMode: 'atr' | 'ma20'): StopCandidate {
+export function selectStop(
+  entry: number,
+  atr14: number | null,
+  ma20: number | null,
+  stopMode: 'atr' | 'ma20'
+): StopCandidate {
   const stopAtr = atr14 !== null ? round2(entry - 2 * atr14) : null;
   const stopMa20 = ma20 !== null ? round2(ma20) : null;
   const preferred = stopMode === 'atr' ? stopAtr : stopMa20;
