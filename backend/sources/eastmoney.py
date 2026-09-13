@@ -53,6 +53,9 @@ class EastMoneySource(DataSource):
     QUOTE_URL = "http://push2.eastmoney.com/api/qt/ulist.np/get"
     KLINE_URL = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
     CLIST_URL = "http://push2.eastmoney.com/api/qt/clist/get"
+    # 延时镜像（约 15 分钟）：仅行业预热等不敏感鲜度的分页可用（mirror_ok 显式开启），
+    # 选股器等价格敏感消费方保持主站失败如实上报，绝不静默降级为延时数据。
+    CLIST_MIRROR_URL = "http://push2delay.eastmoney.com/api/qt/clist/get"
     STOCK_URL = "http://push2.eastmoney.com/api/qt/stock/get"
     REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
 
@@ -277,7 +280,12 @@ class EastMoneySource(DataSource):
             "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
             "fields": _CLIST_FIELDS,
         }
-        data = self._http_get(self.CLIST_URL, params)
+        try:
+            data = self._http_get(self.CLIST_URL, params)
+        except (requests.HTTPError, requests.ConnectionError):
+            # 主站被网络重置/502 时走延时镜像：行业映射只用 f12/f14/f100（分类字段），
+            # 对价格鲜度无要求；同函数内 f2 等价格字段在 f100-only 流中本就丢弃。
+            data = self._http_get(self.CLIST_MIRROR_URL, params)
         payload = data.get("data") or {}
         rows = [q for q in (self._parse_quote(raw) for raw in payload.get("diff", [])) if q is not None]
         return rows, int(payload.get("total", 0))

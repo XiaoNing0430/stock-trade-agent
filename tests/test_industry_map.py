@@ -148,3 +148,53 @@ def test_refresh_partial_page_keeps_rows(tmp_db: TmpDb) -> None:
     im.reset_process_cache()
     m, st = get_industry_map()
     assert st == "fresh" and m == {"600519": "白酒", "000001": "银行"}
+
+
+def test_clist_page_falls_back_to_delay_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """主站网络重置/502 → 行业分页走 push2delay 镜像（f100 同源，行业无价格鲜度要求）。"""
+    import requests as req
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+    calls: list[str] = []
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        if url == src.CLIST_URL:
+            raise req.exceptions.ConnectionError("push2 reset by peer")
+        return {"data": {"total": 1, "diff": [{"f12": "600519", "f14": "贵州茅台", "f100": "白酒"}]}}
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    rows, total = src._clist_page(1, 200)
+    assert calls == [src.CLIST_URL, src.CLIST_MIRROR_URL]
+    assert total == 1 and rows[0]["industry"] == "白酒"
+
+
+def test_clist_page_primary_success_never_touches_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+    calls: list[str] = []
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        return {"data": {"total": 1, "diff": [{"f12": "600519", "f14": "贵州茅台", "f100": "白酒"}]}}
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    src._clist_page(1, 200)
+    assert calls == [src.CLIST_URL]
+
+
+def test_screener_paged_does_not_silently_degrade_to_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """选股器路径（load_screener_paged）保持主站失败如实上抛——绝不静默返回延时价格。"""
+    import requests as req
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        raise req.exceptions.HTTPError("502 Bad Gateway")
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    with pytest.raises(req.exceptions.HTTPError):
+        src.load_screener_paged(page=1, page_size=5, sort_by="changePct", sort_dir="desc")
