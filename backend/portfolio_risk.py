@@ -1,7 +1,7 @@
 """组合风险视图——回放引擎（Task 3 主层：入场 / 名义额静态分配 / 主层离场 / 毛净双序列；
 Task 4 闭环层：交易对平仓信号 / exitMode 四档同日优先级 / 冲突·冗余事件流；
-Task 5 聚合段1：aggregate_portfolio 主区块——KPI / 敞口 / 交易对 / 孤儿 / cap 族；
-集中度主体、信号看板、假想线、自选观察指数计算留段2 T5b（本段以占位键在位）。
+Task 5 聚合层：aggregate_portfolio——KPI / 敞口 / 交易对·孤儿 / 集中度（行业权重·HHI·Top3）/
+信号看板（§5.4 锚点）/ 自选观察等权指数与假想线 / cap·*Total 族 + meta。
 
 契约：docs/superpowers/specs/2026-09-12-portfolio-risk-view-spec.md r3.2 §5.1/§5.2/§5.3/§5.4/§5.5；
 冻结接口 I7 `replay_positions` / I9 `compose_nav`（I6 `plan_review.FEE_RATE_MAX` 同任务落地）/
@@ -731,43 +731,278 @@ def build_links(plans: list[dict]) -> tuple[dict[str, dict], list[dict]]:
     return links, events
 
 
-# —— Task 5 聚合层（段1）：§6 payload 主区块 ——
-# 本段管：kpis / nav（dates·gross·net）/ exposure / pairs / orphans / events 透传 + 四族 cap·*Total / meta。
-# concentration 主体、signals 看板、hypothetical 假想线、watchIndex 自选指数主体一律留段2（T5b）：
-# 本段 concentration=None、signals={"items": [], "note": ""}（signalsTotal=0）、orphans[].signalDate 恒 None、
-# watchIndex 仅在 with_watch=True 时给占位形状（values 全 None）。入参 watchlist / bars_map / today /
-# industry / industry_status 本段不消费（T5b 用），保持 I10 冻结签名逐字不动。
+# —— Task 5 聚合层：§6 payload 主区块 ——
+# 管：kpis / nav（dates·gross·net）/ exposure / pairs / orphans / signals 看板 / events 透传
+# + 四族 cap·*Total / concentration（行业权重）/ watchIndex 自选等权观察指数 / hypothetical 假想线 / meta。
+# 纯函数、零 IO：入参 watchlist / bars_map / today / industry / industry_status 全部由 T6 端点预取，
+# I10 冻结签名逐字不动。
 
 _CAP = 50  # §6 列表截断：pairs/orphans/signals.items/events 各 cap 50 + 对应 *Total
 
+_UNKNOWN_INDUSTRY = "未知"  # 行业 miss 桶（key=label 同串；920xxx 北交所恒落此桶，见 T2-M4）
+
+
+def _end_mark_value(pos: dict[str, Any], last_date: str) -> float | None:
+    """单仓位在窗尾日的市值（NAV 单位）；None = 不参与（notEntered / 零名义 / 末日及之前已离场）。
+
+    `shares` 直接取 to_position 产物（引擎已按"分配金额 / 成交价"折算，无需由 notional 反推）；
+    价格 = 末日及之前最近 mark，无 mark 回落 entryPrice——与 `compose_nav` 的前向填充逐字同口径，
+    故集中度权重与 NAV 市值天然对得上（同一标的两处不会算出两个价）。
+    """
+    notional = float(pos.get("notional") or 0.0)
+    shares = float(pos.get("shares") or 0.0)
+    entry_date = pos.get("entryDate")
+    if notional <= 0.0 or shares <= 0.0 or entry_date is None or str(entry_date) > last_date:
+        return None
+    exit_ = pos.get("exit")
+    if exit_ is not None and str(exit_.get("date") or "") <= last_date:
+        return None  # 离场日=现金日，不再占市值（与 I9 逐字同语义）
+    best_day, best_price = "", 0.0
+    marks = pos.get("marks") or {}
+    for key, price in marks.items():
+        day = str(key)
+        if day <= last_date and day >= best_day:
+            best_day, best_price = day, float(price)
+    if not best_day:
+        best_price = float(pos.get("entryPrice") or 0.0)
+    return shares * best_price
+
 
 def _holding_value_end(positions: list[dict], last_date: str) -> float:
-    """期末持仓市值（NAV 单位）：shares × 末日及之前最近 mark；无 mark 回落 entryPrice（compose_nav 同填充口径）。
+    """期末持仓市值合计（NAV 单位）——`_end_mark_value` 的求和，口径见该函数。"""
+    return sum(v for v in (_end_mark_value(p, last_date) for p in positions) if v is not None)
 
-    跳过 notEntered / 零名义 / 末日及之前已离场者——离场日=现金日，不再占市值（与 I9 逐字同语义）。
+
+def _industry_buckets(code_pct: dict[str, float], industry: dict[str, str]) -> tuple[list[dict[str, Any]], float, int]:
+    """code→百分比权重 归拢成行业分布。返回 (industries 按 pct 降序, unknownPct, knownCodes)。
+
+    miss / 空值 → 恒归「未知」桶（key=label="未知"）；pct 相同时保持首次出现序（sorted 稳定），
+    避免同一份数据两次渲染换色。920xxx 北交所不在东财 fs universe → 常态落未知桶（T2-M4 已知限制）。
     """
-    total = 0.0
-    for pos in positions:
-        if not isinstance(pos, dict):
+    buckets: dict[str, float] = {}
+    known = 0
+    for code, pct in code_pct.items():
+        name = str(industry.get(code) or "").strip()
+        if not name:
+            name = _UNKNOWN_INDUSTRY
+        else:
+            known += 1
+        buckets[name] = buckets.get(name, 0.0) + pct
+    unknown_pct = buckets.get(_UNKNOWN_INDUSTRY, 0.0)
+    rows: list[dict[str, Any]] = [{"key": key, "label": key, "pct": value} for key, value in buckets.items()]
+    rows.sort(key=lambda row: -float(row["pct"]))
+    return rows, unknown_pct, known
+
+
+def _concentration_block(
+    *,
+    positions: list[dict],
+    last_date: str | None,
+    industry: dict[str, str],
+    industry_status: str,
+    watchlist: list[Any],
+    cap_pct: float,
+    with_watch: bool,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """§6 concentration + meta.industryCoverage：计划成分窗尾市值权重 × 东财 f100 行业（D5）。
+
+    - 主指标：现金/未入场不参与归一；`hhi = Σw²`（**含**未知桶）、`top3` = 前三合计（不足三只=全部）。
+    - watchPool / hypothetical 仅 `with_watch=true` 才算：前者自选等权 1/n 的观察池分布（不参竞主指标），
+      后者"若自选按 cap 等权建仓"的假想线（每只 `cap_pct/n`，合计 = capPct，纯权重参考、无价格模拟）。
+    - staleCount 保守语义：`industry_status != "fresh"` 时**整表**都可能陈旧，逐 code 无法判定 →
+      计入全部参与标的（`staleCount = total`）；fresh 时 0。计数命名与 I4 的 status 词区分（r3.2）。
+    """
+    values: dict[str, float] = {}
+    if last_date is not None:
+        for pos in positions:
+            if not isinstance(pos, dict):
+                continue
+            value = _end_mark_value(pos, last_date)
+            if value is None or value <= 0.0:
+                continue  # 非参与者（含零市值脏数据）不进分母，也不进 coverage.total
+            code = str(pos.get("code") or "")
+            values[code] = values.get(code, 0.0) + value
+    total_value = sum(values.values())
+    if total_value > 0.0:
+        weights = {code: value / total_value * 100.0 for code, value in values.items()}
+    else:
+        weights = {}
+    industries, unknown_pct, known = _industry_buckets(weights, industry)
+    fractions = [row["pct"] / 100.0 for row in industries]
+    total_codes = len(weights)
+    coverage = {
+        "known": known,
+        "total": total_codes,
+        "staleCount": total_codes if str(industry_status) != "fresh" else 0,
+    }
+    watch_codes = list(dict.fromkeys(str(code) for code in (watchlist or []) if str(code)))
+    n = len(watch_codes)
+    watch_pool: dict[str, Any] | None = None
+    hypothetical: dict[str, Any] | None = None
+    if with_watch and n:
+        pool_rows, pool_unknown, _ = _industry_buckets({code: 100.0 / n for code in watch_codes}, industry)
+        hypo_rows, hypo_unknown, _ = _industry_buckets({code: cap_pct / n for code in watch_codes}, industry)
+        watch_pool = {
+            "industries": pool_rows,
+            "unknownPct": pool_unknown,
+            "note": "自选观察池行业分布（等权，不参竞主指标）",
+        }
+        hypothetical = {
+            "industries": hypo_rows,
+            "unknownPct": hypo_unknown,
+            "capPct": cap_pct,
+            "note": f"假想参考线：若自选按上限 {cap_pct:g}% 等权建仓（非真实持仓、不含价格模拟）",
+        }
+    return (
+        {
+            "top3": sum(fractions[:3]) * 100.0,
+            "hhi": sum(w * w for w in fractions),
+            "industries": industries,
+            "unknownPct": unknown_pct,
+            "watchPool": watch_pool,
+            "hypothetical": hypothetical,
+        },
+        coverage,
+    )
+
+
+def _bar_axis(bars_map: dict[str, Any], code: str, today: str) -> list[dict[str, Any]]:
+    """该标的自身 bar 轴（date < today 升序；未收盘 bar 由取数层排除，这里只兜底截断）。"""
+    bars = [b for b in (bars_map.get(code) or []) if isinstance(b, dict) and str(b.get("date") or "") < today]
+    return sorted(bars, key=lambda b: str(b.get("date") or ""))
+
+
+def _signal_anchor(plan: dict, axis: list[dict[str, Any]], window_start: str) -> tuple[int, str, float] | None:
+    """§5.4 信号看板锚点：窗内 stop/target **任一首次触及**日 + 复盘同款执行价。
+
+    返回 `(轴下标, 信号日, 基准价)`；无触及 → None（不进 items、orphans.signalDate 也留 None）。
+    与闭环层 relatedSell 的 entry/target 上触语义**不同源**（控制者裁定 b）：这里是"平仓信号质量看板"，
+    stop=下穿 `low<=stop`、target=上穿 `high>=target`，同日双触保守取 stop（复盘决议 3 同款）。
+    停牌（volume≤0）不判触发也不更新前收（与引擎逐字同口径）；一字跌停封死卖不出 → 当日顺延。
+    """
+    stop = _as_float(plan.get("stop"))
+    target = _as_float(plan.get("target"))
+    if stop <= 0.0 and target <= 0.0:
+        return None  # 双档皆脏/缺 → 无信号可判（不造锚点）
+    code = _plan_code(plan)
+    prev_close: float | None = None
+    for index, bar in enumerate(axis):
+        volume = _as_float(bar.get("volume"))
+        close = _as_float(bar.get("close"))
+        if volume <= 0.0:
             continue
-        notional = float(pos.get("notional") or 0.0)
-        shares = float(pos.get("shares") or 0.0)
-        entry_date = pos.get("entryDate")
-        if notional <= 0.0 or shares <= 0.0 or entry_date is None or str(entry_date) > last_date:
+        day = str(bar.get("date") or "")
+        if day >= window_start:
+            legs: list[tuple[str, float]] = []
+            if stop > 0.0 and _as_float(bar.get("low")) <= stop:
+                legs.append((REASON_STOP, stop))
+            if target > 0.0 and _as_float(bar.get("high")) >= target:
+                legs.append((REASON_TARGET, target))
+            for side, trigger in legs:  # legs 序即保守序：stop 在前
+                price = _exec_price(bar, trigger, side, prev_close, code)
+                if price is not None:
+                    return index, day, price
+        prev_close = close
+    return None
+
+
+def _signal_items(
+    plans: list[dict],
+    *,
+    bars_map: dict[str, Any],
+    window_start: str,
+    today: str,
+    equity: float,
+    fee_rate: float,
+) -> dict[str, dict[str, Any]]:
+    """看板 items 主体：孤儿 sell + redundant 事件涉及的 sell，逐计划算锚点与后 5/10/20 日表现。
+
+    返回 `planId → item`（含 `signalDate=None` 的无信号项，供 orphans 回填共用同一次计算）。
+    """
+    out: dict[str, dict[str, Any]] = {}
+    axes: dict[str, list[dict[str, Any]]] = {}
+    for plan in plans:
+        pid = _plan_id(plan)
+        if not pid or pid in out:
             continue
-        exit_ = pos.get("exit")
-        if exit_ is not None and str(exit_.get("date") or "") <= last_date:
+        code = _plan_code(plan)
+        if code not in axes:
+            axes[code] = _bar_axis(bars_map, code, today)
+        axis = axes[code]
+        anchor = _signal_anchor(plan, axis, window_start)
+        base = anchor[2] if anchor else None
+        item: dict[str, Any] = {
+            "planId": pid,
+            "code": code,
+            "signalDate": anchor[1] if anchor else None,
+            "basePrice": base,
+            "chg5": None,
+            "chg10": None,
+            "chg20": None,
+            "maxRebound": None,
+            "maxDrawdown": None,
+            "feeEstPct": None,
+            "paired": False,  # 调用方按 redundant 源改写
+        }
+        if anchor is not None and base is not None and base > 0.0:
+            index = anchor[0]
+            for n, key in ((5, "chg5"), (10, "chg10"), (20, "chg20")):
+                tail = index + n
+                if tail < len(axis):
+                    item[key] = _as_float(axis[tail].get("close")) / base - 1.0
+            forward = [b for b in axis[index + 1 : index + 21] if _as_float(b.get("volume")) > 0.0]
+            if forward:  # 区间=信号日之后 → +20 交易日或轴尾（信号日自身极值不算，执行价已在其中）
+                item["maxRebound"] = max(_as_float(b.get("high")) for b in forward) / base - 1.0
+                item["maxDrawdown"] = min(_as_float(b.get("low")) for b in forward) / base - 1.0
+        # 费用估算列：名义额 = equity×positionPct/100（amountByEquity 同口径），双边费率折算成收益率。
+        notional = equity * _as_float(plan.get("position")) / 100.0
+        if notional > 0.0:
+            item["feeEstPct"] = notional * fee_rate * 2.0 / notional
+        out[pid] = item
+    return out
+
+
+_SIGNAL_NOTE = (
+    "口径：信号日=窗内 stop/target 任一首次触及（同日双触保守取 stop），基准价=该日复盘同款执行价（含跳空）；"
+    "chg5/10/20=标的自身交易日轴后 N 日收盘对基准涨跌幅，最大反弹/回撤取信号日后 20 日内极值；"
+    "费用列为双边费率折算的估算收益率，数据不足一律 null（不造数）。"
+)
+
+
+def _watch_index(watchlist: list[Any], bars_map: dict[str, Any], dates: list[str], today: str) -> dict[str, Any]:
+    """D1 自选观察组合等权指数（非持仓、不参竞主指标）：组合轴日期上逐日累乘当日等权平均日收益。
+
+    每个标的的日收益取**它自己 bar 轴**的 `close/close_prev−1`（缺 bar 当日不贡献、序列该日 null，
+    绝不做前向填充造数）；当日无一个标的可算 → 指数该日 null，之后的日子仍以前一个可见值续乘。
+    """
+    codes = list(dict.fromkeys(str(code) for code in (watchlist or []) if str(code)))
+    returns: list[dict[str, float]] = []
+    for code in codes:
+        per_day: dict[str, float] = {}
+        prev_close: float | None = None
+        for bar in _bar_axis(bars_map, code, today):
+            if _as_float(bar.get("volume")) <= 0.0:
+                continue  # 停牌：无成交价可取，也不更新前收
+            close = _as_float(bar.get("close"))
+            if prev_close is not None and prev_close > 0.0 and close > 0.0:
+                per_day[str(bar.get("date") or "")] = close / prev_close - 1.0
+            prev_close = close
+        returns.append(per_day)
+    values: list[float | None] = []
+    level = 1.0
+    for day in dates:
+        day_returns = [series[str(day)] for series in returns if str(day) in series]
+        if not day_returns:
+            values.append(None)  # 无一个可用 → 该日 null（不造数，也不把前值当"平盘"续写）
             continue
-        best_day, best_price = "", 0.0
-        marks = pos.get("marks") or {}
-        for key, price in marks.items():
-            day = str(key)
-            if day <= last_date and day >= best_day:
-                best_day, best_price = day, float(price)
-        if not best_day:
-            best_price = float(pos.get("entryPrice") or 0.0)
-        total += shares * best_price
-    return total
+        level *= 1.0 + sum(day_returns) / len(day_returns)
+        values.append(level)
+    return {
+        "dates": list(dates),
+        "values": values,
+        "equityStart": 1,
+        "note": "自选观察组合（等权指数，非持仓）",
+    }
 
 
 def aggregate_portfolio(
@@ -792,18 +1027,20 @@ def aggregate_portfolio(
 ) -> dict:
     """I10：拼装 §6 payload（纯函数、零 IO、缺数据一律 null/空态不造数；degraded 由 T6 端点并包）。
 
-    段1 产出 kpis / nav / exposure / pairs / orphans / events cap 族 + meta；nav 只透传
-    dates·gross·net——feeCum/feeSum 无入参费用序列，由 T6 端点拼 nav 区块时一并并包。
-    口径选择（报告注明）：
+    产出 kpis / nav / exposure / concentration / pairs / orphans / signals 看板 / events cap 族 /
+    watchIndex / meta；nav 只透传 dates·gross·net——feeCum/feeSum 无入参费用序列，由 T6 端点拼
+    nav 区块时一并并包。口径选择（报告注明）：
     - *Total 四键（pairsTotal/orphansTotal/signalsTotal/eventsTotal）一律顶层，与 §6 逐字所示
-      `eventsTotal` 同级；meta.truncatedAt = 被截断族名列表（无截断省略键）。
+      `eventsTotal` 同级。**列表截断披露 = 各 *Total 与 len(items) 的对比**（前端显「共 N 条已截断」）；
+      `meta.truncatedAt` 归还 spec 原义 = ALL 窗 300-bar 起点截断日披露，**由 T6 端点填，本层不产该键**。
     - kpis.exposurePct/cashPct 取 **NAV 占比口径（0..1）**——§6 cashPct 公式字面"期末现金/期末 gross"；
       exposure.plannedPct/capPct 则是百分数（positionPct 口径）。
     - events 原 dict 透传（date None / code "" 容忍），排序 date 升序、None 视同最早（"" 键）。
     - planCount.active/triggered 计**全部类型计划**按状态（sell 亦是计划）；closedInWindow/notEntered
       取 positions（to_position 产物）口径。
-    - watchIndex 键名：with_watch=True 时挂**顶层** `{dates, values, note}`（spec 未钉死，本段 values
-      全 None 占位）；False → null（键恒在，形状稳定）。
+    - watchIndex 键名：with_watch=True 时挂**顶层** `{dates, values, equityStart, note}`（spec 未钉死，
+      与 concentration 并列）；False → null（键恒在，形状稳定）。
+    - concentration 恒为对象（无参与持仓 → 空分布），watchPool/hypothetical 仍按 with_watch 出 null。
     """
     plans = [p for p in plans if isinstance(p, dict)]  # 脏元素防线
     settings = settings if isinstance(settings, dict) else {}
@@ -872,13 +1109,7 @@ def aggregate_portfolio(
 
     pairs_total = len(pairs)
     orphans_total = len(orphans)
-    signals_total = 0  # TODO(T5b): 看板 items 计算后替换（signals 主体 + 本计数 + note 一并）
     events_total = len(ordered_events)
-    truncated = [
-        name
-        for name, total in (("pairs", pairs_total), ("orphans", orphans_total), ("events", events_total))
-        if total > _CAP
-    ]
 
     # —— exposure（D5）+ planCount：只算 buy 型且 执行中/已触发（未入场也占）——
     planned_pct = 0.0
@@ -908,24 +1139,64 @@ def aggregate_portfolio(
         exposure_pct = value_end / g_end
         cash_pct = (g_end - value_end) / g_end  # §6：期末现金/期末 gross（gross 线不计费 → 现金端即 gross−市值）
 
-    # TODO(T5b): concentration 主体（窗尾 marks 归一市值权重 / HHI / Top3 / 行业分布 / unknownPct /
-    # watchPool / hypothetical 假想线）+ meta.industryCoverage 真实计算（本段占位=无参与者）。
-    concentration = None
-    watch_index: dict | None = None
+    # —— 信号看板源（§5.4）：孤儿 sell + redundant 事件涉及的 sell（已配对但事后冗余）——
+    redundant_sell_ids = {
+        str((event.get("detail") or {}).get("sellPlanId") or "")
+        for event in ordered_events
+        if event.get("type") == "redundant"
+    }
+    redundant_sell_ids.discard("")
+    sell_index = {_plan_id(p): p for p in plans if _plan_kind(p) == "sell" and _plan_id(p)}
+    board_plans = [
+        sell_index[pid]
+        for pid in list(dict.fromkeys([o["planId"] for o in orphans] + sorted(redundant_sell_ids)))
+        if pid in sell_index
+    ]
+    board_items = _signal_items(
+        board_plans,
+        bars_map=bars_map if isinstance(bars_map, dict) else {},
+        window_start=str(window_start or ""),
+        today=str(today or ""),
+        equity=equity,
+        fee_rate=_as_float(fee_rate),
+    )
+    for orphan in orphans:  # orphans.signalDate 用同一锚点回填（无信号 → None，不造数）
+        orphan["signalDate"] = (board_items.get(orphan["planId"]) or {}).get("signalDate")
+    signals_rows = sorted(
+        (item for item in board_items.values() if item["signalDate"] is not None),
+        key=lambda item: (str(item["signalDate"]), str(item["planId"])),
+    )
+    for item in signals_rows:
+        item["paired"] = str(item["planId"]) in redundant_sell_ids
+
+    # —— concentration（D5+§5.4）：计划成分窗尾市值权重 × 行业；观察池/假想线随 with_watch 门控 ——
+    concentration, industry_coverage = _concentration_block(
+        positions=list(positions),
+        last_date=str(dates[-1]) if dates else None,
+        industry=industry if isinstance(industry, dict) else {},
+        industry_status=str(industry_status or ""),
+        watchlist=list(watchlist or []),
+        cap_pct=cap_pct,
+        with_watch=bool(with_watch),
+    )
+    watch_index: dict[str, Any] | None = None
     if with_watch:
-        # TODO(T5b): 自选等权观察指数主体（close/close_prev 等权收益、缺 bar 当日 null 拖尾不填充）。
-        # 段1 仅占位：values 全 None（无数据不造数），note 待段2 写口径一句话。
-        watch_index = {"dates": list(dates), "values": [None] * len(dates), "note": ""}
+        watch_index = _watch_index(
+            list(watchlist or []),
+            bars_map if isinstance(bars_map, dict) else {},
+            list(dates),
+            str(today or ""),
+        )
 
     meta: dict = {
         "layer": layer,
         "windowStart": window_start,
-        "industryCoverage": {"known": 0, "total": 0, "staleCount": 0},  # TODO(T5b) 占位（计数与 status 词区分）
+        "industryCoverage": industry_coverage,
         "equity": equity,
         "feeRate": fee_rate,
     }
-    if truncated:
-        meta["truncatedAt"] = truncated
+    # 注意：meta.truncatedAt **不由本层产出**——spec 原义 = ALL 窗 300-bar 起点截断日披露（T6 端点填）；
+    # 列表截断披露走各 *Total 与 len 的对比（前端显「共 N 条已截断」）。
 
     return {
         "kpis": {
@@ -958,8 +1229,8 @@ def aggregate_portfolio(
         "pairsTotal": pairs_total,
         "orphans": orphans[:_CAP],
         "orphansTotal": orphans_total,
-        "signals": {"items": [], "note": ""},  # TODO(T5b): 看板主体替换（items cap 50 同族规则）
-        "signalsTotal": signals_total,
+        "signals": {"items": signals_rows[:_CAP], "note": _SIGNAL_NOTE},
+        "signalsTotal": len(signals_rows),
         "events": ordered_events[:_CAP],
         "eventsTotal": events_total,
         "watchIndex": watch_index,
