@@ -31,7 +31,9 @@ server.py                 开发入口 — 在 127.0.0.1:4173 启动 uvicorn
 backend/
   app.py                  FastAPI 应用，所有 /api 路由，提供前端静态资源
   main.py                 python -m backend.main 入口
-  data_source.py          Tencent 行情适配器 + 分类 + 请求/重试 + 运行时配置
+  data_source.py          Tencent 行情适配器 + 分类 + 请求/重试 + 运行时配置 + L2 门面接线（cached 三级）
+  bars_etl.py             全市场日线 ETL：水位/universe/缺口四档/DQ 拒收/熔断自愈/三触发调度（bfq 500 根）
+  redis_cache.py          CacheFacade：Redis L2（quotes:/history: 白名单、ts 封装、熔断旁路）
   grid_strategy.py        网格策略计算：build_grid, suggest_grid, backtest_grid, optimize_grid（含基准/风险指标）
   grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）
   plan_review.py          计划绩效复盘：设计口径日线回放引擎（窗口/微结构/聚合，只读，零写 plans）
@@ -80,6 +82,11 @@ tests/
   test_portfolio_aggregate.py 聚合层：KPI/敞口/行业集中度/信号看板/自选观察指数/假想线
   test_portfolio_api.py   存储校验（交易对五规则/exitMode 白名单）+ /api/portfolio/risk 端点
   test_industry_map.py    行业映射双层缓存：fresh/stale/empty 判定 + 整表 min() 时龄
+  test_bars_etl.py        全市场日线 ETL 核心：水位时刻粒度/universe 并集/缺口四档/调度注册/health 位
+  test_bars_etl_run.py    ETL 执行流：空判失败熔断/DQ 拒收矩阵/SAVEPOINT 隔离/no_new_bar/自愈队列/护栏/互斥/公平序
+  test_redis_cache.py     CacheFacade（fake redis+假时钟全离线）：白名单/PX 随动/严格序列化/熔断仅计客户端
+  test_cached_facade.py   cached()×门面接线：L2 回填/写穿/降级真实 age/screener 零触达/quotes 键归一
+  conftest.py             逐用例隔离 L2 facade（防 lifespan 真实接线渗漏，离线纪律）
   test_strategy_engines.py
   frontend/               21 个 vitest 测试文件（共 209 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
@@ -121,7 +128,7 @@ python server.py    # 或 python -m backend.main
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
 npx vitest run                        # 前端单元测试（209 项，21 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（497 项，快速离线 monkeypatch 模式）
+python -m pytest tests/ -v            # 后端测试（562 项，快速离线 monkeypatch 模式）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -173,7 +180,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 
 ## 存储与数据说明
 
-- PostgreSQL 存储自选股、交易计划、提醒、网格策略/回测、行情 K 线和工作区设置。Redis 仅用于 `storage_status()` 的 ping 检测；实际行情缓存是 `data_source.py` 中的内存 `dict`。HTTP 超时/重试/缓存 TTL 由工作区设置通过 `data_source.apply_runtime_config(...)` 驱动（默认：TTL 8s，超时 10s，重试 1 次）。
+- PostgreSQL 存储自选股、交易计划、提醒、网格策略/回测、行情 K 线和工作区设置。Redis 承担两类职责：`storage_status()` ping 检测 + `redis_cache.CacheFacade` 行情 L2 缓存（`data_source.cached` 三级 L1 dict→L2→上游；仅 `quotes:`/`history:` 白名单键，`screener_v2:` 刻意不入 L2；连接失败=down facade，行为与无 Redis 时逐字一致；熔断 3 败/30s 旁路，物理 TTL≥1860s 保降级读）。**全市场日线 bfq 由 `bars_etl` 后台 ETL 落库**（启动 60s 探测自愈 + 交易日 15:20 日补 + 周六 10:30 审计；500 根深回补受腾讯 ifzq ~1500 持续请求 501 全 IP 惩罚窗约束，1500 码/日预算跨数日消化，ETL 专属 3.3rps 节奏）；`/api/health.bars` 暴露水位/新鲜数/universe/最后运行。HTTP 超时/重试/缓存 TTL 由工作区设置通过 `data_source.apply_runtime_config(...)` 驱动（默认：TTL 8s，超时 10s，重试 1 次）。
 - 选股器自 v0.5.0 起为全市场分页排序（`/api/screener/v2` 按 `screenerSource` 选源）+ 策略选股管道（`backend/screener/`）；`REAL_UNIVERSE` 仍用于「精选 50」标签。
 - 数据库迁移使用 **Alembic**（`backend/migrations/`）。基线迁移在 `c1a08e78583e_baseline_schema.py`。新增迁移通过 `alembic revision --autogenerate -m "描述"` 生成，提交前检查生成的脚本。
 
