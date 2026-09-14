@@ -300,3 +300,64 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
     if _flush(backfill, lambda code: BACKFILL_LIMIT):
         return
     _flush(daily, lambda code: max(DAILY_MIN_LIMIT, _lag_days(mx.get(code), stats.watermark) + 5))
+
+
+# ── I11 调度注册 / I5 health 位 ──────────────────────────────────────────────
+
+_h_at = 0.0
+_h_value: dict[str, Any] | None = None
+
+
+def register_jobs(scheduler: Any) -> list[dict]:
+    """三独立触发（启动 60s 一次性 / 交易日 15:20 / 周六 10:30）；跨 job 互斥由 _RUN_LOCK 保证。
+
+    APScheduler 3.x 同 id 即替换，多触发必须多 id（r3.1 成文澄清）。注册失败仅日志。
+    """
+    registered: list[dict] = []
+    base: dict[str, Any] = {
+        "func": run_full,
+        "max_instances": 1,
+        "coalesce": True,
+        "misfire_grace_time": 300,
+        "replace_existing": True,
+    }
+    specs = [
+        {**base, "id": "bars-etl-startup", "trigger": "date", "run_date": datetime.now(SH) + timedelta(seconds=60)},
+        {**base, "id": "bars-etl-daily", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 20},
+        {**base, "id": "bars-etl-weekly", "trigger": "cron", "day_of_week": "sat", "hour": 10, "minute": 30},
+    ]
+    for spec in specs:
+        try:
+            scheduler.add_job(**spec)
+            registered.append(spec)
+        except Exception:
+            logger.warning("bars_etl 任务注册失败 id=%s（跳过，不影响 API）", spec["id"], exc_info=True)
+    return registered
+
+
+def bars_health() -> dict[str, Any] | None:
+    """I5：{watermark, freshCount, universeSize, lastRunAt}，60s 进程缓存（GROUP BY 不在轮询热路径逐次跑）。
+
+    查询异常回 None——不造假不阻塞；从未跑过 ETL 时 lastRunAt=None。
+    """
+    global _h_at, _h_value
+    now = time.time()
+    with _wm_lock:
+        if _h_value is not None and now - _h_at < 60:
+            return dict(_h_value)
+    try:
+        watermark = authoritative_watermark()
+        mx = _max_map()
+        universe = resolve_universe()
+        fresh = sum(1 for code in universe if mx.get(code) == watermark)
+    except Exception:
+        return None
+    value: dict[str, Any] = {
+        "watermark": watermark,
+        "freshCount": fresh,
+        "universeSize": len(universe),
+        "lastRunAt": _last_run_at["at"],
+    }
+    with _wm_lock:
+        _h_at, _h_value = now, dict(value)
+    return value

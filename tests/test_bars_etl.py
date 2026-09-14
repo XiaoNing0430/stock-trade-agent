@@ -113,3 +113,75 @@ def test_detect_gaps_four_buckets(monkeypatch):
 )
 def test_lag_days(last, watermark, expected):
     assert bars_etl._lag_days(last, watermark) == expected
+
+
+# ── I11 调度注册（防重叠 kwargs）与 I5 health 位 ────────────────────────────
+
+
+class FakeScheduler:
+    timezone = "Asia/Shanghai"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def add_job(self, **kwargs) -> None:
+        self.calls.append(kwargs)
+
+
+def test_register_jobs_three_triggers_overlap_flags():
+    calls = bars_etl.register_jobs(FakeScheduler())
+    assert len(calls) == 3
+    ids = {c["id"] for c in calls}
+    assert ids == {"bars-etl-startup", "bars-etl-daily", "bars-etl-weekly"}
+    for c in calls:
+        assert c["max_instances"] == 1 and c["coalesce"] is True and c["misfire_grace_time"] == 300
+        assert c["replace_existing"] is True
+    daily = next(c for c in calls if c["id"] == "bars-etl-daily")
+    weekly = next(c for c in calls if c["id"] == "bars-etl-weekly")
+    startup = next(c for c in calls if c["id"] == "bars-etl-startup")
+    assert (
+        daily["trigger"] == "cron"
+        and daily["day_of_week"] == "mon-fri"
+        and daily["hour"] == 15
+        and daily["minute"] == 20
+    )
+    assert weekly["trigger"] == "cron" and weekly["day_of_week"] == "sat" and weekly["hour"] == 10
+    assert startup["trigger"] == "date"  # 一次性 +60s 首查（interval 会每 60s 重跑——非所需）
+    assert (startup["run_date"] - datetime.now(SH)).total_seconds() <= 61
+
+
+def test_register_jobs_swallows_scheduler_failure():
+    class Boom:
+        timezone = "Asia/Shanghai"
+
+        def add_job(self, **kw):
+            raise RuntimeError("scheduler down")
+
+    assert bars_etl.register_jobs(Boom()) == []  # 不抛——绝不影响 API 启动
+
+
+def test_bars_health_shape_and_error_none(monkeypatch):
+    monkeypatch.setattr(bars_etl, "_h_at", 0.0)  # 破缓存取新值
+    monkeypatch.setattr(bars_etl, "authoritative_watermark", lambda now=None: "2099-10-09")
+    monkeypatch.setattr(bars_etl, "_max_map", lambda: {"a": "2099-10-09", "b": "2099-10-08"})
+    monkeypatch.setattr(bars_etl, "resolve_universe", lambda: ["a", "b", "c"])
+    h = bars_etl.bars_health()
+    assert h == {"watermark": "2099-10-09", "freshCount": 1, "universeSize": 3, "lastRunAt": None}
+    monkeypatch.setattr(bars_etl, "resolve_universe", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    monkeypatch.setattr(bars_etl, "_h_at", 0.0)
+    assert bars_etl.bars_health() is None  # 不造假
+
+
+def test_health_endpoint_bars_key(monkeypatch):
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(
+        app_module.bars_etl,
+        "bars_health",
+        lambda: {"watermark": "2099-10-09", "freshCount": 7, "universeSize": 8, "lastRunAt": 1},
+    )
+    with TestClient(app_module.create_app()) as client:
+        body = client.get("/api/health").json()
+    assert body["bars"]["freshCount"] == 7
+    assert isinstance(body["storage"]["database"], bool)  # 既有 storage 契约零触碰（I9）

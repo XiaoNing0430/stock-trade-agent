@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import plan_review, portfolio_risk
+from backend import bars_etl, plan_review, portfolio_risk
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -275,6 +275,9 @@ def create_app() -> FastAPI:
                 )
             except Exception:
                 industry_logger.warning("行业映射预热任务注册失败（已跳过，不影响 API）", exc_info=True)
+            # 全市场日线 ETL（P2-M1）：启动 60s 自愈 + 交易日 15:20 + 周六审计；
+            # 三 job 各自防重叠 kwargs，跨 job 互斥走 run_full 进程锁；注册异常内部已吞。
+            bars_etl.register_jobs(scheduler)
         yield
         stop_scheduler()
 
@@ -308,6 +311,7 @@ def create_app() -> FastAPI:
             mode="separated",
             universeSize=50,
             storage=storage_status(),
+            bars=bars_etl.bars_health(),
         )
 
     @app.get("/api/workspace")
