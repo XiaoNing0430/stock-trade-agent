@@ -207,3 +207,15 @@ def test_startup_probe_reschedules_on_warmup_race():
     calls["n"] = 0
     bars_etl._startup_probe(sched, _run=lambda: bars_etl.EtlStats(aborted=True, reason="universe_too_small"))
     assert len(sched.calls) == 1  # 封顶：abort 也不重排（等日补 cron）
+
+
+def test_lifespan_runs_a1_cleanup_once(monkeypatch):
+    """A1 时点纪律接线证明：重启窗口自动幂等清理（spec §3.7 P2-3），非只定义不调用。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    calls = []
+    monkeypatch.setattr(app_module, "cleanup_legacy_index_qfq", lambda: calls.append(1) or 0)
+    with TestClient(app_module.create_app()):
+        pass
+    assert calls == [1]

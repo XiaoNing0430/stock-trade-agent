@@ -72,6 +72,7 @@ from backend.schemas import (
 from backend.sources import build_router, get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
+    cleanup_legacy_index_qfq,
     delete_grid_strategy,
     get_grid_strategy,
     get_scan_config,
@@ -257,6 +258,17 @@ def create_app() -> FastAPI:
         except Exception as exc:
             app.state.storage_ready = False
             app.state.storage_error = str(exc)
+        if app.state.storage_ready:
+            # A1 歧义桶一次性清理（spec §3.7 P2-3 时点纪律：重启窗口、幂等、留输出）。
+            # 新代码生效后 qfq 桶仅个股写、qfq:idx 桶仅指数写——删除只损个股一次回源，绝不损正确性。
+            try:
+                removed = cleanup_legacy_index_qfq()
+                if removed:
+                    logger.info("a1_index_bucket_cleanup 删除历史歧义行=%d（幂等，0 行=已净）", removed)
+            except Exception:
+                logger.warning(
+                    "a1_index_bucket_cleanup 失败（不阻塞启动；指数正确性不受影响——桶隔离已在读路径）", exc_info=True
+                )
         if app.state.storage_ready:
             try:
                 applied = get_workspace_settings("default")
