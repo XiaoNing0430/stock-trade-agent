@@ -591,6 +591,9 @@ def test_history_index_uses_isolated_adjustment_bucket(monkeypatch):
     monkeypatch.setattr(
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
+    # 本用例聚焦桶隔离：旁路 lifespan 的 A1 幂等清理（它会按定义删任意 000001:qfq 行，
+    # 含本测试播种行——生产语义=个股缓存一次性回源，已由 lifespan 专测钉住，不该绞杀本用例）
+    monkeypatch.setattr(app_module, "cleanup_legacy_index_qfq", lambda: 0)
     # 生僻交易日：与真实缓存行零相撞，用例结束后自行收尾
     day = "2099-12-31"
     stock_bar = {"date": day, "open": 10.5, "high": 11.0, "low": 10.0, "close": 10.8, "volume": 1000.0, "amount": 1e4}
