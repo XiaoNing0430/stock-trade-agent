@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from redis import Redis
-from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, select, text
+from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, delete, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from backend.settings import get_settings
@@ -710,6 +710,18 @@ def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "q
                 setattr(row, field, float(value) if value is not None else None)
             row.fetched_at = datetime.now(UTC)
     return latest_date
+
+
+def cleanup_legacy_index_qfq() -> int:
+    """A1 一次性清理：指数与个股共享 (code,'qfq') 桶的历史混写行整删（幂等）。
+
+    000001 与平安银行同码歧义不可分，qfq 缓存按需重取，删除代价≈首访一次回源。
+    """
+    with SessionLocal.begin() as session:
+        n = session.execute(
+            delete(MarketBar).where(MarketBar.adjustment == "qfq", MarketBar.code.in_(["000001", "399001", "399006"]))
+        ).rowcount
+    return int(n)
 
 
 def save_grid_backtest(

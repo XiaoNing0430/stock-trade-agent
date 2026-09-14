@@ -576,6 +576,57 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     assert response.status_code == 502
 
 
+def test_history_index_uses_isolated_adjustment_bucket(monkeypatch):
+    """A1：指数历史不得写进个股 (code,'qfq') 同桶——落库键空间隔离为 qfq:idx。"""
+    from backend.storage import (
+        DEFAULT_WORKSPACE_SETTINGS,
+        MarketBar,
+        SessionLocal,
+        initialize_storage,
+        save_market_bars,
+    )
+    from sqlalchemy import delete, select
+
+    initialize_storage()
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+    # 生僻交易日：与真实缓存行零相撞，用例结束后自行收尾
+    day = "2099-12-31"
+    stock_bar = {"date": day, "open": 10.5, "high": 11.0, "low": 10.0, "close": 10.8, "volume": 1000.0, "amount": 1e4}
+    index_bar = {"date": day, "open": 3000.1, "high": 3100.2, "low": 2900.0, "close": 3050.5, "volume": 1e8}
+    save_market_bars("000001", [stock_bar], adjustment="qfq")
+
+    captured: dict = {}
+
+    def fake_history(code, limit=40, is_index=False, adjustment="qfq"):
+        captured["is_index"] = is_index
+        captured["adjustment"] = adjustment
+        return [dict(index_bar)]
+
+    monkeypatch.setattr("backend.data_source.load_history", fake_history)
+    try:
+        with TestClient(app_module.create_app()) as client:
+            response = client.get("/api/history?code=000001&index=true")
+        assert response.status_code == 200
+        # 端点向历史源声明的是隔离桶，而非个股 qfq 桶
+        assert captured == {"is_index": True, "adjustment": "qfq:idx"}
+
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day)
+            ).all()
+        by_adjustment = {row.adjustment: row for row in rows}
+        # 个股 qfq 行逐字段不变（未被指数点位污染）
+        assert by_adjustment["qfq"].open == 10.5
+        assert by_adjustment["qfq"].close == 10.8
+        # 指数点位只落在新增的 qfq:idx 行
+        assert by_adjustment["qfq:idx"].close == 3050.5
+    finally:
+        with SessionLocal.begin() as session:
+            session.execute(delete(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day))
+
+
 def test_screener_v2_returns_paginated_results(monkeypatch):
     fake_data = {
         "data": {

@@ -254,3 +254,43 @@ def test_save_market_bars_skips_blank_date():
     assert latest == "2026-09-01"
     loaded = storage_module.load_market_bars("cov-code")
     assert [bar["date"] for bar in loaded] == ["2026-09-01"]
+
+
+def test_cleanup_legacy_index_qfq_is_idempotent():
+    """A1 一次性清理：歧义桶 (指数共用码,'qfq') 整删且幂等；隔离桶 qfq:idx 与无关 code 不误伤。"""
+    from sqlalchemy import delete, select
+
+    day = "2099-12-31"  # 生僻交易日，避免与真实缓存行相撞
+
+    def _bar(code: str, adjustment: str) -> storage_module.MarketBar:
+        return storage_module.MarketBar(
+            code=code, trade_date=day, adjustment=adjustment, open=1, high=2, low=0.5, close=1.5
+        )
+
+    with storage_module.SessionLocal.begin() as session:
+        session.add_all([_bar("000001", "qfq"), _bar("000001", "qfq:idx"), _bar("cov-keep", "qfq")])
+    try:
+        assert storage_module.cleanup_legacy_index_qfq() >= 1
+        assert storage_module.cleanup_legacy_index_qfq() == 0  # 幂等：二次调用无行可删
+        with storage_module.SessionLocal() as session:
+            buckets = set(
+                session.scalars(
+                    select(storage_module.MarketBar.adjustment).where(
+                        storage_module.MarketBar.code == "000001", storage_module.MarketBar.trade_date == day
+                    )
+                ).all()
+            )
+            survivor = session.scalars(
+                select(storage_module.MarketBar).where(
+                    storage_module.MarketBar.code == "cov-keep", storage_module.MarketBar.trade_date == day
+                )
+            ).first()
+        assert buckets == {"qfq:idx"}  # 歧义桶已清空，隔离桶保留
+        assert survivor is not None  # 非歧义 code 的 qfq 行不动（cov-keep 由模块夹具收尾）
+    finally:
+        with storage_module.SessionLocal.begin() as session:
+            session.execute(
+                delete(storage_module.MarketBar).where(
+                    storage_module.MarketBar.code == "000001", storage_module.MarketBar.trade_date == day
+                )
+            )

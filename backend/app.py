@@ -414,7 +414,9 @@ def create_app() -> FastAPI:
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)) -> HistoryOut:
         try:
-            history, data_source_flag, data_as_of, provider = _load_history_with_fallback(code, 120, is_index=index)
+            history, data_source_flag, data_as_of, provider = _load_history_with_fallback(
+                code, 120, is_index=index, adjustment="qfq:idx" if index else "qfq"
+            )
             return HistoryOut(
                 code=code,
                 provider=provider,
