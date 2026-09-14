@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from collections.abc import Callable
@@ -29,6 +30,8 @@ UNIVERSE_MIN = 2000  # 小分母护栏（industry 预热竞态/上游单点故�
 FAIL_RATE_ABORT = 0.2
 MIN_SAMPLES_FOR_ABORT = 50
 BATCH_CODES = 500  # 组事务码数（每批一 BEGIN，码级 SAVEPOINT 隔离）
+BACKFILL_CODES_PER_RUN = 1500  # ⟳ 冒烟实锤：腾讯 ifzq kline ~1500 req 持续即 501 全 IP 惩罚窗
+ETL_MIN_FETCH_INTERVAL = 0.30  # ≈3.3rps：ETL 专属节流（工作区 rateLimit 管报价面，不救 kline）
 
 _wm_lock = threading.Lock()
 _wm_at = 0.0
@@ -147,6 +150,7 @@ class EtlStats:
     no_new_bar: int = 0
     rejected: int = 0
     fetched: int = 0
+    deferred: int = 0  # 回补预算未覆盖的剩余缺口码（跨日轮换消化）
     failed: list[str] = field(default_factory=list)
     watermark: str = ""
     aborted: bool = False
@@ -182,9 +186,17 @@ def validate_bars(bars: list[dict[str, Any]], watermark: str) -> tuple[list[dict
     return clean, rejected
 
 
+def _fair_order(queue: list[str], salt: str) -> list[str]:
+    """确定性洗牌：同 salt 同序（当日组事务重放稳定），跨 salt（日）轮换头部——防失败聚簇饿死尾部。"""
+    out = list(queue)
+    random.Random(salt).shuffle(out)
+    return out
+
+
 def _default_fetch(code: str, limit: int) -> list[dict[str, Any]]:
     from backend import data_source
 
+    time.sleep(ETL_MIN_FETCH_INTERVAL)  # ETL 专属节奏（3.3rps）：kline 端点惩罚窗远严于报价面
     return data_source.load_history(code, limit=limit, is_index=False, adjustment="")
 
 
@@ -203,12 +215,13 @@ def run_full(force: bool = False, *, fetch: Callable[[str, int], list[dict[str, 
         _RUN_LOCK.release()
         stats.elapsed_ms = int((time.time() - t0) * 1000)
         (logger.error if stats.aborted else logger.info)(
-            "bars_etl_%s universe=%d up_to_date=%d backfill=%d daily=%d no_new_bar=%d rejected=%d "
+            "bars_etl_%s universe=%d up_to_date=%d backfill=%d deferred=%d daily=%d no_new_bar=%d rejected=%d "
             "fetched=%d failed=%d watermark=%s elapsed_ms=%d%s",
             "aborted" if stats.aborted else "ok",
             stats.universe,
             stats.up_to_date,
             stats.backfill,
+            stats.deferred,
             stats.daily,
             stats.no_new_bar,
             stats.rejected,
@@ -236,11 +249,15 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
     deep = list(gaps["stale_deep"])
     light = list(gaps["stale_light"])
     stats.up_to_date = int(gaps["up_to_date"])
-    backfill = [c for c in universe if c in set(missing) | set(deep)]
+    backfill_all = [c for c in universe if c in set(missing) | set(deep)]
+    # ⟳ 公平随机序（冒烟教训 L8）：退市码在代码段聚簇成连续失败块，sorted 头扫会让
+    # 熔断永远饿死头部之后的码；同日种子稳定、跨日轮换。回补预算封顶防撞 501 惩罚窗。
+    backfill = _fair_order(backfill_all, "bf:" + stats.watermark)[:BACKFILL_CODES_PER_RUN]
+    stats.deferred = len(backfill_all) - len(backfill)
     queued = set(backfill) | set(light)
     daily = [c for c in universe if c not in queued] if force else list(light)
-    recheck_now = {c for c in _recheck if c not in queued}
-    daily = sorted(set(daily) | recheck_now)
+    recheck_now = sorted(c for c in _recheck if c not in queued)  # 复核队列置头（小集必处理）
+    daily = recheck_now + _fair_order(sorted(set(daily) - set(recheck_now)), "daily:" + stats.watermark)
     stats.backfill, stats.daily = len(backfill), len(daily)
     mx = _max_map()
     processed = fail_codes = 0

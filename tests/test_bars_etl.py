@@ -162,6 +162,7 @@ def test_register_jobs_swallows_scheduler_failure():
 
 def test_bars_health_shape_and_error_none(monkeypatch):
     monkeypatch.setattr(bars_etl, "_h_at", 0.0)  # 破缓存取新值
+    monkeypatch.setitem(bars_etl._last_run_at, "at", None)  # 隔离其他用例的 run 时间戳（文件顺序无关）
     monkeypatch.setattr(bars_etl, "authoritative_watermark", lambda now=None: "2099-10-09")
     monkeypatch.setattr(bars_etl, "_max_map", lambda: {"a": "2099-10-09", "b": "2099-10-08"})
     monkeypatch.setattr(bars_etl, "resolve_universe", lambda: ["a", "b", "c"])

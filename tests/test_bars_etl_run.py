@@ -192,3 +192,34 @@ def test_plain_run_skips_up_to_date(monkeypatch):
     calls = []
     stats = bars_etl.run_full(fetch=lambda code, limit: calls.append(code) or [])
     assert calls == [] and stats.up_to_date == 1 and stats.backfill == 0 and stats.daily == 0
+
+
+# ── L8 三连修：公平随机序 / 回补预算 / ETL 专属限速 ────────────────────────
+
+
+def test_fair_order_stable_rotating_and_not_head_sorted():
+    q = [f"c{i:02d}" for i in range(24)]
+    a = bars_etl._fair_order(q, "bf:2099-10-09")
+    assert sorted(a) == q
+    assert a == bars_etl._fair_order(q, "bf:2099-10-09")  # 同日盐同序（组重放稳定）
+    assert a != bars_etl._fair_order(q, "bf:2099-10-10")  # 跨日轮换头部
+    assert a != list(q)  # 非恒等（salt 定值下的存在性断言，失败即换 salt）
+
+
+def test_backfill_budget_defers_tail(monkeypatch):
+    monkeypatch.setattr(bars_etl, "BACKFILL_CODES_PER_RUN", 5)
+    codes = [f"covb-{i:03d}" for i in range(60)]
+    _stub(monkeypatch, codes)
+    calls = []
+    stats = bars_etl.run_full(fetch=lambda code, limit: calls.append(code) or [_bar(date="2099-10-09")])
+    assert stats.backfill == 5 and stats.deferred == 55 and len(calls) == 5
+
+
+def test_default_fetch_paces_upstream(monkeypatch):
+    slept = []
+    from backend import data_source
+
+    monkeypatch.setattr(bars_etl.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(data_source, "load_history", lambda code, **kw: [])
+    bars_etl._default_fetch("600000", 5)
+    assert slept == [bars_etl.ETL_MIN_FETCH_INTERVAL]
