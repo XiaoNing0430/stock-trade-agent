@@ -306,6 +306,32 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
 
 _h_at = 0.0
 _h_value: dict[str, Any] | None = None
+_startup_attempts = {"n": 0}  # 预热竞态自动重试封顶（每次 120s，共覆盖 ~40min）
+
+
+def _startup_probe(scheduler: Any, _run: Callable[[], EtlStats] | None = None) -> None:
+    """启动首查：industry_map 预热未完成时 run_full 会护栏中止——重排一次 date 任务自愈。
+
+    绝不同步死等（占死 executor 线程）；也绝不用 interval（r3 裁定：非所需重跑形态）。
+    """
+    stats = run_full() if _run is None else _run()
+    if stats.aborted and stats.reason == "universe_too_small":
+        if _startup_attempts["n"] >= 20:
+            logger.warning("bars_etl 启动探测重试封顶（20 次），等待 15:20 日补 cron")
+            return
+        _startup_attempts["n"] += 1
+        try:
+            scheduler.add_job(
+                func=_startup_probe,
+                trigger="date",
+                run_date=datetime.now(SH) + timedelta(seconds=120),
+                kwargs={"scheduler": scheduler, "_run": _run},
+                id=f"bars-etl-startup-retry-{_startup_attempts['n']}",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+        except Exception:
+            logger.warning("bars_etl 启动探测重排失败（跳过，等日补 cron）", exc_info=True)
 
 
 def register_jobs(scheduler: Any) -> list[dict]:
@@ -322,7 +348,14 @@ def register_jobs(scheduler: Any) -> list[dict]:
         "replace_existing": True,
     }
     specs = [
-        {**base, "id": "bars-etl-startup", "trigger": "date", "run_date": datetime.now(SH) + timedelta(seconds=60)},
+        {
+            **base,
+            "id": "bars-etl-startup",
+            "trigger": "date",
+            "run_date": datetime.now(SH) + timedelta(seconds=60),
+            "func": _startup_probe,
+            "kwargs": {"scheduler": scheduler},
+        },
         {**base, "id": "bars-etl-daily", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 20},
         {**base, "id": "bars-etl-weekly", "trigger": "cron", "day_of_week": "sat", "hour": 10, "minute": 30},
     ]

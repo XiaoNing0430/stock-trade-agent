@@ -186,3 +186,24 @@ def test_health_endpoint_bars_key(monkeypatch):
     assert body["bars"]["freshCount"] == 7
     assert body["redisCache"] in {"connected", "bypassed", "down"}  # 三态枚举（无配置=down）
     assert isinstance(body["storage"]["database"], bool)  # 既有 storage 契约零触碰（I9）
+
+
+def test_startup_probe_reschedules_on_warmup_race():
+    sched = FakeScheduler()
+    calls = {"n": 0}
+
+    def fake_run():
+        calls["n"] += 1
+        return bars_etl.EtlStats(aborted=True, reason="universe_too_small") if calls["n"] < 2 else bars_etl.EtlStats()
+
+    bars_etl._startup_attempts["n"] = 0
+    bars_etl._startup_probe(sched, _run=fake_run)  # abort：重排一次 date 任务（不同步死等）
+    assert calls["n"] == 1 and len(sched.calls) == 1
+    assert sched.calls[0]["trigger"] == "date" and sched.calls[0]["kwargs"]["scheduler"] is sched
+    bars_etl._startup_probe(sched, _run=fake_run)  # 模拟重排任务触发：成功→不再重排
+    assert calls["n"] == 2 and len(sched.calls) == 1
+    bars_etl._startup_attempts["n"] = 20  # 封顶后 abort 也不重排
+    calls["n"] = 0
+    bars_etl._startup_probe(sched, _run=lambda: bars_etl.EtlStats(aborted=True, reason="universe_too_small"))
+    assert len(sched.calls) == 1
+    assert calls["n"] == 1
