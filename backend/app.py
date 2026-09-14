@@ -16,14 +16,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import bars_etl, plan_review, portfolio_risk
+from backend import bars_etl, plan_review, portfolio_risk, redis_cache
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
+    current_cache_ttl,
+    facade_state,
     price_limit_ratio,
     recent_stale,
+    set_facade,
 )
 from backend.grid_scheduler import (
     schedule_strategy,
@@ -243,6 +246,10 @@ def _industry_warmup_job() -> None:
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # P2-M2：L2 缓存门面接线（无配置/探测不可达 = down facade，行为与接管前一致）
+        from backend.settings import get_settings
+
+        set_facade(redis_cache.build_facade(get_settings(), ttl_getter=current_cache_ttl))
         try:
             initialize_storage()
             start_scheduler()
@@ -312,6 +319,7 @@ def create_app() -> FastAPI:
             universeSize=50,
             storage=storage_status(),
             bars=bars_etl.bars_health(),
+            redisCache=facade_state(),
         )
 
     @app.get("/api/workspace")

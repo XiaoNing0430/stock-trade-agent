@@ -71,7 +71,7 @@ class CacheFacade:
             self._was_bypassed = False
             logger.info("redis_cache_recovered L2 旁路窗结束，自动恢复")
 
-    def _read_envelope(self, key: str, max_age: float) -> Any | None:
+    def _read_envelope(self, key: str, max_age: float) -> tuple[Any, float] | None:
         if not self._eligible(key) or self._bypassed():
             return None
         self._maybe_log_recovery()
@@ -88,19 +88,26 @@ class CacheFacade:
             ts = float(env["ts"])
         except Exception:
             return None  # 坏封装=弃键（TTL 自清），不造假不抛
-        if self._clock() - ts > max_age:
+        age = self._clock() - ts
+        if age > max_age:
             return None
-        return env["v"]
+        return env["v"], age
 
     # ── 对外四类（I7） ─────────────────────────────────────────────────────
 
     def get(self, key: str) -> Any | None:
         """新鲜读：宽限=当前 _cache_ttl + 5s；超窗弃用（take_stale 才有 1800s 语义）。"""
-        return self._read_envelope(key, self._ttl() + STALE_FRESH_GRACE)
+        hit = self._read_envelope(key, self._ttl() + STALE_FRESH_GRACE)
+        return hit[0] if hit else None
+
+    def stale_read(self, key: str, max_age: float) -> tuple[Any, float] | None:
+        """(值, 真实 age)：降级路径把诚实 age 喂给 mark_stale；过期/缺失 None。"""
+        return self._read_envelope(key, max_age)
 
     def take_stale(self, key: str, max_age: float) -> Any | None:
         """降级读：只按 max_age（STALE_MAX_AGE）判定——不受新鲜窗复核绞杀（P1-1）。"""
-        return self._read_envelope(key, max_age)
+        hit = self.stale_read(key, max_age)
+        return hit[0] if hit else None
 
     def set(self, key: str, value: Any, ttl: int) -> None:
         if not self._eligible(key) or self._bypassed():

@@ -184,4 +184,5 @@ def test_health_endpoint_bars_key(monkeypatch):
     with TestClient(app_module.create_app()) as client:
         body = client.get("/api/health").json()
     assert body["bars"]["freshCount"] == 7
+    assert body["redisCache"] in {"connected", "bypassed", "down"}  # 三态枚举（无配置=down）
     assert isinstance(body["storage"]["database"], bool)  # 既有 storage 契约零触碰（I9）
