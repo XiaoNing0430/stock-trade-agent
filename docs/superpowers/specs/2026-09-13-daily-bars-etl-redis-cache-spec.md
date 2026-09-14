@@ -1,7 +1,7 @@
-# 全市场日线 ETL + Redis 行情缓存接管（P2 数据中台）— 设计规格 r3
+# 全市场日线 ETL + Redis 行情缓存接管（P2 数据中台）— 设计规格 r3.1
 
-日期：2026-09-13 ｜ 状态：**用户评审=有条件通过（r2 轮）；r3 清偿全部条件项，视为评审通过进入计划** ｜ 上游：ROADMAP「P2 Redis 行情缓存接管」「P2 全市场日线落库」
-评审史：r1 对抗评审 3P0/6P1/2P2 → r2 全吸收；r2 用户评审按单用户本地标准**有条件通过**（3×P1 + 5×P2 待修）→ r3 清偿，修订处 ⟳ 标记；r3 自查新增 I9 兼容修正 ⟳（r2 的 health.redis 三态会破坏既有布尔契约，改附加键）。"生产级量化网站"轴两轮评审均提出，均依 AGENTS 定位整体拒绝（§9）；**本 spec 验收判据仅以单用户本地工具标准为准**。
+日期：2026-09-13 ｜ 状态：**评审循环收口（r3 轮"有条件通过"条件已在 r3.1/计划层清偿）；待用户放行执行方式** ｜ 上游：ROADMAP「P2 Redis 行情缓存接管」「P2 全市场日线落库」
+评审史：r1 对抗 3P0/6P1/2P2→r2；r2 用户评审 3P1/5P2→r3；r3 复审 5P1/4P2→**r3.1**（⟹ 标记本轮修订；P1-4 经读码证伪——quotes 缓存值本就是 raw text，重排在解析层；P1-1 在计划层已成文澄清）。"生产级量化网站"轴评审三轮均依 AGENTS 定位整体拒绝（§9）。
 定位：数据基础设施两里程碑，M1（日线 ETL）与 M2（Redis 接管）相互独立、可独立交付回滚；共享"降级不静默"纪律。
 红线不变：绝不造数；ETL/缓存缺口一律如实暴露为回源、degraded、stale 或 rejected。
 
@@ -54,10 +54,11 @@
 
 ### 3.4 执行流（`run_full(force=False, *, fetch=None) -> EtlStats`）
 - 三阶段：回补档 → 日补档 → 汇总日志；全局 `_throttle()`（≤10 req/s）顺序拉取（≈9-15 分钟），⟳ 写入 I10 批量（每 500 码一事务、**码级 SAVEPOINT**：单码异常仅回滚该码入 failed，同批他码照常提交）。
-- 失败判定：`bars==[]` 即失败（重试 1 仍空→failed+计熔断率）；非空但无新根→`no_new_bar` 正常档；失败率>20%→本轮熔断。
+- 失败判定：`bars==[]` 即失败（重试 1 仍空→failed+计熔断率）；非空但无新根→`no_new_bar` 正常档；⟳ 失败率>20% 且**已处理≥50 码**方熔断（防小样本早切，P2-1）。
 - ⟳ **DQ 逐根断言（写前）**：`open/high/low/close` 非空且 ≥0、`low ≤ min(open,close) ≤ max(open,close) ≤ high`、`volume ≥ 0`（0=停牌合法）、`trade_date` 合法日期且 ≤ watermark、批内同 date 去重保后者。坏根**拒收不落库**，计 `rejected`（码级：一码全根被拒→该码入 failed）。消费端因此永不触达畸形行——DQ 失败是数据面诚实，不是静默。
+- ⟳ **DQ 中间缺口自愈（P1-2）**：`detect_gaps` 只看 max 水位，坏根造成的**中间日洞**若恰在"其余日已齐"码内则不会被下轮识别。三道封堵：① `run_full` 内 `rejected>0` 的码入进程 `_recheck_next` 集合，**下轮无条件强制日补**（limit=max(20,15)，20 根窗口天然回填中间洞）；② 周六审计轮以 `force=True` 语义全市场日补（≥20 根窗口），重启丢失的①队列最迟一周内兜底；③ 残余披露入 §9-L7：极小概率组合（DQ 洞恰在窗口外 + 进程重启）不自动回填，属可容忍数据面长尾，不为此建洞位表。
 - `force=True`（脚本/测试）：跳过 up_to_date 全量日补。
-- ⟳ **调度防重叠**：三处注册（启动 60s 自愈、交易日 15:20、周六 10:30 审计）**共用 job id `bars-etl` + `max_instances=1, coalesce=True, misfire_grace_time=300`**——上一轮未完时新触发合并跳轮，绝不同时两跑；注册函数导出供测试以假 scheduler 断言 kwargs。首装=自然特例（全库 missing→回补）。注册失败仅日志，不影响 API 启动。
+- ⟳ **调度防重叠**：APScheduler 3.x 同 id add_job 互相替换，"三触发共用一 id"不成立（评审 P1-1，计划层成文澄清）——**三独立 job id（bars-etl-startup/daily/weekly）各带 `max_instances=1, coalesce=True, misfire_grace_time=300`，互斥的真正保证是 `run_full` 入口 `_RUN_LOCK` 进程锁（非阻塞获取，忙则 `aborted, reason="overlap"` 记日志）**——跨 job 并发同样互斥，强于 OrTrigger 方案；注册函数导出供测试以假 scheduler 断言 kwargs。首装=自然特例（全库 missing→回补）。注册失败仅日志，不影响 API 启动。
 
 ### 3.5 消费端对齐
 `fetch_all_bars` 的 7 日新鲜判据在 ETL 日补后恒真 → loader 不调、upstream=0、degraded 空。未覆盖码（全市场北交所/新股空窗）走现状逐码回源。停摆>7 天=性能退化非正确性退化（health 暴露）。
@@ -66,7 +67,7 @@
 `bars_etl_ok universe=%d up_to_date=%d backfill=%d daily=%d no_new_bar=%d rejected=%d fetched=%d failed=%d watermark=%s aborted=%d elapsed_ms=%d`（`atlas.bars_etl`）；`/api/health` 附加 `bars = {watermark, freshCount, universeSize, lastRunAt}|null`，**结果进程缓存 60s**（热路径不逐次 GROUP BY；缓存不可用时回 null 不阻塞不造假）。
 
 ### 3.7 附带缺陷修复 A1 ⟳（独立提交，先于 ETL）
-① 指数链路（`app.py:417` 面）以 `adjustment="qfq:idx"` 键空间存取，与个股隔离；② **一次性清理**：脚本 `DELETE FROM market_bars WHERE adjustment='qfq' AND code IN ('000001','399001','399006')`（歧义桶整删——qfq 缓存本就按需重取，代价≈首访一次回源；现库仅 11 码/1601 行，删量个位数行级）；脚本幂等、计划任务内执行并留输出。测试：指数与个股同码互不读写 + 清理后 000001:qfq 桶仅剩个股行（重取后）。
+① 指数链路（`app.py:417` 面）以 `adjustment="qfq:idx"` 键空间存取，与个股隔离；② **一次性清理**：脚本 `DELETE FROM market_bars WHERE adjustment='qfq' AND code IN ('000001','399001','399006')`（歧义桶整删——qfq 缓存本就按需重取，代价≈首访一次回源；现库仅 11 码/1601 行，删量个位数行级）；⟳ 时点纪律（P2-3）：清理在**部署/重启窗口执行、先于新键代码生效后的首次指数访问**，此时个股 000001 qfq 行删除仅损失缓存不损失正确性（消费端 7 日新鲜判据自动回源重建）；脚本幂等、计划任务内执行并留输出。测试：指数与个股同码互不读写 + 清理后 000001:qfq 桶仅剩个股行（重取后）。
 
 ## 4. M2：Redis 行情缓存接管（`backend/redis_cache.py` + `data_source.cached`）
 
@@ -75,18 +76,18 @@
 class CacheFacade:
     def __init__(self, redis_factory, ttl_getter, log=logger): ...
     def get(self, key) -> Any | None          # L1→L2(回填 L1)→None；仅白名单前缀查 L2
-    def set(self, key, value, ttl)            # L1 恒写；L2 白名单内双写，任何异常吞+计入熔断
+    def set(self, key, value, ttl)            # L1 恒写；L2 白名单内双写。⟳ 异常分家：Redis 客户端异常/超时吞+计熔断；序列化/超限跳写仅 debug 计数，不计熔断（P1-3）
     def take_stale(self, key, max_age) -> Any | None   # L1→L2 降级读
 ```
 `cached()` 只换存储层，外部行为逐字不变（I8）。**新鲜/陈旧完全由封装 `{"ts","v"}` 的 ts 判定**：`get()` 超 `_cache_ttl+5s` 弃用；`take_stale()` 按 `STALE_MAX_AGE=1800s` 判定——与 L1 语义等价。
 
 ### 4.2 键、TTL 与序列化 ⟳（P1-1 矛盾清偿）
-- **L2 物理 TTL = `STALE_MAX_AGE + 60s`（常量 1860s），与 `_cache_ttl` 解耦**——Redis 键必须活得比"新鲜窗"久，`take_stale` 才有东西可读；新鲜度全交给 ts 判定（与 L1"dict 不物理删除、判读逻辑定生死"同构）。
-- 白名单前缀 `quotes:`/`history:` 映射 L2 键 `atlas:q:<原key>`；其余前缀永不触 L2。`quotes:` 键构造 `sorted()` 归一（值按 symbol 字典组装，返回顺序仍按入参，语义不变）。
+- **L2 物理 TTL = `max(STALE_MAX_AGE + 60, 当前 _cache_ttl + 60)`（⟳ P1-5：运行时把 cacheSeconds 配大时物理窗随动，旁路回填不失效），新鲜度全交给 ts 判定**——Redis 键必须活得比"新鲜窗"久，`take_stale` 才有东西可读；新鲜度全交给 ts 判定（与 L1"dict 不物理删除、判读逻辑定生死"同构）。
+- 白名单前缀 `quotes:`/`history:` 映射 L2 键 `atlas:q:<原key>`；其余前缀永不触 L2。`quotes:` 键构造 `sorted()` 归一（值按 symbol 字典组装，返回顺序仍按入参，语义不变）。⟳ **P1-4 证伪注记**：`quotes:` 的缓存值是 `fetch_text` 原始文本（`data_source.py:311-314`），解析与按入参顺序重组发生在缓存层**之外**（:315-321）——键归一不影响值形态，L1/L2/I8 三方零结构风险。
 - **序列化纪律**：`json.dumps` 严格模式（**无 default 钩子**）——非 JSON 原生类型抛 `TypeError` → 视为跳写：L1 正常、L2 跳过、`redis_cache_skip_unserializable` debug 计数；**绝不 `default=str` 型别转换**（数值变字符串=假数据）。读回解码失败同规则弃键。
 
 ### 4.3 故障与熔断
-连接超时 1s/读超时 0.5s；连续 3 次失败→旁路熔断 30s（纯 L1=现状），恢复自动闭合；`redis_cache_degraded`/`redis_cache_recovered` 各一条日志。loader 异常链不变（stale 兜底 L1→L2→抛）。⟳ **health 兼容**：`/api/health` 既有 `redis: bool`（storage ping）**不动**；新增 `redisCache: "connected"|"bypassed"|"down"` 附加键（前端健康条零改，I9）。
+连接超时 1s/读超时 0.5s；连续 3 次失败（**仅 Redis 客户端异常/超时计入**，P1-3）→旁路熔断 30s（纯 L1=现状），恢复自动闭合；`redis_cache_degraded`/`redis_cache_recovered` 各一条日志。loader 异常链不变（stale 兜底 L1→L2→抛）。⟳ **health 兼容与三态定义（P2-2）**：`/api/health` 既有 `redis: bool`（storage ping）**不动**；新增 `redisCache: "connected"|"bypassed"|"down"`——**未配置/连接探测失败=down（不可用如实）；配置在但熔断窗口内=bypassed；正常=connected**（前端健康条零读该键，I9）。
 
 ### 4.4 范围守卫
 接管面=`cached()` 全部调用点但仅白名单前缀入 L2；不新增 key 族；多进程共享不作验收条件（键天然无冲突）。
@@ -104,8 +105,8 @@ class CacheFacade:
 | I7 | `CacheFacade.get/set/take_stale` | §4.1/4.2：白名单、物理 TTL 1860s+ts 定新鲜、严格序列化跳写、128KB 跳写、熔断计数；测试注入 in-memory fake |
 | I8 | `data_source.cached(key, loader)` | 外部行为逐字不变；断言仅 quotes:/history: 触 L2，screener_v2 零触；既有 cached 测试零修改全绿 |
 | I9 | health 附加键 | `bars` 对象 + `redisCache` 字符串；**现有 `database`/`redis` 布尔零触碰** |
-| I10 ⟳ | `storage.upsert_market_bars_batch(code, bars, adjustment)` | 单事务 INSERT..ON CONFLICT DO UPDATE + **码级 SAVEPOINT**（供上层 500 码组事务内隔离单码失败）；空 bars 拒调（抛 ValueError）；`-> int` 写入行数 |
-| I11 ⟳ | `bars_etl.register_jobs(scheduler)` | 显式导出注册函数：三触发共用 id=`bars-etl`，kwargs 含 `max_instances=1, coalesce=True, misfire_grace_time=300`；测试以假 scheduler 捕获断言 |
+| I10 ⟳ | `storage.upsert_market_bars_batch(code, bars, adjustment, session=None)` | 单语句 INSERT..ON CONFLICT DO UPDATE；空 bars 抛 ValueError；批内同 date 去重保后者；**事务边界（P2-4）**：`session=None` 自开自提；传入 session 则加入**调用方事务**——外层 `run_full` 每 500 码组 `SessionLocal.begin()` 一事务，组内逐码 `session.begin_nested()`（**每码一 SAVEPOINT**），单码异常回滚该 SAVEPOINT 入 failed、他码照常随组提交；`-> int` 写入行数 |
+| I11 ⟳ | `bars_etl.register_jobs(scheduler)` | 三**独立** id（bars-etl-startup/daily/weekly）各带 `max_instances=1, coalesce=True, misfire_grace_time=300`；跨 job 互斥由 `run_full` 入口 `_RUN_LOCK` 进程锁保证（忙→`aborted, reason="overlap"`）；导出注册 kwargs 供假 scheduler 断言 |
 
 ## 6. 数据模型与迁移
 
@@ -124,22 +125,22 @@ class CacheFacade:
 | ETL 停摆>7 天 | 消费端自动回退逐码回源 | health.bars 水位 |
 | 两轮 ETL 触发重叠 | max_instances=1+coalesce 合并跳轮 ⟳ | APScheduler 语义+注册测试 |
 | Redis 挂/慢 | L2 旁路=现状 | health.redisCache + 熔断日志 |
-| 值不可序列化 | L2 跳写（L1 正常），不转换类型 ⟳ | debug 计数 |
+| 值不可序列化 | L2 跳写（L1 正常），不转换类型，**不计熔断** ⟳ | debug 计数 |
 | loader 上游失败 | stale 链 L1→L2→抛（1800s 窗物理可达 ⟳） | mark_stale |
 
 ## 8. 测试策略
 
-- **M1 离线**：fake fetch/upsert 注入——三档路由、空 bars 判失败计熔断、**DQ 坏根矩阵（负价/OHLC 颠倒/volume<0/重复 date/未来 date）**、no_new_bar 档、force、universe 护栏、批量幂等、**SAVEPOINT 隔离（第 3 码坏数据不影响 1/2/4/5 提交）**；detect_gaps 真 PG 四档集合断言；水位参数化（15:04/15:06/周末/now 注入）；**I11 注册 kwargs 断言（假 scheduler 捕获）**。
+- **M1 离线**：fake fetch/upsert 注入——三档路由、空 bars 判失败计熔断、**DQ 坏根矩阵（负价/OHLC 颠倒/volume<0/重复 date/未来 date）**、**rejected>0 码入下轮强制日补队列（⟳ P1-2 回归锚）**、**熔断最小样本 ≥50 码（⟳ P2-1）**、no_new_bar 档、force、universe 护栏、批量幂等、**SAVEPOINT 隔离（第 3 码坏数据不影响 1/2/4/5 提交）**；detect_gaps 真 PG 四档集合断言；水位参数化（15:04/15:06/周末/now 注入）；**I11 注册 kwargs 断言（假 scheduler 捕获）+ `_RUN_LOCK` overlap 路径（持锁调用→aborted reason=overlap）**。
 - **A1**：指数/个股同码隔离 + 清理脚本幂等。
 - **M1 冒烟**（一次性脚本）：`run_full` 实跑→health.bars fresh 比≥95%→抽 3 码端点回放对拍→冷进程 **upstream ⊆ 非 universe** 且差集打印。
-- **M2 离线**：fake redis（可编程抛错+物理过期时钟）——L2 回填、ts 新鲜复核弃旧、**take_stale 在物理 TTL 内必可达（P1-1 回归锚）**、白名单断言、熔断三态、旁路 loader 正常、128KB 跳写、**不可序列化跳写且 L1 完好（类型不转换）**、quotes 键 sorted 同键命中；`cached()` 既有测试零修改全绿。
+- **M2 离线**：fake redis（可编程抛错+物理过期时钟）——L2 回填、ts 新鲜复核弃旧、**take_stale 在物理 TTL 内必可达（P1-1 回归锚）**、**PX=max(1860,ttl+60) 随动（ttl_getter 调大断言 ⟳ P1-5）**、白名单断言、熔断三态、**序列化跳写/超限跳写均不推高熔断计数（⟳ P1-3）**、旁路 loader 正常、quotes 键 sorted 同键命中；`cached()` 既有测试零修改全绿。
 - 门禁七件套沿用；新增预计 +50~60 项。
 
 ## 9. 已知限制 / 非目标 / 边界声明
 
 **定位声明**：单用户本地工具（AGENTS 红线）。生产级清单（分布式调度/多实例一致性/Sentinel/TLS/RBAC/租户/Prometheus/告警值班/备份演练/混沌）**整体非目标**——多租户/认证/审计与券商对接同级永久拒绝（组合风险 spec D9 先例）；单进程本地无对应故障面。接受的低成本替代已并入设计：health 可观测三态、日志即告警面。⟳ **安全披露**：Redis 位于局域网（192.168.0.114），无 TLS——`REDIS_PASSWORD` 配置面已存在（settings.py），部署侧建议 requirepass+bind/防火墙，属运维选择非本 spec 代码项。
 
-限制：L1 全市场北交所不入 universe（工作区码已纳）；L2 qfq 漂移现状维持；L3 假日空转（≈7 次/年×15 分钟，数据不为错；静态假日表拒绝理由=D9）；L4 500 根外超长历史回源、停摆>7 天无外部告警；L5 历史 `quotes:` 组合键 L2 冗余靠 TTL 自清；L6 不做分钟线/分区/PIT/多 worker/手动 ETL API。
+限制：L1 全市场北交所不入 universe（工作区码已纳）；L2 qfq 漂移现状维持；L3 假日空转（≈7 次/年×15 分钟，数据不为错；静态假日表拒绝理由=D9）；L4 500 根外超长历史回源、停摆>7 天无外部告警；L5 历史 `quotes:` 组合键 L2 冗余靠 TTL 自清；L6 不做分钟线/分区/PIT/多 worker/手动 ETL API；**L7（⟳ P1-2 残余）**DQ 中间日洞由"下轮强制日补队列+周六 force 审计"双通道自愈，极小概率组合（洞在 20 根窗口外 + 恰在重启前）不自动回填——不建洞位表，接受为数据面长尾。
 
 ## 10. 成功判据（验收，单用户本地标准）
 

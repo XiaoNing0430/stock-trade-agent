@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 落地 spec r3（`docs/superpowers/specs/2026-09-13-daily-bars-etl-redis-cache-spec.md`）：M1 全市场 bfq 500 根日线 ETL（日补+回补+熔断自愈+DQ），M2 `cached()` 行情/历史缓存的 Redis L2 接管（白名单、熔断、旁路=现状）。
+**Goal:** 落地 spec r3.1（`docs/superpowers/specs/2026-09-13-daily-bars-etl-redis-cache-spec.md`）：M1 全市场 bfq 500 根日线 ETL（日补+回补+熔断自愈+DQ+缺口双通道自愈），M2 `cached()` 行情/历史缓存的 Redis L2 接管（白名单、熔断、旁路=现状）。
 
 **Architecture:** 零新表零迁移；`bars_etl.py` 纯新模块读 industry_map/storage、经 `data_source` 拉腾讯 kline、写 `market_bars`（批量 upsert I10）；`redis_cache.py` 提供可注入 `CacheFacade`（L1 dict 保留现状 + L2 Redis + loader 三级），`cached()` 外部行为逐字不变。**消费端零改动**（`fetch_all_bars` 的 7 日新鲜判据使 ETL 落库后复盘/组合自动零回源）。
 
@@ -394,7 +394,7 @@ def validate_bars(bars: list[dict], watermark: str) -> tuple[list[dict], int]:
 
 （`rejected := ...` 行是示意——实现写常规 if/else 计数。`numeric_or_none` 复用 `data_source.numeric`。）
 
-`run_full` 骨架：fetch 默认 `lambda code, limit: data_source.load_history(code, limit=limit, is_index=False, adjustment="")`（走既有 `_throttle`+retry）；流程：拿 `_RUN_LOCK`（非阻塞失败→`aborted, reason="overlap"`——I11 语义的进程面兜底）→ universe 护栏（<2000 → aborted）→ 三档循环（回补 limit=500、日补 limit=max(20,lag+5)、missing 按回补）→ 每码 `fetch` 空或抛→重试 1 次→仍败入 failed；非空→`validate_bars` 计 rejected→干净根空且原非空→该码 failed（"全坏"）→`upsert_market_bars_batch`（批内 session 由 500 码组事务+`begin_nested` 包，单码异常回滚该码 SAVEPOINT 计 failed）→ 每档结束检查 `len(failed)/max(processed,1) > 0.2 and processed >= 50` → aborted="fail_rate" → 汇总 `logger.info("bars_etl_ok universe=%d ...")`。**no_new_bar**：fetch 回来的 `max(date) <= _max_map 旧值` 且 upsert 行数>0 也计本档正常（重复幂等重写=假日形态）——判 `fetched==0 or 全 dups` 简单式：`set(dates) ⊆ 旧库 dates 且无新` → 该码计入 `no_new_bar`（从旧 map 拿 set 代价高，实现用 `mx.get(code)` 单值比较：bars 全根 date ≤ 旧 max → no_new_bar）。
+`run_full` 骨架：入口 `_RUN_LOCK` 非阻塞（忙→`aborted, reason="overlap"`+日志，不抛）；fetch 默认 `lambda code, limit: data_source.load_history(code, limit=limit, is_index=False, adjustment="")`（走既有 `_throttle`+retry）；流程：universe 护栏（<2000 → aborted）→ 三档循环（回补 limit=500、日补 limit=max(20,lag+5)、missing 按回补）**并集追加 `_recheck_next` 队列码（上轮 rejected>0，无条件日补 limit=20，r3.1-P1-2）**→ 每码 `fetch` 空或抛→重试 1 次→仍败入 failed；非空→`validate_bars` 计 rejected→**rejected>0 的码入 `_recheck_next`**→干净根空且原非空→该码 failed（"全坏"）→`upsert_market_bars_batch`（批内 session 由 500 码组事务+逐码 `begin_nested` 包，单码异常回滚该码 SAVEPOINT 计 failed）→ 每档结束检查 `processed >= 50 and len(failed)/processed > 0.2` → aborted="fail_rate"（P2-1 最小样本）→ 汇总 `logger.info("bars_etl_ok universe=%d ...")`。**no_new_bar**：fetch 回来的 `max(date) <= _max_map 旧值` 且 upsert 行数>0 也计本档正常（重复幂等重写=假日形态）——判 `fetched==0 or 全 dups` 简单式：`set(dates) ⊆ 旧库 dates 且无新` → 该码计入 `no_new_bar`（从旧 map 拿 set 代价高，实现用 `mx.get(code)` 单值比较：bars 全根 date ≤ 旧 max → no_new_bar）。
 
 - [ ] **Step 4: 跑绿 → Step 5: 全量+ruff/mypy → Step 6: Commit** `feat: bars_etl run_full 三档执行——空判失败/DQ 拒收/熔断自愈（P2-M1 I4）`
 
@@ -515,7 +515,7 @@ def bars_health() -> dict | None:
 
 **Interfaces:**
 - Produces:
-  - 常量 `L2_TTL_SEC = 1860`（=STALE_MAX_AGE+60）、`L2_PREFIX = "atlas:q:"`、`WHITELIST_PREFIXES = ("quotes:", "history:")`、`MAX_L2_BYTES = 128_000`、`STALE_FRESH_GRACE = 5`、`BREAKER_FAILS = 3`、`BREAKER_SECONDS = 30`
+  - 常量 `L2_TTL_FLOOR_SEC = 1860`（STALE_MAX_AGE+60；**物理 PX = max(FLOOR, 当前 _cache_ttl+60) 随动 ⟳ r3.1-P1-5**）、`L2_PREFIX = "atlas:q:"`、`WHITELIST_PREFIXES = ("quotes:", "history:")`、`MAX_L2_BYTES = 128_000`、`STALE_FRESH_GRACE = 5`、`BREAKER_FAILS = 3`、`BREAKER_SECONDS = 30`
   - `class CacheFacade(client, ttl_getter, clock=time.time)`：`get/set/take_stale/state/snapshot_counters()`
   - `build_facade(settings, client=None) -> CacheFacade`（client 注入面；None 且有 settings → `redis.Redis(host, port, password, db, socket_connect_timeout=1, socket_timeout=0.5, decode_responses=True)`；连接探测失败 → client 置 None，永久旁路，`state()=="down"`）
 - 值封装 `{"ts": float, "v": Any}`，`json.dumps` **无 default**（TypeError=跳写不转换）。
@@ -573,6 +573,13 @@ def test_unserializable_skips_without_type_conversion():
     f = facade(); f.set("quotes:a", {"d": object()}, ttl=8)   # 不可序列化
     assert f.client.store == {}
     assert f.snapshot_counters()["skip_unserializable"] == 1
+    assert f.state() == "connected"          # ⟳ P1-3：跳写不推熔断，连续三次亦然
+    for _ in range(3): f.set("quotes:a", {"d": object()}, ttl=8)
+    assert f.state() == "connected"
+
+def test_physical_px_tracks_large_cache_ttl():
+    # ttl_getter 返回 3600 → PX == (3600+60)*1000；返回 8 → PX == 1860*1000（⟳ P1-5 随动）
+    ...
 
 def test_oversized_value_skipped(): ...
 def test_build_facade_no_settings_returns_down_facade(): ...
