@@ -16,14 +16,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import plan_review, portfolio_risk
+from backend import bars_etl, plan_review, portfolio_risk, redis_cache
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
     apply_runtime_config,
     classify_code,
+    current_cache_ttl,
+    facade_state,
     price_limit_ratio,
     recent_stale,
+    set_facade,
 )
 from backend.grid_scheduler import (
     schedule_strategy,
@@ -69,6 +72,7 @@ from backend.schemas import (
 from backend.sources import build_router, get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
+    cleanup_legacy_index_qfq,
     delete_grid_strategy,
     get_grid_strategy,
     get_scan_config,
@@ -123,12 +127,19 @@ DIST_DIR = FRONTEND_DIR / "dist"
 
 
 def _load_history_with_fallback(
-    code: str, limit: int, is_index: bool = False, adjustment: str = "qfq", source: Any = None
+    code: str,
+    limit: int,
+    is_index: bool = False,
+    adjustment: str = "qfq",
+    source: Any = None,
+    bucket: str | None = None,
 ) -> tuple[list, str, str | None, str]:
     """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。
 
     source 可由调用方预解析注入（复盘按请求解析一次，免逐码重建 settings+router）；缺省按当前 settings 现场路由。
+    bucket 仅覆盖落库/兜底读取的键空间（A1 指数隔离用 qfq:idx）；上游请求参数恒为 adjustment，不受隔离影响。
     """
+    store_bucket = bucket or adjustment
     if source is None:
         from backend.sources import build_router
 
@@ -140,10 +151,10 @@ def _load_history_with_fallback(
                 settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
             )
         history = source.load_history(code, limit=limit, is_index=is_index, adjustment=adjustment)
-        data_as_of = save_market_bars(code, history, adjustment=adjustment)
+        data_as_of = save_market_bars(code, history, adjustment=store_bucket)
         return history, "live", data_as_of, source.provider_label
     except Exception:
-        bars = load_market_bars(code, limit=limit, adjustment=adjustment)
+        bars = load_market_bars(code, limit=limit, adjustment=store_bucket)
         if not bars:
             raise
         return bars, "local", bars[-1]["date"], "local"
@@ -236,6 +247,10 @@ def _industry_warmup_job() -> None:
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # P2-M2：L2 缓存门面接线（无配置/探测不可达 = down facade，行为与接管前一致）
+        from backend.settings import get_settings
+
+        set_facade(redis_cache.build_facade(get_settings(), ttl_getter=current_cache_ttl))
         try:
             initialize_storage()
             start_scheduler()
@@ -243,6 +258,17 @@ def create_app() -> FastAPI:
         except Exception as exc:
             app.state.storage_ready = False
             app.state.storage_error = str(exc)
+        if app.state.storage_ready:
+            # A1 歧义桶一次性清理（spec §3.7 P2-3 时点纪律：重启窗口、幂等、留输出）。
+            # 新代码生效后 qfq 桶仅个股写、qfq:idx 桶仅指数写——删除只损个股一次回源，绝不损正确性。
+            try:
+                removed = cleanup_legacy_index_qfq()
+                if removed:
+                    logger.info("a1_index_bucket_cleanup 删除历史歧义行=%d（幂等，0 行=已净）", removed)
+            except Exception:
+                logger.warning(
+                    "a1_index_bucket_cleanup 失败（不阻塞启动；指数正确性不受影响——桶隔离已在读路径）", exc_info=True
+                )
         if app.state.storage_ready:
             try:
                 applied = get_workspace_settings("default")
@@ -268,6 +294,9 @@ def create_app() -> FastAPI:
                 )
             except Exception:
                 industry_logger.warning("行业映射预热任务注册失败（已跳过，不影响 API）", exc_info=True)
+            # 全市场日线 ETL（P2-M1）：启动 60s 自愈 + 交易日 15:20 + 周六审计；
+            # 三 job 各自防重叠 kwargs，跨 job 互斥走 run_full 进程锁；注册异常内部已吞。
+            bars_etl.register_jobs(scheduler)
         yield
         stop_scheduler()
 
@@ -301,6 +330,8 @@ def create_app() -> FastAPI:
             mode="separated",
             universeSize=50,
             storage=storage_status(),
+            bars=bars_etl.bars_health(),
+            redisCache=facade_state(),
         )
 
     @app.get("/api/workspace")
@@ -414,7 +445,9 @@ def create_app() -> FastAPI:
     @app.get("/api/history")
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)) -> HistoryOut:
         try:
-            history, data_source_flag, data_as_of, provider = _load_history_with_fallback(code, 120, is_index=index)
+            history, data_source_flag, data_as_of, provider = _load_history_with_fallback(
+                code, 120, is_index=index, adjustment="qfq", bucket="qfq:idx" if index else None
+            )
             return HistoryOut(
                 code=code,
                 provider=provider,

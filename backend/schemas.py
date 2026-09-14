@@ -138,6 +138,9 @@ class HealthOut(BaseModel):
     mode: str
     universeSize: int
     storage: dict[str, bool]
+    # P2 附加观测位（I9：既有键零触碰；bars=None 表示查询不可用/未启用，不造假）
+    bars: dict[str, Any] | None = None
+    redisCache: str | None = None
 
 
 class WorkspaceOut(BaseModel):

@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from redis import Redis
-from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, select, text
+from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, delete, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from backend.settings import get_settings
@@ -710,6 +711,69 @@ def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "q
                 setattr(row, field, float(value) if value is not None else None)
             row.fetched_at = datetime.now(UTC)
     return latest_date
+
+
+def upsert_market_bars_batch(code: str, bars: list[dict[str, Any]], adjustment: str, session: Any = None) -> int:
+    """I10 批量幂等写（ETL 性能预算）：单语句 ON CONFLICT 覆盖；批内同日去重保后者。
+
+    空 bars 拒写——上游空响应不是数据（P0-2 防线）。session 传入则加入调用方事务
+    （外层按码 begin_nested 拿 SAVEPOINT 隔离单码失败）；缺省自开自提。返回影响行数。
+    """
+    if not bars:
+        raise ValueError("bars 不能为空——空响应不是数据")
+    dedup: dict[str, dict[str, Any]] = {}
+    for bar in bars:
+        date = str(bar.get("date") or "")
+        if date:
+            dedup[date] = bar
+    if not dedup:
+        raise ValueError("bars 无有效交易日——空响应不是数据")
+    now = datetime.now(UTC)
+    values = [
+        {
+            "code": code,
+            "trade_date": date,
+            "adjustment": adjustment,
+            "open": bar.get("open"),
+            "high": bar.get("high"),
+            "low": bar.get("low"),
+            "close": bar.get("close"),
+            "volume": bar.get("volume"),
+            "amount": bar.get("amount"),
+            "fetched_at": now,
+        }
+        for date, bar in dedup.items()
+    ]
+    stmt = pg_insert(MarketBar).values(values)
+    # 影响行数走 RETURNING 计数而非 cursor.rowcount——psycopg3 对 ON CONFLICT 语句报 -1（方言怪癖）
+    upsert = stmt.on_conflict_do_update(
+        constraint="uq_market_bars_code_date_adjustment",
+        set_={
+            "open": stmt.excluded.open,
+            "high": stmt.excluded.high,
+            "low": stmt.excluded.low,
+            "close": stmt.excluded.close,
+            "volume": stmt.excluded.volume,
+            "amount": stmt.excluded.amount,
+            "fetched_at": stmt.excluded.fetched_at,
+        },
+    ).returning(MarketBar.trade_date)
+    if session is not None:
+        return len(session.execute(upsert).all())
+    with SessionLocal.begin() as own:
+        return len(own.execute(upsert).all())
+
+
+def cleanup_legacy_index_qfq() -> int:
+    """A1 一次性清理：指数与个股共享 (code,'qfq') 桶的历史混写行整删（幂等）。
+
+    000001 与平安银行同码歧义不可分，qfq 缓存按需重取，删除代价≈首访一次回源。
+    """
+    with SessionLocal.begin() as session:
+        n = session.execute(
+            delete(MarketBar).where(MarketBar.adjustment == "qfq", MarketBar.code.in_(["000001", "399001", "399006"]))
+        ).rowcount
+    return int(n)
 
 
 def save_grid_backtest(

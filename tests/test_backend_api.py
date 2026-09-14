@@ -576,6 +576,71 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     assert response.status_code == 502
 
 
+def test_history_index_uses_isolated_adjustment_bucket(monkeypatch):
+    """A1：指数历史不得写进个股 (code,'qfq') 同桶——落库键空间隔离为 qfq:idx。"""
+    from backend.storage import (
+        DEFAULT_WORKSPACE_SETTINGS,
+        MarketBar,
+        SessionLocal,
+        initialize_storage,
+        save_market_bars,
+    )
+    from sqlalchemy import delete, select
+
+    initialize_storage()
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+    # 本用例聚焦桶隔离：旁路 lifespan 的 A1 幂等清理（它会按定义删任意 000001:qfq 行，
+    # 含本测试播种行——生产语义=个股缓存一次性回源，已由 lifespan 专测钉住，不该绞杀本用例）
+    monkeypatch.setattr(app_module, "cleanup_legacy_index_qfq", lambda: 0)
+    # 生僻交易日：与真实缓存行零相撞，用例结束后自行收尾
+    day = "2099-12-31"
+    stock_bar = {"date": day, "open": 10.5, "high": 11.0, "low": 10.0, "close": 10.8, "volume": 1000.0, "amount": 1e4}
+    index_bar = {"date": day, "open": 3000.1, "high": 3100.2, "low": 2900.0, "close": 3050.5, "volume": 1e8}
+    save_market_bars("000001", [stock_bar], adjustment="qfq")
+
+    captured: dict = {}
+
+    def fake_history(code, limit=40, is_index=False, adjustment="qfq"):
+        captured["is_index"] = is_index
+        captured["adjustment"] = adjustment
+        return [dict(index_bar)]
+
+    monkeypatch.setattr("backend.data_source.load_history", fake_history)
+    try:
+        with TestClient(app_module.create_app()) as client:
+            response = client.get("/api/history?code=000001&index=true")
+        assert response.status_code == 200
+        # 端点向历史源声明的仍是合法上游参数 qfq——A1 存储隔离只走 bucket 面，绝不影响上游请求（防回归锚）
+        assert captured == {"is_index": True, "adjustment": "qfq"}
+
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day)
+            ).all()
+        by_adjustment = {row.adjustment: row for row in rows}
+        # 个股 qfq 行逐字段不变（未被指数点位污染）
+        assert by_adjustment["qfq"].open == 10.5
+        assert by_adjustment["qfq"].close == 10.8
+        # 指数点位只落在新增的 qfq:idx 行
+        assert by_adjustment["qfq:idx"].close == 3050.5
+
+        # 兜底读路径同源隔离：上游故障时 index=true 读 qfq:idx、index=false 读 qfq，互不拿错
+        def boom(code, limit=40, is_index=False, adjustment="qfq"):
+            raise ConnectionError("upstream down")
+
+        monkeypatch.setattr("backend.data_source.load_history", boom)
+        with TestClient(app_module.create_app()) as client:
+            r_idx = client.get("/api/history?code=000001&index=true").json()
+            r_stock = client.get("/api/history?code=000001").json()
+        assert r_idx["dataSource"] == "local" and r_idx["history"][-1]["close"] == 3050.5
+        assert r_stock["dataSource"] == "local" and r_stock["history"][-1]["close"] == 10.8
+    finally:
+        with SessionLocal.begin() as session:
+            session.execute(delete(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day))
+
+
 def test_screener_v2_returns_paginated_results(monkeypatch):
     fake_data = {
         "data": {

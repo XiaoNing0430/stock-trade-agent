@@ -80,6 +80,22 @@ cache: dict[str, tuple[float, Any]] = {}
 cache_lock = threading.Lock()
 stale_marker: dict[str, float] = {"at": 0.0, "age": 0.0}
 
+# P2-M2：L2 门面（None=未接线，行为与接管前逐字节一致——I8）
+_facade: Any | None = None
+
+
+def set_facade(facade: Any | None) -> None:
+    global _facade
+    _facade = facade
+
+
+def current_cache_ttl() -> int:
+    return _cache_ttl
+
+
+def facade_state() -> str:
+    return _facade.state() if _facade is not None else "down"
+
 
 def mark_stale(age: float) -> None:
     with cache_lock:
@@ -134,6 +150,12 @@ def cached(key: str, loader):
         item = cache.get(key)
         if item and now - item[0] < _cache_ttl:
             return item[1]
+    if _facade is not None:
+        hit = _facade.get(key)
+        if hit is not None:
+            with cache_lock:
+                cache[key] = (time.time(), hit)
+            return hit
     try:
         value = loader()
     except Exception:
@@ -142,9 +164,17 @@ def cached(key: str, loader):
         if item and now - item[0] <= STALE_MAX_AGE:
             mark_stale(now - item[0])
             return item[1]
+        if _facade is not None:
+            stale = _facade.stale_read(key, STALE_MAX_AGE)
+            if stale is not None:
+                # 降级读 L2：真实 age 入标记；绝不回填 L1（否则陈旧值被冒充新鲜一个 TTL）
+                mark_stale(stale[1])
+                return stale[0]
         raise
     with cache_lock:
         cache[key] = (now, value)
+    if _facade is not None:
+        _facade.set(key, value, _cache_ttl)
     return value
 
 
@@ -308,9 +338,10 @@ def load_quote_symbols(symbols: list[str]) -> list[dict[str, Any]]:
     unique_symbols = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol.strip()))
     if not unique_symbols:
         return []
+    ordered = sorted(unique_symbols)  # 键归一：乱序入参命中同一缓存条目（P1-4）
     text = cached(
-        f"quotes:{','.join(unique_symbols)}",
-        lambda: fetch_text(QUOTE_URL, {"q": ",".join(unique_symbols)}),
+        f"quotes:{','.join(ordered)}",
+        lambda: fetch_text(QUOTE_URL, {"q": ",".join(ordered)}),
     )
     pattern = re.compile(r'v_([^=]+)="(.*?)";')
     parsed: dict[str, dict[str, Any]] = {}

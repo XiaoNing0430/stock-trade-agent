@@ -1,7 +1,7 @@
-# 全市场日线 ETL + Redis 行情缓存接管（P2 数据中台）— 设计规格 r3.1
+# 全市场日线 ETL + Redis 行情缓存接管（P2 数据中台）— 设计规格 r3.2
 
-日期：2026-09-13 ｜ 状态：**评审循环收口（r3 轮"有条件通过"条件已在 r3.1/计划层清偿）；待用户放行执行方式** ｜ 上游：ROADMAP「P2 Redis 行情缓存接管」「P2 全市场日线落库」
-评审史：r1 对抗 3P0/6P1/2P2→r2；r2 用户评审 3P1/5P2→r3；r3 复审 5P1/4P2→**r3.1**（⟹ 标记本轮修订；P1-4 经读码证伪——quotes 缓存值本就是 raw text，重排在解析层；P1-1 在计划层已成文澄清）。"生产级量化网站"轴评审三轮均依 AGENTS 定位整体拒绝（§9）。
+日期：2026-09-13 ｜ 状态：**评审循环收口；SDD 执行中；r3.2=冒烟实证勘误（非新评审轮）** ｜ 上游：ROADMAP「P2 Redis 行情缓存接管」「P2 全市场日线落库」
+评审史：r1 对抗 3P0/6P1/2P2→r2；r2 用户评审 3P1/5P2→r3；r3 复审 5P1/4P2→**r3.1**（⟹ 标记本轮修订；P1-4 经读码证伪——quotes 缓存值本就是 raw text，重排在解析层；P1-1 在计划层已成文澄清）。"生产级量化网站"轴评审三轮均依 AGENTS 定位整体拒绝（§9）。r3.2（冒烟勘误 ⟳ 标记）：腾讯 ifzq kline 端点实测持续 ~1500 请求即**全 IP 501 惩罚窗**（数分钟至更久，连 600000 亦拒）——原"首轮回补 9-15 分钟"假设作废，见 §3.4 三连修与 L8。
 定位：数据基础设施两里程碑，M1（日线 ETL）与 M2（Redis 接管）相互独立、可独立交付回滚；共享"降级不静默"纪律。
 红线不变：绝不造数；ETL/缓存缺口一律如实暴露为回源、degraded、stale 或 rejected。
 
@@ -58,7 +58,7 @@
 - ⟳ **DQ 逐根断言（写前）**：`open/high/low/close` 非空且 ≥0、`low ≤ min(open,close) ≤ max(open,close) ≤ high`、`volume ≥ 0`（0=停牌合法）、`trade_date` 合法日期且 ≤ watermark、批内同 date 去重保后者。坏根**拒收不落库**，计 `rejected`（码级：一码全根被拒→该码入 failed）。消费端因此永不触达畸形行——DQ 失败是数据面诚实，不是静默。
 - ⟳ **DQ 中间缺口自愈（P1-2）**：`detect_gaps` 只看 max 水位，坏根造成的**中间日洞**若恰在"其余日已齐"码内则不会被下轮识别。三道封堵：① `run_full` 内 `rejected>0` 的码入进程 `_recheck_next` 集合，**下轮无条件强制日补**（limit=max(20,15)，20 根窗口天然回填中间洞）；② 周六审计轮以 `force=True` 语义全市场日补（≥20 根窗口），重启丢失的①队列最迟一周内兜底；③ 残余披露入 §9-L7：极小概率组合（DQ 洞恰在窗口外 + 进程重启）不自动回填，属可容忍数据面长尾，不为此建洞位表。
 - `force=True`（脚本/测试）：跳过 up_to_date 全量日补。
-- ⟳ **调度防重叠**：APScheduler 3.x 同 id add_job 互相替换，"三触发共用一 id"不成立（评审 P1-1，计划层成文澄清）——**三独立 job id（bars-etl-startup/daily/weekly）各带 `max_instances=1, coalesce=True, misfire_grace_time=300`，互斥的真正保证是 `run_full` 入口 `_RUN_LOCK` 进程锁（非阻塞获取，忙则 `aborted, reason="overlap"` 记日志）**——跨 job 并发同样互斥，强于 OrTrigger 方案；注册函数导出供测试以假 scheduler 断言 kwargs。首装=自然特例（全库 missing→回补）。注册失败仅日志，不影响 API 启动。
+- ⟳ **调度防重叠**：APScheduler 3.x 同 id add_job 互相替换，"三触发共用一 id"不成立（评审 P1-1，计划层成文澄清）——**三独立 job id（bars-etl-startup/daily/weekly）各带 `max_instances=1, coalesce=True, misfire_grace_time=300`，互斥的真正保证是 `run_full` 入口 `_RUN_LOCK` 进程锁（非阻塞获取，忙则 `aborted, reason="overlap"` 记日志）**——跨 job 并发同样互斥，强于 OrTrigger 方案；注册函数导出供测试以假 scheduler 断言 kwargs。首装=自然特例（全库 missing→回补）。注册失败仅日志，不影响 API 启动。⟳ **预热竞态自愈（冒烟前置加固）**：startup 为 date 一次性任务经 `_startup_probe` 包装——检出 `universe_too_small`（industry_map 预热未完成）即重排 +120s date 任务（retry-N 独立 id，封顶 20 次≈40min），不同步死等、不用 interval；日补/周审 cron 语义不变。
 
 ### 3.5 消费端对齐
 `fetch_all_bars` 的 7 日新鲜判据在 ETL 日补后恒真 → loader 不调、upstream=0、degraded 空。未覆盖码（全市场北交所/新股空窗）走现状逐码回源。停摆>7 天=性能退化非正确性退化（health 暴露）。
@@ -67,17 +67,19 @@
 `bars_etl_ok universe=%d up_to_date=%d backfill=%d daily=%d no_new_bar=%d rejected=%d fetched=%d failed=%d watermark=%s aborted=%d elapsed_ms=%d`（`atlas.bars_etl`）；`/api/health` 附加 `bars = {watermark, freshCount, universeSize, lastRunAt}|null`，**结果进程缓存 60s**（热路径不逐次 GROUP BY；缓存不可用时回 null 不阻塞不造假）。
 
 ### 3.7 附带缺陷修复 A1 ⟳（独立提交，先于 ETL）
-① 指数链路（`app.py:417` 面）以 `adjustment="qfq:idx"` 键空间存取，与个股隔离；② **一次性清理**：脚本 `DELETE FROM market_bars WHERE adjustment='qfq' AND code IN ('000001','399001','399006')`（歧义桶整删——qfq 缓存本就按需重取，代价≈首访一次回源；现库仅 11 码/1601 行，删量个位数行级）；⟳ 时点纪律（P2-3）：清理在**部署/重启窗口执行、先于新键代码生效后的首次指数访问**，此时个股 000001 qfq 行删除仅损失缓存不损失正确性（消费端 7 日新鲜判据自动回源重建）；脚本幂等、计划任务内执行并留输出。测试：指数与个股同码互不读写 + 清理后 000001:qfq 桶仅剩个股行（重取后）。
+① 指数链路（`app.py:417` 面）**存储层桶隔离**：`_load_history_with_fallback(..., bucket=...)`——上游 `source.load_history` 恒传 `adjustment="qfq"`（腾讯 fq 参数不容非枚举值），本地 save/load 用 `bucket or adjustment` 键空间（指数 `"qfq:idx"`），与个股同码（000001=平安银行↔上证指数）隔离。⟳ **实现勘误（SDD T1 计划缺陷拦截）**：spec 原文"以 adjustment="qfq:idx" 键空间存取"若照字面贯通上游参数会污染腾讯 fq 参数致指数拉取全断——隔离仅在存储层，上游参数不可动（评审时须以此为验收面）。② **一次性清理**：脚本 `DELETE FROM market_bars WHERE adjustment='qfq' AND code IN ('000001','399001','399006')`（歧义桶整删——qfq 缓存本就按需重取，代价≈首访一次回源；现库仅 11 码/1601 行，删量个位数行级）；⟳ 时点纪律（P2-3）：清理在**部署/重启窗口执行、先于新键代码生效后的首次指数访问**，此时个股 000001 qfq 行删除仅损失缓存不损失正确性（消费端 7 日新鲜判据自动回源重建）；脚本幂等、计划任务内执行并留输出。测试：指数与个股同码互不读写（含上游参数恒 qfq 防回归锚 + fallback 双桶读）+ 清理后 000001:qfq 桶仅剩个股行（重取后）。
 
 ## 4. M2：Redis 行情缓存接管（`backend/redis_cache.py` + `data_source.cached`）
 
 ### 4.1 CacheFacade 接口
 ```python
 class CacheFacade:
-    def __init__(self, redis_factory, ttl_getter, log=logger): ...
+    def __init__(self, client, ttl_getter, clock=time.time): ...  # ⟳ 实现形态：client 注入面（None=down/测试 fake）
     def get(self, key) -> Any | None          # L1→L2(回填 L1)→None；仅白名单前缀查 L2
     def set(self, key, value, ttl)            # L1 恒写；L2 白名单内双写。⟳ 异常分家：Redis 客户端异常/超时吞+计熔断；序列化/超限跳写仅 debug 计数，不计熔断（P1-3）
     def take_stale(self, key, max_age) -> Any | None   # L1→L2 降级读
+    def stale_read(self, key, max_age) -> (value, age) | None  # ⟳ 降级面需真实 age 喂 mark_stale（不造假）
+    def state(self) -> "connected|bypassed|down"       # health redisCache 源
 ```
 `cached()` 只换存储层，外部行为逐字不变（I8）。**新鲜/陈旧完全由封装 `{"ts","v"}` 的 ts 判定**：`get()` 超 `_cache_ttl+5s` 弃用；`take_stale()` 按 `STALE_MAX_AGE=1800s` 判定——与 L1 语义等价。
 
@@ -140,11 +142,11 @@ class CacheFacade:
 
 **定位声明**：单用户本地工具（AGENTS 红线）。生产级清单（分布式调度/多实例一致性/Sentinel/TLS/RBAC/租户/Prometheus/告警值班/备份演练/混沌）**整体非目标**——多租户/认证/审计与券商对接同级永久拒绝（组合风险 spec D9 先例）；单进程本地无对应故障面。接受的低成本替代已并入设计：health 可观测三态、日志即告警面。⟳ **安全披露**：Redis 位于局域网（192.168.0.114），无 TLS——`REDIS_PASSWORD` 配置面已存在（settings.py），部署侧建议 requirepass+bind/防火墙，属运维选择非本 spec 代码项。
 
-限制：L1 全市场北交所不入 universe（工作区码已纳）；L2 qfq 漂移现状维持；L3 假日空转（≈7 次/年×15 分钟，数据不为错；静态假日表拒绝理由=D9）；L4 500 根外超长历史回源、停摆>7 天无外部告警；L5 历史 `quotes:` 组合键 L2 冗余靠 TTL 自清；L6 不做分钟线/分区/PIT/多 worker/手动 ETL API；**L7（⟳ P1-2 残余）**DQ 中间日洞由"下轮强制日补队列+周六 force 审计"双通道自愈，极小概率组合（洞在 20 根窗口外 + 恰在重启前）不自动回填——不建洞位表，接受为数据面长尾。
+限制：L1 全市场北交所不入 universe（工作区码已纳）；L2 qfq 漂移现状维持；L3 假日空转（≈7 次/年×15 分钟，数据不为错；静态假日表拒绝理由=D9）；L4 500 根外超长历史回源、停摆>7 天无外部告警；L5 历史 `quotes:` 组合键 L2 冗余靠 TTL 自清；L6 不做分钟线/分区/PIT/多 worker/手动 ETL API；**L7（⟳ P1-2 残余）**DQ 中间日洞由"下轮强制日补队列+周六 force 审计"双通道自愈，极小概率组合（洞在 20 根窗口外 + 恰在重启前）不自动回填——不建洞位表，接受为数据面长尾；**L8（⟳ r3.2 冒烟实锤）腾讯 kline 惩罚窗**：全市场 500 根深回补不可能单夜完成——`BACKFILL_CODES_PER_RUN=1500` 预算 + 公平随机序（退市码聚簇防饿死）+ ETL 专属 3.3rps 节奏，缺口跨 3-4 交易日自然消化；判据 1 的 ≥95% 覆盖按"回补预算跑满后"计时，非首日。
 
 ## 10. 成功判据（验收，单用户本地标准）
 
-1. 连续两交易日 15:20 后：health.bars `watermark==应收盘交易日`、`freshCount/universeSize ≥ 0.95`；
+1. 连续两交易日 15:20 后（⟳ r3.2：深回补以 1500 码/日预算跨 3-4 日推进，"fresh≥95%"自回补预算跑满当日起计；期间 `bars.deferred` 递减即进度证明）：health.bars `watermark==应收盘交易日`、`freshCount/universeSize ≥ 0.95`；
 2. 冒烟：复盘/组合冷进程 upstream 码集合 ⊆ 非 universe 且差集打印为空；
 3. 重启后端：health.redisCache=connected，轮询期上游请求下降（L2 命中证据）；
 4. 拔 Redis：轮询无感（=现状行为），redisCache→bypassed，恢复自动闭合；**停 L2 期间上游持续失败时，L1→L2 陈旧兜底链在 1800s 窗内仍可命中**（P1-1 行为级验证）；

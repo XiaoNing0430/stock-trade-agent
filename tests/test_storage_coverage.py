@@ -254,3 +254,82 @@ def test_save_market_bars_skips_blank_date():
     assert latest == "2026-09-01"
     loaded = storage_module.load_market_bars("cov-code")
     assert [bar["date"] for bar in loaded] == ["2026-09-01"]
+
+
+def test_cleanup_legacy_index_qfq_is_idempotent():
+    """A1 一次性清理：歧义桶 (指数共用码,'qfq') 整删且幂等；隔离桶 qfq:idx 与无关 code 不误伤。"""
+    from sqlalchemy import delete, select
+
+    day = "2099-12-31"  # 生僻交易日，避免与真实缓存行相撞
+
+    def _bar(code: str, adjustment: str) -> storage_module.MarketBar:
+        return storage_module.MarketBar(
+            code=code, trade_date=day, adjustment=adjustment, open=1, high=2, low=0.5, close=1.5
+        )
+
+    with storage_module.SessionLocal.begin() as session:
+        session.add_all([_bar("000001", "qfq"), _bar("000001", "qfq:idx"), _bar("cov-keep", "qfq")])
+    try:
+        assert storage_module.cleanup_legacy_index_qfq() >= 1
+        assert storage_module.cleanup_legacy_index_qfq() == 0  # 幂等：二次调用无行可删
+        with storage_module.SessionLocal() as session:
+            buckets = set(
+                session.scalars(
+                    select(storage_module.MarketBar.adjustment).where(
+                        storage_module.MarketBar.code == "000001", storage_module.MarketBar.trade_date == day
+                    )
+                ).all()
+            )
+            survivor = session.scalars(
+                select(storage_module.MarketBar).where(
+                    storage_module.MarketBar.code == "cov-keep", storage_module.MarketBar.trade_date == day
+                )
+            ).first()
+        assert buckets == {"qfq:idx"}  # 歧义桶已清空，隔离桶保留
+        assert survivor is not None  # 非歧义 code 的 qfq 行不动（cov-keep 由模块夹具收尾）
+    finally:
+        with storage_module.SessionLocal.begin() as session:
+            session.execute(
+                delete(storage_module.MarketBar).where(
+                    storage_module.MarketBar.code == "000001", storage_module.MarketBar.trade_date == day
+                )
+            )
+
+
+def test_upsert_market_bars_batch_idempotent_dedup_and_guards():
+    """I10：ETL 批量 upsert——ON CONFLICT 幂等、批内同日去重保后者、空 bars 拒写、外部 session 加入组事务。"""
+    from backend.storage import MarketBar, SessionLocal, upsert_market_bars_batch
+    from sqlalchemy import delete, func, select
+
+    d1, d2 = "2099-11-01", "2099-11-02"
+    bars = [
+        {"date": d1, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10, "amount": 15},
+        {"date": d1, "open": 1, "high": 3, "low": 0.5, "close": 2.5, "volume": 20, "amount": 50},  # 同日后者胜
+        {"date": d2, "open": 2, "high": 3, "low": 1, "close": 2.8, "volume": None, "amount": None},
+    ]
+    try:
+        n1 = upsert_market_bars_batch("cov-batch", bars, adjustment="")
+        n2 = upsert_market_bars_batch("cov-batch", bars, adjustment="")  # 重放幂等
+        assert n1 == 2 and n2 == 2  # 每语句 2 行（插入或冲突覆盖），非累加
+        with SessionLocal() as s:
+            cnt = s.scalar(
+                select(func.count())
+                .select_from(MarketBar)
+                .where(MarketBar.code == "cov-batch", MarketBar.adjustment == "")
+            )
+        assert cnt == 2
+        loaded = storage_module.load_market_bars("cov-batch", adjustment="", limit=10)
+        assert [b["date"] for b in loaded] == [d1, d2]
+        assert loaded[0]["close"] == 2.5 and loaded[0]["high"] == 3.0  # 去重保后者
+        with pytest.raises(ValueError):
+            upsert_market_bars_batch("cov-batch", [], adjustment="")
+        # 外部 session（组事务内）：回滚则本码不留痕
+        with pytest.raises(RuntimeError):
+            with SessionLocal.begin() as outer:
+                upsert_market_bars_batch("cov-outer", bars, adjustment="", session=outer)
+                raise RuntimeError("group abort")
+        with SessionLocal() as s:
+            assert s.scalar(select(func.count()).select_from(MarketBar).where(MarketBar.code == "cov-outer")) == 0
+    finally:
+        with SessionLocal.begin() as s:
+            s.execute(delete(MarketBar).where(MarketBar.code.in_(["cov-batch", "cov-outer"])))
