@@ -609,8 +609,8 @@ def test_history_index_uses_isolated_adjustment_bucket(monkeypatch):
         with TestClient(app_module.create_app()) as client:
             response = client.get("/api/history?code=000001&index=true")
         assert response.status_code == 200
-        # 端点向历史源声明的是隔离桶，而非个股 qfq 桶
-        assert captured == {"is_index": True, "adjustment": "qfq:idx"}
+        # 端点向历史源声明的仍是合法上游参数 qfq——A1 存储隔离只走 bucket 面，绝不影响上游请求（防回归锚）
+        assert captured == {"is_index": True, "adjustment": "qfq"}
 
         with SessionLocal() as session:
             rows = session.scalars(
@@ -622,6 +622,17 @@ def test_history_index_uses_isolated_adjustment_bucket(monkeypatch):
         assert by_adjustment["qfq"].close == 10.8
         # 指数点位只落在新增的 qfq:idx 行
         assert by_adjustment["qfq:idx"].close == 3050.5
+
+        # 兜底读路径同源隔离：上游故障时 index=true 读 qfq:idx、index=false 读 qfq，互不拿错
+        def boom(code, limit=40, is_index=False, adjustment="qfq"):
+            raise ConnectionError("upstream down")
+
+        monkeypatch.setattr("backend.data_source.load_history", boom)
+        with TestClient(app_module.create_app()) as client:
+            r_idx = client.get("/api/history?code=000001&index=true").json()
+            r_stock = client.get("/api/history?code=000001").json()
+        assert r_idx["dataSource"] == "local" and r_idx["history"][-1]["close"] == 3050.5
+        assert r_stock["dataSource"] == "local" and r_stock["history"][-1]["close"] == 10.8
     finally:
         with SessionLocal.begin() as session:
             session.execute(delete(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day))

@@ -123,12 +123,19 @@ DIST_DIR = FRONTEND_DIR / "dist"
 
 
 def _load_history_with_fallback(
-    code: str, limit: int, is_index: bool = False, adjustment: str = "qfq", source: Any = None
+    code: str,
+    limit: int,
+    is_index: bool = False,
+    adjustment: str = "qfq",
+    source: Any = None,
+    bucket: str | None = None,
 ) -> tuple[list, str, str | None, str]:
     """优先所选历史源；上游失败时降级读取本地 market_bars 持久化历史。返回 (history, dataSource, dataAsOf, provider)。
 
     source 可由调用方预解析注入（复盘按请求解析一次，免逐码重建 settings+router）；缺省按当前 settings 现场路由。
+    bucket 仅覆盖落库/兜底读取的键空间（A1 指数隔离用 qfq:idx）；上游请求参数恒为 adjustment，不受隔离影响。
     """
+    store_bucket = bucket or adjustment
     if source is None:
         from backend.sources import build_router
 
@@ -140,10 +147,10 @@ def _load_history_with_fallback(
                 settings.get("historySource", "tencent"), "history", settings.get("fallbackEnabled", True)
             )
         history = source.load_history(code, limit=limit, is_index=is_index, adjustment=adjustment)
-        data_as_of = save_market_bars(code, history, adjustment=adjustment)
+        data_as_of = save_market_bars(code, history, adjustment=store_bucket)
         return history, "live", data_as_of, source.provider_label
     except Exception:
-        bars = load_market_bars(code, limit=limit, adjustment=adjustment)
+        bars = load_market_bars(code, limit=limit, adjustment=store_bucket)
         if not bars:
             raise
         return bars, "local", bars[-1]["date"], "local"
@@ -415,7 +422,7 @@ def create_app() -> FastAPI:
     def history(code: str = Query(default="600519"), index: bool = Query(default=False)) -> HistoryOut:
         try:
             history, data_source_flag, data_as_of, provider = _load_history_with_fallback(
-                code, 120, is_index=index, adjustment="qfq:idx" if index else "qfq"
+                code, 120, is_index=index, adjustment="qfq", bucket="qfq:idx" if index else None
             )
             return HistoryOut(
                 code=code,
