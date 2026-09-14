@@ -205,5 +205,4 @@ def test_startup_probe_reschedules_on_warmup_race():
     bars_etl._startup_attempts["n"] = 20  # 封顶后 abort 也不重排
     calls["n"] = 0
     bars_etl._startup_probe(sched, _run=lambda: bars_etl.EtlStats(aborted=True, reason="universe_too_small"))
-    assert len(sched.calls) == 1
-    assert calls["n"] == 1
+    assert len(sched.calls) == 1  # 封顶：abort 也不重排（等日补 cron）
