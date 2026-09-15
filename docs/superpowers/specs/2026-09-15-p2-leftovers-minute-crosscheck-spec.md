@@ -1,6 +1,6 @@
-# P2 遗留包：受保护按需分钟线 + 跨源交叉校验 + universe 护栏拆分（P2.5）— 设计规格 r2
+# P2 遗留包：受保护按需分钟线 + 跨源交叉校验 + universe 护栏拆分（P2.5）— 设计规格 r3
 
-日期：2026-09-15 ｜ 状态：**r2（r1 对抗评审 4P1/1P2 已清偿，⟹ 标记本轮修订）待用户放行** ｜ 上游：P2 spec r3.2 遗留项 + 用户 2026-09-15 方法论裁定（逐字采纳其护栏表）
+日期：2026-09-15 ｜ 状态：**用户评审通过（单用户本地标准；生产级轴第四次按 AGENTS 红线整体拒绝——定位选择非缺陷）；r3 已装载评审 5 条计划期意见（⟹ 标记）；进入 plan+SDD** ｜ 上游：P2 spec r3.2 遗留项 + 用户 2026-09-15 方法论裁定（逐字采纳其护栏表）
 定位：三块相互独立、可独立交付回滚的 P2 收尾；共享"降级不静默、不造数、不自动改数"纪律。
 
 ## 1. 决策记录（用户裁定 + 环境实测）
@@ -32,7 +32,8 @@
 
 - `load_minute_kline(code, period, count)`：period ∈ {m1,m5,m15,m30,m60} 白名单（越界 422 在端点层拦），count clamp [10,320]；上游 `GET https://web.ifzq.gtimg.cn/appstock/app/kline/mkline?param={symbol},{period},,,{count}`；解析行 `[yyyymmddHHMM,o,c,h,l,vol,...]` → `{"date":"YYYY-MM-DD HH:MM","open","close","high","low","volume"}`（与日线 bar 形兼容，前端 chart 通道复用）。ETF/指数支持=同 symbol 规则；北交所 bj 前缀实测若 mkline 无数据按空降级（不造数）。
 - **请求路径（顺序即纪律）**：参数校验 → **ETL 互斥**：`bars_etl._RUN_LOCK.locked()` 时不发上游，仅读 L1/L2，皆 miss → 返回 `{bars:[], state:"etl_busy", degraded:true}`（HTTP 200，如实非错误）→ 令牌桶（1rps、burst≤3，非阻塞；空桶 → HTTP 429 + `retryAfterMs`，交互路径不排队）→ 熔断窗内（open → 只读缓存，miss 返回 `{bars:[], state:"circuit_open"}`，不打上游）→ L1（15s）→ L2（`minute:` 前缀，新鲜窗 120s，**无降级读**）→ 上游（重试策略：网络类错误最多 1 次；501/4xx 零重试）。
-- **上游熔断**：连续 3 次失败（连接异常/5xx/超时）→ 900s 全局开路；收到 501 → 立即开路 900s（惩罚窗语义）。半开恢复=窗后首请成功即闭路（记 `minute_circuit_open/close` 日志）。Redis facade 熔断（3 败/30s）与本路熔断**互不相干**（两个故障域）。
+- **上游熔断**：连续 3 次失败（连接异常/5xx/超时）→ 900s 全局开路；收到 501 → 立即开路 900s（惩罚窗语义）。⟹ **半开协议（评审 P2-1）**：窗满后非"任意请求即放行"，而是**单探测（single-flight）**——只允许 1 个请求打上上游，探测成功→闭路放行正常流量；探测失败（含 501）→ 重新开路 900s（不进入成功即清零的振荡）。并发请求在探测期直接吃缓存/`circuit_open` 空响应，不排队。（Redis facade 熔断（3 败/30s）与本路熔断**互不相干**——两个故障域。）
+- ⟹ **L1 逐出（评审 P1-1，替代 R7 旧"无界接受"）**：分钟 L1 为独立 dict——每次写入时机会式清扫（每 50 次写扫一轮过期项）+ 硬上限 512 键（超限逐出最旧时间戳），零新依赖零 LRU 库；上限内键基数=活跃码×周期×count 变体，正常用量远小于 512。
 - **CacheFacade 策略表化（唯一触碰点，I6）**：`WHITELIST_PREFIXES += ("minute:",)`；新鲜窗与 PX 从全局常量改为按前缀策略：`quotes:/history:` 维持现语义（ttl_getter+5 窗、PX≥1860+60 floor）；`minute:` 新鲜窗 120s、PX=(120+60)s、`stale_read/take_stale` 对 minute 键返回 None（陈旧分钟线无意义）。既有键行为逐字不变（I8 纪律延伸）。
 - 端点 `GET /api/minute?code=&period=5&count=&index=false` ⟹（`index` 必选面：000001 个股/指数同号歧义与 /api/history 同源，symbol 走 `index_symbol`；分钟线不落库故无桶问题）；period 单位分钟 ∈ {1,5,15,30,60}→m*；count 默认 120 → `MinuteOut {code,period,bars:[MinuteBar],dataSource:"upstream"|"cache_l1"|"cache_l2"|null,state:"ok"|"etl_busy"|"circuit_open"|"unavailable",degraded:bool,updatedAtMs}`⟹（无数据回 null——绝不以 "upstream" 冒充空响应来源）。错误契约沿用现有 API 码（VALIDATION_ERROR 422 / RATE_LIMITED 429）。既有端点零触碰。
 - health 附加键（纯增量）：`minuteCache: "connected"|"bypassed"|"down"`（=facade 对 minute 可用态）、`minuteCircuit: "closed"|"open"`。
@@ -45,13 +46,13 @@
   - `TushareProvider`：单次 `pro.daily(trade_date=YYYYMMDD)` 拉全市场（1 请求/日，配额友好）；映射 `600000.SH→600000`；**单位换算表以 T0 实测校准为准**（Tushare vol=手、amount=千元；腾讯 kline volume 单位实施前用 2 锚码同日双源实测锁定，误差>1% 视为换算错而非数据差异——写进实现注释）。启用条件：`tushare_token` 非空且 `find_spec("tushare")`。
   - `EastmoneyProvider`：push2 ulist.np `secids` 批查（≤100 码/请求）；⟹ **T0 实测锁定（2026-09-15，600000/000001）**：`fltt=2` 时 f2=浮点元价（**无 100 倍缩放**——原假设作废）、f5=手、f6=元；库内 bfq volume 同为手（DB 832461 vs EM 755251 同码同日同单位差异为陈旧水位样本非单位错位，600000 收盘价 9.18 与 EM f2 **分文不差**）；盘后调用=最新收盘快照，**仅校验水位日一根**，不接受历史回溯。Tushare 换算（vol=手→×100=股、amount=千元→×1000=元）**以代码内注释+单测断言为准，token 就绪日执行 live T0 对拍后允许改常数组**（R2 关卡）。
 - **抽样**：`CROSS_CHECK_SAMPLE=30` = 锚定码（watchlist∪trade_plans 去重取前 10，必查）+ 日期盐种子随机补足（同日可复现）。全市场日一次批量接口即可覆盖。
-- **判据**：对每码——本库水位日 bfq 行 vs provider 行：close 相对差 >0.1% 且绝对差 >0.011 元 → mismatched；vol 差 >1%（双方均非零才比）→ mismatched；库缺行 → missing（回补缺口非校验错）；provider 缺行/停牌（Tushare 无行、东财 f2='-'）→ skipped_suspended（**不计 mismatched**，对齐停牌语义，单独计数）。
+- **判据**：对每码——本库水位日 bfq 行 vs provider 行：close 相对差 >0.1% 且绝对差 >0.011 元 → mismatched；vol 差 >1%（双方均非零才比）→ mismatched；库缺行 → missing（回补缺口非校验错）；provider 缺行/停牌（Tushare 无行、东财 f2='-'）→ skipped_suspended（**不计 mismatched**，对齐停牌语义，单独计数）。**校验边界（评审 P1-3）**：cross_check 只保证"最新水位日收盘/成交量与独立源一致"，**不校验历史完整性/中间日洞**——后者是 §3 bars_etl DQ+缺口检测+force 审计的职责，两者互补不重叠；据此东财辅源"仅最新收盘"不是能力欠缺而是本校验项的定义域。
 - **调度**：`register_jobs` 第四 id `bars-crosscheck`（cron mon-fri **15:35**，日补 15:20 之后；max_instances=1、misfire 300、replace_existing）；**取数前须等日线 ETL 完成或跳过本轮**——`_RUN_LOCK.locked()` 时不并发读（避免校验读到"日线半写"态误报 missing），本轮 `status="deferred_etl_running"` 且不更新 lastRunAt，最多顺延 3×5min（≈15:50 放弃，日志 cross_check_deferred，非 degraded 非风暴）；独立 `_CC_LOCK` 与 `_RUN_LOCK` 不交叉（校验永不阻断/排队 ETL）；provider 异常/双源皆不可用 → `cross_check_degraded` 日志 + health status=degraded，**无告警风暴**（同因 10 分钟内只记一条）。
 - **落点**：不建新表（单用户日志即告警面）；`health.bars.crossCheck = {provider,lastRunAt,sampled,mismatched,missing,skippedSuspended,status:"ok"|"degraded"|"disabled"|"deferred_etl_running"} | null`（未启用=disabled 显式，不 null 混淆"没跑"与"没配"）。
 
 ## 6. 前端最小触点（不重构）
 
-`ViewStockDetail` 既有图表区加"分钟"周期按钮组（1/5/15/30/60，默认 5）+ 单次拉取（无轮询、仅手动切换/点击触发）；渲染复用 chartSvg 通道（escapeHtml 纪律不变）。状态呈现：`ok`→正常画线；cache_l1/l2 命中或 degraded→黄标"分钟线（缓存，N 分钟前）"；`etl_busy`→灰条"日线同步中，分钟线稍后可用"；`circuit_open/unavailable`→灰条"分钟线暂不可用"；429→toast"请求过于频繁"。字段名全部走新增 schema，零改既有 API 面。
+`ViewStockDetail` 既有图表区加"分钟"周期按钮组（1/5/15/30/60，默认 5）+ 单次拉取（无轮询、仅手动切换/点击触发）；渲染复用 chartSvg 通道（escapeHtml 纪律不变）。状态呈现：`ok`→正常画线；cache_l1/l2 命中或 degraded→黄标"分钟线（缓存，N 分钟前）"；`etl_busy`→灰条"日线同步中，分钟线稍后可用"；`circuit_open/unavailable`→灰条"分钟线暂不可用"；429→toast"请求过于频繁"。字段名全部走新增 schema，零改既有 API 面。⟹ **评审 P2-3 细节**：缓存时距由 `updatedAtMs` 前端 `formatTime`/分钟差计算（Asia/Shanghai 展示口径与日线视图一致，不引入新时区面）；灰条态附"重试"按钮（点击=一次手动请求，不违反无轮询纪律）；黄标在 dataSource=cache_l2 时同样显示（L2 命中对用户语义=缓存）。
 
 ## 7. 日志
 
@@ -63,7 +64,7 @@ fake mkline（含 501/DNS 异常/正常矩阵）、fake 令牌桶与假时钟测
 
 ## 9. 已知限制 / 风险
 
-R1 mkline web3 DNS 本机不可解析→live 冒烟受限（离线测试为验收基线；用户真实网络首验）；R2 单位/缩放误换算→⟹ 东财面 T0 已实测锁定（§5），Tushare 面 token 就绪日补 live 对拍；校准完成前 cross_check 允许合入但调度注册带 `CROSS_CHECK_ENABLED` 环境开关（默认关→health=disabled），东财 live 冒烟通过后才在 .env 打开；R3 分钟线与日线同主机——令牌桶 1rps 硬顶 + 501 即熔断防放大，接受残余共担风险；R4 东财 RST 前科→degraded 视为常态路径设计；R5 停牌对齐按 skipped 分账，接受"provider 缺行=停牌"假设的长尾误判（日志可查）；R6 分钟键入 L2 后 `atlas:q:minute:*` 数量增长——PX 180s 自清，无残留面；R7 分钟 L1 dict 无逐出——键基数=活跃码×5 周期×少量 count 变体，沿用 data_source.cache 无界先例（进程重启即净），不引入 LRU 复杂度；R8 回补 drain 期（深队列>30min）当日 cross_check 可能顺延失败→次日自然补，观测面如实（status=deferred_etl_running）。
+R1 mkline web3 DNS 本机不可解析→live 冒烟受限（离线测试为验收基线；用户真实网络首验）；R2 单位/缩放误换算→⟹ 东财面 T0 已实测锁定（§5），Tushare 面 token 就绪日补 live 对拍；校准完成前 cross_check 允许合入但调度注册带 `CROSS_CHECK_ENABLED` 环境开关（默认关→health=disabled），东财 live 冒烟通过后才在 .env 打开；⟹ **评审 P1-2：Tushare token 验证 + 单位 live 对拍列为独立验收项（判据 2b），plan 期不得默认"应该对"，未对拍则 Tushare provider 保持 disabled**；R3 分钟线与日线同主机——令牌桶 1rps 硬顶 + 501 即熔断防放大，接受残余共担风险；R4 东财 RST 前科→degraded 视为常态路径设计；R5 停牌对齐按 skipped 分账，接受"provider 缺行=停牌"假设的长尾误判（日志可查）；R6 分钟键入 L2 后 `atlas:q:minute:*` 数量增长——PX 180s 自清，无残留面；⟹ **R7（评审 P1-1 升级，非"无界接受"）：分钟 L1 dict 上限 512 键 + 每 50 次写机会式清扫过期项/超限逐出最旧时间戳**（不引入 LRU 库，正常用量远小于 512，防详情页频繁切换下进程内存缓慢增长）；⟹ **R7b（评审 P1-3：跨源校验边界显式声明）：cross_check 只校验"最新水位日收盘/成交量的正确性"，不校验"历史完整性"**——日线 ETL 中间日洞若由 DQ 拒收造成，东财 clist 单根快照发现不了；历史完整性由 bars_etl 的 DQ 逐根拒收 + 缺口四档检测 + 周六 force 审计负責（§5 边界与 §3 互补，不重叠）；R8 回补 drain 期（深队列>30min）当日 cross_check 可能顺延失败→次日自然补，观测面如实（⟹ 评审 P2-2：status=deferred_etl_running 在 health.bars.crossCheck 中独立可见、lastRunAt 保持旧值，**绝不与 degraded 混同**——前者=机制让路，后者=源故障）。
 
 ## 10. 接口冻结（I 清单）
 
@@ -72,7 +73,7 @@ I1 `minute_path.load_minute_kline(code:str, period:str, count:int) -> list[dict]
 ## 11. 成功判据（单用户本地标准）
 
 1. 分钟线四态端到端（fake 上游验收）：正常回画、连败 3→熔断 900s 半开恢复、501 单次即熔断、ETL lock 持有期零上游请求且 200+etl_busy、令牌桶第 4 连击 429；
-2. cross_check 一次真实东财跑通（token 空分支）：health.bars.crossCheck 六字段齐、偏差为 0 或 mismatched 码有日志可查；T0 单位校准记录进实现注释；
+2. cross_check 一次真实东财跑通（token 空分支）：health.bars.crossCheck 六字段齐、偏差为 0 或 mismatched 码有日志可查；东财单位已 T0 锁定；⟹ **2b（评审 P1-2 独立验收项）Tushare token 若就绪：`pro.daily` 单码 live 可用 + 与东财/腾讯三方 close 分文不差、vol/amount 单位换算对拍通过，方允许 `CROSS_CHECK_ENABLED` 打开 Tushare 分支；未对拍则 Tushare provider 保持 disabled（合入不阻塞，启用为独立门槛）**；
 3. 护栏拆分：industry 表清空场景下自选/计划码与库内存量码照常日补（live drain 复跑取证），abortReason 如实；
 4. 回补推进：本批结束时全库 deferred 归零或给出如实剩余数 + 预计归零日期；
 5. 全门禁绿（563 基线零修改 + 新增全绿、ruff/mypy、前端 vitest 基线）+ push develop 成功（网络恢复后）。
