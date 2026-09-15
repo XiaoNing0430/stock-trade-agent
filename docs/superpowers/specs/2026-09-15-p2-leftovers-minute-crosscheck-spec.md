@@ -8,7 +8,7 @@
 - **D1 全市场分钟线：挂起。** 原因：腾讯 ifzq ~1500 持续请求即 501 全 IP 惩罚（P2 冒烟实锤），当前数据源+单用户本地定位下不可行。重开条件（写 ROADMAP）：接入带分钟权限的稳定源（Tushare Pro 分钟、券商 Level-1/2、本地行情网关），且具备独立限流、独立 IP/账号、不干扰日线源。验收前置：分钟线请求不得与日线 ETL 共用同一受限链路；必须有独立限流、熔断、缓存、健康暴露。
 - **D2 自选/详情按需分钟线：可做，降级为"受保护的交互式行情功能"。** 仅自选/详情、单码、用户触发；不落库、不过 ETL、不后台批量预取、不自动轮询全自选；周期白名单 {m1,m5,m15,m30,m60}，count 上限 320。护栏表逐条采纳：独立令牌桶 1rps/burst3（与日线 `_throttle` 隔离、优先级低于日线）、ETL 运行期互斥、短 TTL（L1 15s；L2 120s 新增 `minute:` 白名单，不改 quotes/history 语义）、上游连败 3 次熔断 900s（501 单次即熔断；熔断期展示 stale/不可用，不重试不造数）、失败最多 1 次重试（501/4xx 零重试）、health 暴露、日志与 fake 源测试。
 - **D3 跨源校验：主辅都建，token 缺则降级。** Tushare daily 为主（`TUSHARE_TOKEN` 已配置才启用；当前实测为空）；东财 clist 为辅/降级（只校验最新收盘，接受其实时快照口径与 RST 稳定性局限）。校验失败只告警（日志+health），不阻断 ETL、不自动改数、不自动重拉、不造数。
-- **D4 universe 护栏拆分（drain 实测暴露的新缺陷，2026-09-15）**：industry_map 被清空→universe 塌缩至 1→`UNIVERSE_MIN` 护栏把**用户码日补也连带冻结**。护栏本意是防全市场小分母误读，不应伤及关键路径。拆分规则见 §3。
+- **D4 universe 护栏拆分（drain 实测暴露的新缺陷，2026-09-15）**：industry_map 被清空→universe 塌缩至 1→`UNIVERSE_MIN` 护栏把**用户码日补也连带冻结**。护栏本意是防全市场小分母误读，不应伤及关键路径。拆分规则见 §3。⟹ **L9（同夜 drain 第 2 轮实锤）**：惩罚窗复发时 `_default_fetch` 走 data_source 通用重试（501 也重试 1 次）→ 失败轮请求×2 放大（50 败≈100 击）。修正入 §3：ETL 拉取面 HTTP 5xx **零重试立即失败**（网络类仍可 1 次）；熔断语义不变。收益：惩罚窗内 ETL 总击半减，且与分钟线"501 零重试"纪律统一。
 - **D5 mkline 环境事实**：`/appstock/app/kline/mkline` 301→`web3.ifzq.gtimg.cn`，本机 DNS 无法解析（2026-09-15 实测，两次重试同果；`minute/query` 分时走 web 正常 200）。属环境约束非产品缺陷；分钟路径必须把"mkline 不可达/501/超时"全部作为正常降级路径处理，live 冒烟受限时以离线 fake 测试为准，用户网络自验。
 - **D6 惩罚窗消退观测**：日线 kline 端点 2026-09-15 实测恢复 200（发作后约 24h）；L8 的预算/节奏/公平序设计维持，回补按 drain+日 cron 继续推进。
 
@@ -23,6 +23,7 @@
 - `resolve_universe()` 扩为**两面**：`market_codes`（industry_map 表）与 `user_codes`（watchlist ∪ trade_plans）；`scan_universe = market ∪ user ∪ DISTINCT(market_bars.code WHERE adjustment='bfq')`（库内已有码=存量资产，永远在扫描面内，否则护栏触发时已有数据静默腐烂）。
 - 护栏语义修正：`len(market_codes) < UNIVERSE_MIN` 只冻结**新增码深回补**（missing∪stale_deep 中不在 market_bars 的码）；**存量码深回补（在库但落后 >10 工作日）与轻队/日补无条件执行**。⟹ **预算对回补队列两档（存量档+新码档）统一适用 `BACKFILL_CODES_PER_RUN`**——护栏拆分绝不放开 501 惩罚窗的后门：存量档优先占预算（在库资产保鲜），新码档位余。`reason="market_universe_small"` 记入 `bars.abortReason`，`deferred` 如实计数（health 观测不回退）。
 - 启动探测维持现状（universe<UNIVERSE_MIN 重排 ≤20×120s）——其目的从"整轮自救"改为"尽早放开全市场深回补"。
+- ⟹ L9 落地：`_default_fetch` 不再走带 5xx 重试的通用面——对 `requests.HTTPError`（含 501）零重试立即计失败；`ConnectionError/Timeout` 类保留至多 1 次。测试：fake fetch 抛 HTTPError(501) 断言调用次数==码数（无放大）。
 - 测试：industry 表空 + 库内码 stale → backfill 仅存量码、新码全 deferred、daily 正常；industry 满 → 与现状行为一致（既有 41 项 ETL 测试零修改全绿，除非语义被本 § 显式改）。
 
 ## 4. G1：分钟线后端
