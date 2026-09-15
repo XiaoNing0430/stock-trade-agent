@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+import requests
+from sqlalchemy import distinct, func, select
 
 from backend import storage
 
@@ -66,15 +67,25 @@ def authoritative_watermark(now: datetime | None = None) -> str:
     return value
 
 
-def resolve_universe() -> list[str]:
-    """I1：industry_map 全表 ∪ 工作区自选/计划码（含北交所工作区码——腾讯 bj 链路可拉）。
+def market_code_count() -> int:
+    """industry_map 全表码数（market 面规模）——UNIVERSE_MIN 护栏的判据（spec D4：只判 market）。"""
+    with storage.SessionLocal() as session:
+        return int(session.scalar(select(func.count(distinct(storage.IndustryMap.code)))) or 0)
 
-    不含指数（D9）。纯查询零副作用。
+
+def resolve_universe() -> list[str]:
+    """I1：industry_map ∪ 自选/计划码 ∪ **库内 bfq 存量码**（含北交所工作区码——腾讯 bj 链路可拉）。
+
+    不含指数（D9）。存量码入扫描面（spec D4）：industry 表清空/码退市时库内资产不腐烂——
+    深回补预算与日补仍覆盖它们。纯查询零副作用。
     """
     with storage.SessionLocal() as session:
         codes: set[str] = set(session.scalars(select(storage.IndustryMap.code)).all())
         codes |= set(session.scalars(select(storage.WatchlistItem.code).distinct()).all())
         codes |= set(session.scalars(select(storage.TradePlan.code).distinct()).all())
+        codes |= set(
+            session.scalars(select(storage.MarketBar.code).where(storage.MarketBar.adjustment == "").distinct()).all()
+        )
     return sorted(codes)
 
 
@@ -138,6 +149,9 @@ def detect_gaps() -> dict[str, Any]:
 _RUN_LOCK = threading.Lock()  # 跨 job 互斥（三独立触发共跑一个 run_full 的进程面保证）
 _recheck: set[str] = set()  # DQ 拒收码的下轮强制复核队列（§3.4 自愈通道①；重启丢失由周六 force 审计兜底）
 _last_run_at: dict[str, int | None] = {"at": None}
+_last_abort_reason: dict[str, str | None] = {
+    "r": None
+}  # ⟳ spec D4：health 观测——上轮 market 护栏是否开（不中止也留痕）
 DAILY_MIN_LIMIT = 20
 
 
@@ -156,6 +170,7 @@ class EtlStats:
     aborted: bool = False
     elapsed_ms: int = 0
     reason: str = ""
+    abort_reason: str = ""  # ⟳ spec D4：market 面小→新码冻结的留痕（aborted 仍 False，存量/日补照跑）
 
 
 def validate_bars(bars: list[dict[str, Any]], watermark: str) -> tuple[list[dict[str, Any]], int]:
@@ -197,7 +212,8 @@ def _default_fetch(code: str, limit: int) -> list[dict[str, Any]]:
     from backend import data_source
 
     time.sleep(ETL_MIN_FETCH_INTERVAL)  # ETL 专属节奏（3.3rps）：kline 端点惩罚窗远严于报价面
-    return data_source.load_history(code, limit=limit, is_index=False, adjustment="")
+    # ⟳ L9：HTTP 状态类错误（501 惩罚窗等）零重试——每失败码 1 击而非 2×2 击
+    return data_source.load_history(code, limit=limit, is_index=False, adjustment="", retry_http_error=False)
 
 
 def run_full(force: bool = False, *, fetch: Callable[[str, int], list[dict[str, Any]]] | None = None) -> EtlStats:
@@ -212,11 +228,12 @@ def run_full(force: bool = False, *, fetch: Callable[[str, int], list[dict[str, 
         _do_run(stats, force, fetch or _default_fetch)
     finally:
         _last_run_at["at"] = int(time.time() * 1000)
+        _last_abort_reason["r"] = stats.abort_reason or None  # spec D4 health 观测面（不中止也留痕）
         _RUN_LOCK.release()
         stats.elapsed_ms = int((time.time() - t0) * 1000)
         (logger.error if stats.aborted else logger.info)(
             "bars_etl_%s universe=%d up_to_date=%d backfill=%d deferred=%d daily=%d no_new_bar=%d rejected=%d "
-            "fetched=%d failed=%d watermark=%s elapsed_ms=%d%s",
+            "fetched=%d failed=%d watermark=%s elapsed_ms=%d%s%s",
             "aborted" if stats.aborted else "ok",
             stats.universe,
             stats.up_to_date,
@@ -230,6 +247,7 @@ def run_full(force: bool = False, *, fetch: Callable[[str, int], list[dict[str, 
             stats.watermark,
             stats.elapsed_ms,
             f" reason={stats.reason}" if stats.reason else "",
+            f" abortReason={stats.abort_reason}" if stats.abort_reason else "",
         )
     return stats
 
@@ -238,22 +256,27 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
     stats.watermark = authoritative_watermark()
     universe = resolve_universe()
     stats.universe = len(universe)
-    if stats.universe < UNIVERSE_MIN:
+    if stats.universe == 0:
         stats.aborted, stats.reason = True, "universe_too_small"
-        logger.warning(
-            "bars_etl_aborted universe_too_small universe=%d（industry 预热未完成？本轮跳过）", stats.universe
-        )
+        logger.warning("bars_etl_aborted universe_too_small universe=0（预热未完成且无存量码？本轮跳过）")
         return
+    # ⟳ spec D4 护栏三面拆分：industry 表塌缩不再冻结用户码/存量码保鲜——
+    # 护栏只关"新码深回补"（未入库=可安全等待），存量深补+轻队+复核无条件。
+    guard_open = market_code_count() < UNIVERSE_MIN
+    if guard_open:
+        stats.abort_reason = "market_universe_small"
     gaps = detect_gaps()
     missing = list(gaps["missing"])
     deep = list(gaps["stale_deep"])
     light = list(gaps["stale_light"])
     stats.up_to_date = int(gaps["up_to_date"])
-    backfill_all = [c for c in universe if c in set(missing) | set(deep)]
-    # ⟳ 公平随机序（冒烟教训 L8）：退市码在代码段聚簇成连续失败块，sorted 头扫会让
-    # 熔断永远饿死头部之后的码；同日种子稳定、跨日轮换。回补预算封顶防撞 501 惩罚窗。
-    backfill = _fair_order(backfill_all, "bf:" + stats.watermark)[:BACKFILL_CODES_PER_RUN]
-    stats.deferred = len(backfill_all) - len(backfill)
+    # ⟳ 公平随机序（冒烟教训 L8）：退市码聚簇连续失败块会饿死尾部；同日盐稳定、跨日轮换。
+    # ⟳ spec D4：预算内存量码（deep）优先占位，新码（missing）档位余——护栏开时新码全 deferred。
+    bf_existing = _fair_order(deep, "bfe:" + stats.watermark)
+    bf_new = [] if guard_open else _fair_order(missing, "bfn:" + stats.watermark)
+    pool = bf_existing + bf_new
+    backfill = pool[:BACKFILL_CODES_PER_RUN]
+    stats.deferred = len(pool) - len(backfill) + (len(missing) if guard_open else 0)
     queued = set(backfill) | set(light)
     daily = [c for c in universe if c not in queued] if force else list(light)
     recheck_now = sorted(c for c in _recheck if c not in queued)  # 复核队列置头（小集必处理）
@@ -266,6 +289,8 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
         for _ in range(2):  # 单码重试 1 次（P0-2：空响应与异常同罪）
             try:
                 bars = fetch(code, limit)
+            except requests.HTTPError:
+                return None  # ⟳ L9：HTTP 状态类（含 501 惩罚窗）bars 层亦零重试——半减失败轮打击
             except Exception:
                 bars = []
             if bars:
@@ -332,7 +357,8 @@ def _startup_probe(scheduler: Any, _run: Callable[[], EtlStats] | None = None) -
     绝不同步死等（占死 executor 线程）；也绝不用 interval（r3 裁定：非所需重跑形态）。
     """
     stats = run_full() if _run is None else _run()
-    if stats.aborted and stats.reason == "universe_too_small":
+    # ⟳ spec D4：自愈条件从"整轮 universe_too_small"改为"market 面未就绪"（护栏开着=新码冻结）
+    if (stats.aborted and stats.reason == "universe_too_small") or stats.abort_reason == "market_universe_small":
         if _startup_attempts["n"] >= 20:
             logger.warning("bars_etl 启动探测重试封顶（20 次），等待 15:20 日补 cron")
             return
@@ -407,6 +433,7 @@ def bars_health() -> dict[str, Any] | None:
         "freshCount": fresh,
         "universeSize": len(universe),
         "lastRunAt": _last_run_at["at"],
+        "abortReason": _last_abort_reason["r"],  # spec D4/I5：market 护栏留痕（None=未触发）
     }
     with _wm_lock:
         _h_at, _h_value = now, dict(value)
