@@ -182,3 +182,33 @@ def test_default_clock_uses_time_module():
     f = redis_cache.CacheFacade(client=FakeRedis(), ttl_getter=lambda: 8)
     f.set("quotes:a", 1, ttl=8)
     assert f.get("quotes:a") == 1  # 真时钟下写入即读必新鲜
+
+
+# ── P2.5 T2：前缀策略表（minute: 入白名单，独立新鲜窗/PX/无降级读） ──────────
+
+
+def test_minute_prefix_own_fresh_window_not_global_ttl():
+    f = make(ttl=8)  # 全局报价 TTL=8s——minute 键不受其绞杀
+    f.set("minute:sh600000:m5:120", [{"c": 1}], ttl=120)
+    f.set("quotes:sh600000", {"px": 1}, ttl=8)
+    f._clock.t += 100  # 100s：全局窗 13s 早已过，minute 窗 120+5 内仍新鲜
+    assert f.get("minute:sh600000:m5:120") == [{"c": 1}]
+    assert f.get("quotes:sh600000") is None  # quotes 行为逐字不变（100s 前=非新鲜）
+    f._clock.t += 30  # minute 累计 130s > 120+5 → 也过期
+    assert f.get("minute:sh600000:m5:120") is None
+
+
+def test_minute_stale_read_always_none():
+    f = make(ttl=8)
+    f.set("minute:sh600000:m5:120", [{"c": 1}], ttl=120)
+    f._clock.t += 10_000  # 任意老
+    assert f.stale_read("minute:sh600000:m5:120", 1800) is None
+    assert f.take_stale("minute:sh600000:m5:120", 1800) is None
+
+
+def test_minute_px_plus_60_no_1860_floor():
+    f = make(ttl=8)
+    f.set("minute:sz000001:m1:320", [1], ttl=120)
+    assert f.client.last_px == (120 + 60) * 1000  # 物理窗短——陈旧分钟键不自清才是残留
+    f.set("quotes:sz000001", {"px": 1}, ttl=8)
+    assert f.client.last_px == (1800 + 60) * 1000  # quotes floor 行为不变

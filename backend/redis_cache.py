@@ -12,17 +12,33 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 logger = logging.getLogger("atlas.redis_cache")
 
 L2_PREFIX = "atlas:q:"
-WHITELIST_PREFIXES = ("quotes:", "history:")  # D6 冻结：screener_v2 等永不触 L2
+WHITELIST_PREFIXES = ("quotes:", "history:", "minute:")  # D6 冻结：screener_v2 等永不触 L2；P2.5 增 minute:
 MAX_L2_BYTES = 128_000
 STALE_FRESH_GRACE = 5  # get() 新鲜读宽限（双 TTL 漂移防御）
 STALE_MAX_AGE = 1800  # 与 data_source 同步的降级窗（物理 TTL 下限依据）
 BREAKER_FAILS = 3
 BREAKER_SECONDS = 30
+
+MINUTE_FRESH_SECONDS = 120  # ⟳ P2.5 spec §4：分钟线独立新鲜窗（不随全局报价 TTL）
+
+
+class _Policy(NamedTuple):
+    """前缀策略（I6：公开签名零变化，仅内部分派）：fresh=get 新鲜窗基数，
+    px_floor=None → 物理 TTL=(ttl+60)s 不设 1860 floor（陈旧分钟线无降级价值），
+    stale_ok=False → stale_read/take_stale 恒 None。"""
+
+    fresh: int | None  # None=用全局 ttl_getter
+    px_floor: int | None
+    stale_ok: bool
+
+
+_POLICIES: dict[str, _Policy] = {"minute:": _Policy(fresh=MINUTE_FRESH_SECONDS, px_floor=None, stale_ok=False)}
+_DEFAULT_POLICY = _Policy(fresh=None, px_floor=STALE_MAX_AGE, stale_ok=True)  # quotes/history 现语义逐字
 
 
 class CacheFacade:
@@ -45,6 +61,13 @@ class CacheFacade:
     @staticmethod
     def _eligible(key: str) -> bool:
         return key.startswith(WHITELIST_PREFIXES)
+
+    @staticmethod
+    def _policy(key: str) -> _Policy:
+        for prefix, pol in _POLICIES.items():
+            if key.startswith(prefix):
+                return pol
+        return _DEFAULT_POLICY
 
     def _bypassed(self) -> bool:
         return self.client is None or self._clock() < self._bypass_until
@@ -96,12 +119,17 @@ class CacheFacade:
     # ── 对外四类（I7） ─────────────────────────────────────────────────────
 
     def get(self, key: str) -> Any | None:
-        """新鲜读：宽限=当前 _cache_ttl + 5s；超窗弃用（take_stale 才有 1800s 语义）。"""
-        hit = self._read_envelope(key, self._ttl() + STALE_FRESH_GRACE)
+        """新鲜读：quotes/history=当前 _cache_ttl+5s；minute:=独立 120s+5s（P2.5 策略表）。"""
+        pol = self._policy(key)
+        base = pol.fresh if pol.fresh is not None else self._ttl()
+        hit = self._read_envelope(key, base + STALE_FRESH_GRACE)
         return hit[0] if hit else None
 
     def stale_read(self, key: str, max_age: float) -> tuple[Any, float] | None:
-        """(值, 真实 age)：降级路径把诚实 age 喂给 mark_stale；过期/缺失 None。"""
+        """(值, 真实 age)：降级路径把诚实 age 喂给 mark_stale；过期/缺失 None。
+        minute: 等 stale_ok=False 前缀恒 None——陈旧分钟线无意义，绝不冒充可降级数据。"""
+        if not self._policy(key).stale_ok:
+            return None
         return self._read_envelope(key, max_age)
 
     def take_stale(self, key: str, max_age: float) -> Any | None:
@@ -112,6 +140,7 @@ class CacheFacade:
     def set(self, key: str, value: Any, ttl: int) -> None:
         if not self._eligible(key) or self._bypassed():
             return
+        pol = self._policy(key)
         self._maybe_log_recovery()
         try:
             payload = json.dumps({"ts": self._clock(), "v": value})  # 无 default：类型不转换红线
@@ -123,7 +152,8 @@ class CacheFacade:
             self.counters["skip_oversize"] += 1
             logger.debug("redis_cache_skip_oversize key=%d bytes=%d", len(key), len(payload))
             return
-        px = max(STALE_MAX_AGE + 60, ttl + 60) * 1000  # P1-5：物理窗随动，take_stale 必有东西可读
+        px = (ttl + 60) if pol.px_floor is None else max(STALE_MAX_AGE + 60, ttl + 60)
+        px *= 1000  # P1-5：物理窗随动；minute: 无 floor（陈旧分钟键短命自清，R6）
         client: Any = self.client  # 同上：_bypassed() 已排除 None
         try:
             client.set(L2_PREFIX + key, payload, px=px)
