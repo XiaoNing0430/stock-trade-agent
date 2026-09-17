@@ -406,7 +406,7 @@ def register_jobs(scheduler: Any) -> list[dict]:
         from backend.settings import get_settings
         if get_settings().cross_check_enabled:
             from backend import cross_check
-            specs.append({"func": cross_check.run, "provider": "eastmoney", "id": "bars-crosscheck", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 35, "max_instances": 1, "coalesce": True, "misfire_grace_time": 300, "replace_existing": True})
+            specs.append({"func": cross_check.run, "kwargs": {"provider": "eastmoney"}, "id": "bars-crosscheck", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 35, "max_instances": 1, "coalesce": True, "misfire_grace_time": 300, "replace_existing": True})
     except Exception:
         logger.warning("cross_check 任务注册探测失败，跳过", exc_info=True)
     for spec in specs:
@@ -442,6 +442,11 @@ def bars_health() -> dict[str, Any] | None:
         "lastRunAt": _last_run_at["at"],
         "abortReason": _last_abort_reason["r"],  # spec D4/I5：market 护栏留痕（None=未触发）
     }
+    try:
+        from backend import cross_check
+        value["crossCheck"] = cross_check.last_result()
+    except Exception:
+        value["crossCheck"] = None
     with _wm_lock:
         _h_at, _h_value = now, dict(value)
     return value
