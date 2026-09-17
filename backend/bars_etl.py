@@ -402,6 +402,13 @@ def register_jobs(scheduler: Any) -> list[dict]:
         {**base, "id": "bars-etl-daily", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 20},
         {**base, "id": "bars-etl-weekly", "trigger": "cron", "day_of_week": "sat", "hour": 10, "minute": 30},
     ]
+    try:
+        from backend.settings import get_settings
+        if get_settings().cross_check_enabled:
+            from backend import cross_check
+            specs.append({"func": cross_check.run, "provider": "eastmoney", "id": "bars-crosscheck", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 35, "max_instances": 1, "coalesce": True, "misfire_grace_time": 300, "replace_existing": True})
+    except Exception:
+        logger.warning("cross_check 任务注册探测失败，跳过", exc_info=True)
     for spec in specs:
         try:
             scheduler.add_job(**spec)

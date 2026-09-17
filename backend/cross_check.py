@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+import requests
+from sqlalchemy import select
+
+from backend import storage
+from backend.data_source import classify_code
+
 _lock = threading.Lock()
 _last: dict[str, Any] | None = None
 
@@ -61,7 +67,39 @@ def sample_codes(codes: list[str], anchors: list[str] | None = None, day: str | 
 
 def run(provider: str | None = None, *, date: str | None = None, sleep: Any = None) -> CrossStats:
     global _last
-    result = CrossStats(None, 0, [], [], 0, "disabled") if not provider else CrossStats(provider, 0, [], [], 0, "degraded")
+    if not provider:
+        result = CrossStats(None, 0, [], [], 0, "disabled")
+    else:
+        try:
+            with storage.SessionLocal() as session:
+                rows = session.execute(select(storage.MarketBar.code, storage.MarketBar.close, storage.MarketBar.volume).where(storage.MarketBar.adjustment == "")).all()
+            local = {str(code): (close, volume) for code, close, volume in rows}
+            selected = sample_codes(list(local), day=date, limit=30)
+            provider_rows = fetch_eastmoney(selected) if provider == "eastmoney" else fetch_tushare(selected)
+            result = compare_rows({code: local[code] for code in selected}, provider_rows)
+            result.provider = provider
+        except Exception:
+            result = CrossStats(provider, 0, [], [], 0, "degraded")
     with _lock:
         _last = result.as_dict()
     return result
+
+
+def fetch_eastmoney(codes: list[str]) -> dict[str, tuple[float | None, float | None]]:
+    secids = ",".join(("1." if classify_code(code)["exchange"] == "上交所" else "0.") + code for code in codes)
+    response = requests.get("http://push2.eastmoney.com/api/qt/ulist.np/get", params={"fltt": 2, "invt": 2, "fields": "f2,f5,f12", "secids": secids}, timeout=10)
+    response.raise_for_status()
+    diff = ((response.json().get("data") or {}).get("diff") or [])
+    return {str(row.get("f12")): (row.get("f2"), row.get("f5")) for row in diff if row.get("f12")}
+
+
+def fetch_tushare(codes: list[str]) -> dict[str, tuple[float | None, float | None]]:
+    import tushare as ts
+
+    from backend.settings import get_settings
+    token = get_settings().tushare_token
+    if not token:
+        raise RuntimeError("TUSHARE_TOKEN 未配置")
+    frame = ts.pro_api(token).daily(trade_date=date.today().strftime("%Y%m%d"))
+    wanted = set(codes)
+    return {str(row.ts_code).split(".")[0]: (float(row.close), float(row.vol) * 100) for row in frame.itertuples() if str(row.ts_code).split(".")[0] in wanted}
