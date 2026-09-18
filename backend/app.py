@@ -701,12 +701,20 @@ def create_app() -> FastAPI:
             raise api_error(500, ERR_STORAGE_UNAVAILABLE, "行业快照回填失败") from exc
 
     @app.get("/api/plans/review")
-    def plans_review(days: int = 90, feeRate: float = plan_review.DEFAULT_FEE_RATE) -> dict[str, Any]:
+    def plans_review(
+        days: int = 90,
+        feeRate: float = plan_review.DEFAULT_FEE_RATE,
+        asOfDate: str | None = None,
+    ) -> dict[str, Any]:
         """计划绩效复盘（只读，设计口径回算；红线：零写 plans）。"""
         if days not in (0, 30, 90):
             raise api_error(422, ERR_VALIDATION_ERROR, "days 仅支持 0/30/90")
         if not (0.0 <= feeRate <= plan_review.FEE_RATE_MAX):
             raise api_error(422, ERR_VALIDATION_ERROR, f"feeRate 须在 [0, {plan_review.FEE_RATE_MAX}]")
+        if asOfDate is not None:
+            _parse_iso_day(asOfDate, "asOfDate")
+            if asOfDate > datetime.now(plan_review.SHANGHAI).strftime("%Y-%m-%d"):
+                raise api_error(422, ERR_VALIDATION_ERROR, "asOfDate 不得晚于今天")
         plans = get_workspace().get("plans") or []
         # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""；
         # 命中本地兜底的 code 记入 degraded 如实披露（红线：降级不得静默），历史源按请求解析一次
@@ -719,6 +727,7 @@ def create_app() -> FastAPI:
                 days=days,
                 fee_rate=float(feeRate),
                 load_bars=load_bars,
+                as_of_date=asOfDate,
             )
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
@@ -743,6 +752,7 @@ def create_app() -> FastAPI:
         layer: str = "core",
         withWatch: bool = False,
         feeRate: float = plan_review.DEFAULT_FEE_RATE,
+        asOfDate: str | None = None,
         workspace_id: str = Query(default="default", alias="workspace"),
     ) -> dict[str, Any]:
         """组合风险视图（只读，设计口径回放；红线：零写 plans、永不连券商/自动下单）。spec §6 I11。"""
@@ -758,6 +768,11 @@ def create_app() -> FastAPI:
 
         # —— 2. 参数校验（422 中文 detail，同复盘纪律）——
         today = datetime.now(plan_review.SHANGHAI).strftime("%Y-%m-%d")
+        if asOfDate is not None:
+            _parse_iso_day(asOfDate, "asOfDate")
+            if asOfDate > today:
+                raise api_error(422, ERR_VALIDATION_ERROR, "asOfDate 不得晚于今天")
+            today = asOfDate
         window_start: str
         window_span: int  # 日志 window 字段：days 档给 days，start 档给起止日差
         if start is None:
@@ -777,7 +792,10 @@ def create_app() -> FastAPI:
         # —— 3. 取数（历史源按请求解析一次；stats/degraded 与复盘同源，Task 6 段 1 提取物）——
         t0 = time.perf_counter()
         workspace = get_workspace(workspace_id)
-        plans = workspace.get("plans") or []
+        plans = [
+            p for p in (workspace.get("plans") or [])
+            if int(p.get("createdAtMs") or 0) <= int(datetime.strptime(today, "%Y-%m-%d").replace(tzinfo=plan_review.SHANGHAI).timestamp() * 1000)
+        ]
         watchlist = workspace.get("watchlist") or []
         settings = get_workspace_settings(workspace_id)
         links, link_events = portfolio_risk.build_links(plans)
