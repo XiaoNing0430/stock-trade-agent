@@ -278,7 +278,9 @@ def price_limit_ratio(code: str) -> float:
     return 0.10
 
 
-def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
+def _http_get(url: str, params: dict[str, Any], *, retry_http_error: bool = True) -> requests.Response:
+    """retry_http_error=False：HTTP 状态类错误（含 501 惩罚窗）零重试立即抛——ETL/分钟线用，
+    防惩罚窗内每失败码白敲放大封禁；网络类（连接/超时）仍按 _retry_count 重试。"""
     _throttle()  # 外部接口限频
     for attempt in range(_retry_count + 1):
         try:
@@ -287,6 +289,8 @@ def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
             return response
         except requests.RequestException as exc:
             last_exc = exc
+            if isinstance(exc, requests.HTTPError) and not retry_http_error:
+                break  # L9：5xx/4xx 立即失败，不 sleep 不重敲
             if attempt < _retry_count:
                 time.sleep(0.5 * (2**attempt))
     if last_exc is not None:
@@ -294,8 +298,8 @@ def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
     raise RuntimeError("请求失败")
 
 
-def fetch_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
-    return _http_get(url, params).json()
+def fetch_json(url: str, params: dict[str, Any], *, retry_http_error: bool = True) -> dict[str, Any]:
+    return _http_get(url, params, retry_http_error=retry_http_error).json()
 
 
 def fetch_text(url: str, params: dict[str, Any]) -> str:
@@ -357,12 +361,14 @@ def load_quotes(codes: list[str]) -> list[dict[str, Any]]:
     return load_quote_symbols([tencent_symbol(code) for code in unique_codes])
 
 
-def load_history(code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq") -> list[dict[str, Any]]:
+def load_history(
+    code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq", *, retry_http_error: bool = True
+) -> list[dict[str, Any]]:
     symbol = index_symbol(code) if is_index else tencent_symbol(code)
     fq = adjustment or ""
     payload = cached(
         f"history:{symbol}:{limit}:{fq}",
-        lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},{fq}"}),
+        lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},{fq}"}, retry_http_error=retry_http_error),
     )
     data = payload.get("data") or {}
     symbol_data = data.get(symbol) or {}

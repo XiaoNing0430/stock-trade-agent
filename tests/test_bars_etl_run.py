@@ -17,6 +17,7 @@ def _clean(monkeypatch):
     bars_etl._recheck.clear()
     monkeypatch.setattr(bars_etl, "authoritative_watermark", lambda now=None: WM)
     monkeypatch.setattr(bars_etl, "UNIVERSE_MIN", 1)  # 小样本测试面降护栏；护栏行为另有专测
+    monkeypatch.setattr(bars_etl, "market_code_count", lambda: 10**6)  # 默认关护栏（不依赖本机 industry 表状态）
     yield
     bars_etl._recheck.clear()
     with storage.SessionLocal.begin() as s:
@@ -155,11 +156,16 @@ def test_all_bars_rejected_counts_code_as_failed(monkeypatch):
 
 
 def test_universe_guard_aborts_before_fetch(monkeypatch):
-    monkeypatch.setattr(bars_etl, "UNIVERSE_MIN", 10)  # 本例专门恢复护栏语义（fixture 默认降 1）
+    """⟹ spec D4 语义变更：market 小且全为未入库新码 → 不再整轮中止；
+    新码全 deferred、零 fetch，abort_reason 如实（旧"universe_too_small 整轮 aborted"废除）。
+    本测试文件属"语义变更修测试"白名单——依据 spec §3 D4/评审 P0-1。"""
     _stub(monkeypatch, [f"covh-{i}" for i in range(5)])
+    monkeypatch.setattr(bars_etl, "UNIVERSE_MIN", 10)  # _stub 默认放行 market 后本例锁护栏
+    monkeypatch.setattr(bars_etl, "market_code_count", lambda: 0)
     calls = []
     stats = bars_etl.run_full(fetch=lambda code, limit: calls.append(code) or [])
-    assert stats.aborted is True and stats.reason == "universe_too_small"
+    assert stats.aborted is False and stats.abort_reason == "market_universe_small"
+    assert stats.deferred == 5 and stats.backfill == 0
     assert calls == [] and stats.failed == []
 
 
@@ -223,3 +229,73 @@ def test_default_fetch_paces_upstream(monkeypatch):
     monkeypatch.setattr(data_source, "load_history", lambda code, **kw: [])
     bars_etl._default_fetch("600000", 5)
     assert slept == [bars_etl.ETL_MIN_FETCH_INTERVAL]
+
+
+# ── G3 护栏三面拆分 + L9 5xx 零重试（Task 1 / spec §3 D4） ──────────────────
+
+
+def test_guard_freezes_new_but_runs_existing(monkeypatch):
+    """industry 表空→market 面小→新码(missing)全 deferred，存量码(stale_deep)深补照跑。"""
+    monkeypatch.setattr(bars_etl, "market_code_count", lambda: 0)  # market 面塌
+    monkeypatch.setattr(bars_etl, "UNIVERSE_MIN", 2000)
+    monkeypatch.setattr(bars_etl, "resolve_universe", lambda: ["covn-1", "covn-2", "covo-1"])
+    monkeypatch.setattr(
+        bars_etl,
+        "detect_gaps",
+        lambda: {"missing": ["covn-1", "covn-2"], "stale_deep": ["covo-1"], "stale_light": [], "up_to_date": 0},
+    )
+    up = []
+    monkeypatch.setattr(storage, "upsert_market_bars_batch", lambda code, bars, **k: up.append(code) or 1)
+    monkeypatch.setattr(bars_etl, "_max_map", lambda: {"covo-1": "2099-09-01"})  # covo-1 在库=存量
+    stats = bars_etl.run_full(fetch=lambda code, limit: [_bar()])
+    assert stats.backfill == 1 and up == ["covo-1"]  # 仅存量码深补
+    assert stats.deferred == 2  # 两新码 deferred
+    assert stats.aborted is False  # 护栏不再整轮冻结
+    assert stats.abort_reason == "market_universe_small"
+
+
+def test_guard_closed_backfills_all(monkeypatch):
+    monkeypatch.setattr(bars_etl, "market_code_count", lambda: 9999)
+    monkeypatch.setattr(bars_etl, "UNIVERSE_MIN", 2000)
+    monkeypatch.setattr(bars_etl, "resolve_universe", lambda: ["covz-1"])
+    monkeypatch.setattr(
+        bars_etl, "detect_gaps", lambda: {"missing": ["covz-1"], "stale_deep": [], "stale_light": [], "up_to_date": 0}
+    )
+    up = []
+    monkeypatch.setattr(storage, "upsert_market_bars_batch", lambda code, bars, **k: up.append(code) or 1)
+    stats = bars_etl.run_full(fetch=lambda code, limit: [_bar()])
+    assert up == ["covz-1"] and stats.deferred == 0 and stats.abort_reason == ""
+
+
+def test_existing_backfill_priority_under_budget(monkeypatch):
+    """预算紧时存量码占先，新码让位 deferred。"""
+    monkeypatch.setattr(bars_etl, "market_code_count", lambda: 9999)
+    monkeypatch.setattr(bars_etl, "BACKFILL_CODES_PER_RUN", 1)
+    monkeypatch.setattr(bars_etl, "resolve_universe", lambda: ["covn-9", "covo-8"])
+    monkeypatch.setattr(
+        bars_etl,
+        "detect_gaps",
+        lambda: {"missing": ["covn-9"], "stale_deep": ["covo-8"], "stale_light": [], "up_to_date": 0},
+    )
+    monkeypatch.setattr(bars_etl, "_max_map", lambda: {"covo-8": "2099-09-01"})
+    up = []
+    monkeypatch.setattr(storage, "upsert_market_bars_batch", lambda code, bars, **k: up.append(code) or 1)
+    stats = bars_etl.run_full(fetch=lambda code, limit: [_bar()])
+    assert up == ["covo-8"] and stats.deferred == 1
+
+
+def test_attempt_http_error_single_hit(monkeypatch):
+    """L9: 5xx 在 bars 层零重试（区别于空响应/网络类）。"""
+    import requests
+
+    codes = [f"covr-{i}" for i in range(3)]
+    _stub(monkeypatch, codes)
+    calls = []
+
+    def boom(code, limit):
+        calls.append(code)
+        raise requests.HTTPError("501")
+
+    stats = bars_etl.run_full(fetch=boom)
+    assert sorted(calls) == sorted(codes)  # 每码恰 1 次，非 2
+    assert len(stats.failed) == 3

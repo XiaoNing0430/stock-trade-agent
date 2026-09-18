@@ -141,6 +141,16 @@ class HealthOut(BaseModel):
     # P2 附加观测位（I9：既有键零触碰；bars=None 表示查询不可用/未启用，不造假）
     bars: dict[str, Any] | None = None
     redisCache: str | None = None
+    minuteCache: str = "down"
+    minuteCircuit: str = "closed"
+
+
+class MinuteOut(BaseModel):
+    bars: list[dict[str, Any]]
+    source: str | None = None
+    state: str
+    degraded: bool
+    updatedAtMs: int | None = None
 
 
 class WorkspaceOut(BaseModel):

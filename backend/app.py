@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import bars_etl, plan_review, portfolio_risk, redis_cache
+from backend import bars_etl, minute_path, plan_review, portfolio_risk, redis_cache
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -50,6 +50,7 @@ from backend.schemas import (
     HealthOut,
     HistoryOut,
     MarketOut,
+    MinuteOut,
     PlanDraftIn,
     PlanDraftOut,
     PlanDraftResponse,
@@ -332,6 +333,24 @@ def create_app() -> FastAPI:
             storage=storage_status(),
             bars=bars_etl.bars_health(),
             redisCache=facade_state(),
+            minuteCache=facade_state(),
+            minuteCircuit=minute_path.breaker_state(),
+        )
+
+    @app.get("/api/minute", response_model=MinuteOut)
+    def minute(code: str, period: str = "5m", count: int = 320, index: bool = False) -> MinuteOut:
+        try:
+            result = minute_path.fetch_minute(code, period, count, index)
+        except ValueError as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+        if result.state == "rate_limited":
+            raise HTTPException(status_code=429, detail={"error": "分钟线请求过于频繁，请稍后再试", "code": ERR_RATE_LIMITED})
+        return MinuteOut(
+            bars=result.bars,
+            source=result.source,
+            state=result.state,
+            degraded=result.degraded,
+            updatedAtMs=result.updated_at_ms,
         )
 
     @app.get("/api/workspace")

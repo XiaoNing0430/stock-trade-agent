@@ -22,7 +22,7 @@ def test_index_symbol_maps_to_dedicated_index_codes():
 def test_load_history_index_flag_uses_index_symbol(monkeypatch):
     captured = {}
 
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         captured["params"] = params
         return {"data": {"sh000001": {"qfqday": [["2026-08-06", 10, 11, 12, 9, 1000]]}}}
 
@@ -36,7 +36,7 @@ def test_load_history_index_flag_uses_index_symbol(monkeypatch):
 def test_load_history_stock_000001_uses_stock_symbol(monkeypatch):
     captured = {}
 
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         captured["params"] = params
         return {"data": {"sz000001": {"qfqday": [["2026-08-06", 10, 11, 12, 9, 1000]]}}}
 
@@ -1064,7 +1064,7 @@ def test_load_queries_uses_tencent_symbols(monkeypatch):
 
 
 def test_load_history_skips_short_rows(monkeypatch):
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         return {
             "data": {
                 "sh600519": {
@@ -1768,3 +1768,33 @@ def test_screener_strategy_cached_second_call(monkeypatch):
         r2 = client.post("/api/screener/strategy", json={"strategy": "oversold_bounce"})
     assert r1.json()["cached"] is False
     assert r2.json()["cached"] is True
+
+
+def test_http_get_retry_http_error_false_single_hit(monkeypatch):
+    """L9：retry_http_error=False 时 HTTP 状态错误 1 击即抛（网络类不受影响）。"""
+    import pytest
+    import requests
+
+    hits = []
+
+    class _Resp:
+        status_code = 501
+
+        def raise_for_status(self):
+            raise requests.HTTPError("501 Server Error")
+
+    def fake_get(url, **kw):
+        hits.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(data_source.requests, "get", fake_get)
+    monkeypatch.setattr(data_source, "_throttle", lambda: None)
+    monkeypatch.setattr(data_source, "_retry_count", 2)
+    monkeypatch.setattr(data_source.time, "sleep", lambda s: None)  # 指数退避不真等
+    with pytest.raises(requests.HTTPError):
+        data_source._http_get("u", {}, retry_http_error=False)
+    assert len(hits) == 1
+    # 默认路径（报价面）维持既有重试语义
+    with pytest.raises(requests.HTTPError):
+        data_source._http_get("u", {})
+    assert len(hits) == 1 + 1 + 2

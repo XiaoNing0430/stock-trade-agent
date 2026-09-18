@@ -24,3 +24,9 @@ export async function requestJson<T>(url: string, options: RequestInit = {}): Pr
   }
   return res.json() as Promise<T>;
 }
+
+export type MinuteResponse = { bars: any[]; source: string | null; state: string; degraded: boolean; updatedAtMs?: number | null };
+
+export function fetchMinute(code: string, period: string, count = 320) {
+  return requestJson<MinuteResponse>(`/api/minute?code=${encodeURIComponent(code)}&period=${encodeURIComponent(period)}&count=${count}`);
+}

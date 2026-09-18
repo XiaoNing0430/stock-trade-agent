@@ -157,7 +157,7 @@ def test_load_history_default_qfq_unchanged(monkeypatch):
         keys.append(key)
         return fn()
 
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         seen["param"] = params["param"]
         return {"data": {"sh600519": {"qfqday": [_row("2026-09-01")]}}}
 
@@ -180,7 +180,7 @@ def test_load_history_bfq_uses_day_rows(monkeypatch):
         keys.append(key)
         return fn()
 
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         seen["param"] = params["param"]
         return {"data": {"sh600519": {"day": [_row("2026-09-02")]}}}  # 不复权响应只有 day 键
 
