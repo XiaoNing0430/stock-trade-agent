@@ -226,6 +226,12 @@ def run_full(force: bool = False, *, fetch: Callable[[str, int], list[dict[str, 
         return stats
     try:
         _do_run(stats, force, fetch or _default_fetch)
+        if not stats.aborted and stats.watermark:
+            try:
+                from backend.snapshot_archive import archive_daily_snapshot
+                archive_daily_snapshot(stats.watermark)
+            except Exception:
+                logger.warning("snapshot_archive_failed as_of=%s", stats.watermark, exc_info=True)
     finally:
         _last_run_at["at"] = int(time.time() * 1000)
         _last_abort_reason["r"] = stats.abort_reason or None  # spec D4 health 观测面（不中止也留痕）

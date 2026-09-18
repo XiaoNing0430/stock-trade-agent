@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import bars_etl, minute_path, plan_review, portfolio_risk, redis_cache
+from backend import bars_etl, minute_path, plan_review, portfolio_risk, redis_cache, snapshot_archive
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -678,6 +678,27 @@ def create_app() -> FastAPI:
         limit = max(1, min(int(limit), 200))
         rows = list_scan_history(strategy_id=strategyId or None, limit=limit)
         return {"history": [_scan_history_out(r) for r in rows]}
+
+    @app.post("/api/snapshots/industry")
+    def snapshots_industry(payload: dict[str, Any]) -> dict[str, Any]:
+        as_of = str(payload.get("asOfDate") or "")
+        mode = str(payload.get("mode") or "backfill")
+        if not payload.get("confirm"):
+            raise api_error(422, ERR_VALIDATION_ERROR, "confirm 必须为 true")
+        try:
+            _parse_iso_day(as_of, "asOfDate")
+        except HTTPException:
+            raise
+        if _parse_iso_day(as_of, "asOfDate").date() > datetime.now(plan_review.SHANGHAI).date():
+            raise api_error(422, ERR_VALIDATION_ERROR, "asOfDate 不得晚于今天")
+        if mode not in ("backfill", "rebuild"):
+            raise api_error(422, ERR_VALIDATION_ERROR, "mode 仅支持 backfill/rebuild")
+        if mode == "rebuild":
+            raise api_error(501, "NOT_IMPLEMENTED", "真实历史源未接入，rebuild 暂不可用")
+        try:
+            return snapshot_archive.backfill_industry(as_of, reason=str(payload.get("reason") or ""), mode=mode)
+        except Exception as exc:
+            raise api_error(500, ERR_STORAGE_UNAVAILABLE, "行业快照回填失败") from exc
 
     @app.get("/api/plans/review")
     def plans_review(days: int = 90, feeRate: float = plan_review.DEFAULT_FEE_RATE) -> dict[str, Any]:
