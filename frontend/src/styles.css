@@ -3810,6 +3810,72 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
+.custom-strategy-panel {
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  overflow: auto;
+}
+
+.custom-strategy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.custom-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.quick-filter-row,
+.factor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.factor-row .input,
+.quick-filter-row .input {
+  max-width: 130px;
+}
+
+.fork-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.custom-strategy-subtitle {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.custom-strategy-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.custom-strategy-error {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--red);
+  border-radius: var(--radius-small);
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 12px;
+}
+
+.custom-strategy-state {
+  padding: 20px 0;
+  text-align: center;
+  color: var(--muted);
+}
+
 .screener-tabs {
   display: flex;
   gap: 8px;

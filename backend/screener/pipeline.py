@@ -112,8 +112,15 @@ class ScreenerPipeline:
             self._cache[cache_key] = (payload, time.monotonic())
             return {**payload, "cached": False, "stale": False}
 
-    # ---- 计算主体 ----
+    def invalidate_strategy(self, strategy_id: str) -> int:
+        """按策略 id 前缀失效进程内缓存（自定义策略 PUT/DELETE 后调用）；返回清除键数。"""
+        prefix = f"screener:{strategy_id}:"
+        dropped = [key for key in self._cache if key.startswith(prefix)]
+        for key in dropped:
+            self._cache.pop(key, None)
+        return len(dropped)
 
+    # ---- 计算主体 ----
     def _compute(
         self,
         cfg: ScreenerStrategyConfig,
