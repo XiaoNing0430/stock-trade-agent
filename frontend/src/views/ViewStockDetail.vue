@@ -90,12 +90,20 @@
           {{ period }}
         </button>
       </div>
+      <div v-if="minuteSvg" class="stock-detail-chart minute-chart" data-testid="minute-chart" v-html="minuteSvg"></div>
+      <div v-if="minuteCacheText" class="chart-source-row">
+        <span class="source-badge source-badge-local minute-status-badge">{{ minuteCacheText }}</span>
+      </div>
+      <div v-if="minuteStripText" class="minute-status" role="status">
+        <span>{{ minuteStripText }}</span>
+        <button class="text-button" type="button" data-testid="minute-retry" @click="retryMinute">重试</button>
+      </div>
     </section>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { chartSvg } from '@/modules/chart';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
@@ -120,14 +128,64 @@ const { renderIcons } = workspace;
 const minutePeriods = ['1m', '5m', '15m', '30m', '60m'];
 const minutePeriod = ref('5m');
 const minuteState = ref('');
+const minuteSource = ref<string | null>(null);
+const minuteDegraded = ref(false);
+const minuteUpdatedAtMs = ref<number | null>(null);
+const minuteBars = ref<any[]>([]);
+const minuteChartPeriod = ref('');
+
+// spec §6 逐字文案：state→黄标/灰条映射，429 走 toast 不进状态条
+const MINUTE_STRIP_TEXT: Record<string, string> = {
+  etl_busy: '日线同步中，分钟线稍后可用',
+  circuit_open: '分钟线暂不可用',
+  unavailable: '分钟线暂不可用',
+};
+const minuteStripText = computed(() => MINUTE_STRIP_TEXT[minuteState.value] || '');
+const minuteCacheText = computed(() => {
+  if (minuteState.value !== 'ok') return '';
+  const fromCache = Boolean(minuteSource.value?.startsWith('cache')) || minuteDegraded.value;
+  if (!fromCache) return '';
+  if (!minuteUpdatedAtMs.value) return '分钟线（缓存）';
+  const minutes = Math.max(1, Math.floor((Date.now() - minuteUpdatedAtMs.value) / 60000));
+  return `分钟线（缓存，${minutes} 分钟前）`;
+});
+const minuteSvg = computed(() =>
+  minuteState.value === 'ok' && minuteBars.value.length
+    ? chartSvg(
+        minuteBars.value.map((bar: any) => bar.close),
+        '#3b6fb6',
+        `分钟线 ${minuteChartPeriod.value}`
+      )
+    : ''
+);
+
 async function loadMinute(period: string) {
   minutePeriod.value = period;
   if (!selectedCode.value) return;
   try {
-    minuteState.value = (await fetchMinute(selectedCode.value, period)).state;
-  } catch {
+    const res = await fetchMinute(selectedCode.value, period);
+    minuteState.value = res.state;
+    minuteSource.value = res.source;
+    minuteDegraded.value = res.degraded;
+    minuteUpdatedAtMs.value = res.updatedAtMs ?? null;
+    minuteBars.value = res.bars || [];
+    minuteChartPeriod.value = period;
+  } catch (error: any) {
+    if (error?.status === 429) {
+      workspace.showToast('请求过于频繁', 'error');
+      return;
+    }
     minuteState.value = 'unavailable';
+    minuteSource.value = null;
+    minuteDegraded.value = true;
+    minuteUpdatedAtMs.value = null;
+    minuteBars.value = [];
   }
+}
+
+/** 灰条态重试 = 一次手动请求（无轮询纪律）。 */
+function retryMinute() {
+  void loadMinute(minutePeriod.value);
 }
 
 /** 个股详情 → 草案：携带当前报价快照（无报价传 null 交由后端取实时价，绝不造数）。 */
