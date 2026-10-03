@@ -171,6 +171,8 @@ class EtlStats:
     elapsed_ms: int = 0
     reason: str = ""
     abort_reason: str = ""  # ⟳ spec D4：market 面小→新码冻结的留痕（aborted 仍 False，存量/日补照跑）
+    target_codes: list[str] = field(default_factory=list, repr=False)
+    rejected_codes: list[str] = field(default_factory=list, repr=False)
 
 
 def validate_bars(bars: list[dict[str, Any]], watermark: str) -> tuple[list[dict[str, Any]], int]:
@@ -229,7 +231,12 @@ def run_full(force: bool = False, *, fetch: Callable[[str, int], list[dict[str, 
         if not stats.aborted and stats.watermark:
             try:
                 from backend.snapshot_archive import archive_daily_snapshot
-                archive_daily_snapshot(stats.watermark)
+
+                archive_daily_snapshot(
+                    stats.watermark,
+                    codes=stats.target_codes,
+                    error_count=len(set(stats.failed) | set(stats.rejected_codes)),
+                )
             except Exception:
                 logger.warning("snapshot_archive_failed as_of=%s", stats.watermark, exc_info=True)
     finally:
@@ -262,6 +269,7 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
     stats.watermark = authoritative_watermark()
     universe = resolve_universe()
     stats.universe = len(universe)
+    stats.target_codes = list(universe)
     if stats.universe == 0:
         stats.aborted, stats.reason = True, "universe_too_small"
         logger.warning("bars_etl_aborted universe_too_small universe=0（预热未完成且无存量码？本轮跳过）")
@@ -319,6 +327,7 @@ def _do_run(stats: EtlStats, force: bool, fetch: Callable[[str, int], list[dict[
                             clean, rejected = validate_bars(bars, stats.watermark)
                             stats.rejected += rejected
                             if rejected:
+                                stats.rejected_codes.append(code)
                                 _recheck.add(code)
                             else:
                                 _recheck.discard(code)
@@ -410,9 +419,25 @@ def register_jobs(scheduler: Any) -> list[dict]:
     ]
     try:
         from backend.settings import get_settings
+
         if get_settings().cross_check_enabled:
             from backend import cross_check
-            specs.append({"func": cross_check.run, "kwargs": {"provider": "eastmoney"}, "id": "bars-crosscheck", "trigger": "cron", "day_of_week": "mon-fri", "hour": 15, "minute": 35, "max_instances": 1, "coalesce": True, "misfire_grace_time": 300, "replace_existing": True})
+
+            specs.append(
+                {
+                    "func": cross_check.run,
+                    "kwargs": {"provider": "eastmoney"},
+                    "id": "bars-crosscheck",
+                    "trigger": "cron",
+                    "day_of_week": "mon-fri",
+                    "hour": 15,
+                    "minute": 35,
+                    "max_instances": 1,
+                    "coalesce": True,
+                    "misfire_grace_time": 300,
+                    "replace_existing": True,
+                }
+            )
     except Exception:
         logger.warning("cross_check 任务注册探测失败，跳过", exc_info=True)
     for spec in specs:
@@ -450,6 +475,7 @@ def bars_health() -> dict[str, Any] | None:
     }
     try:
         from backend import cross_check
+
         value["crossCheck"] = cross_check.last_result()
     except Exception:
         value["crossCheck"] = None

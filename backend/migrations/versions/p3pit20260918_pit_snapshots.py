@@ -3,6 +3,7 @@
 Revision ID: p3pit20260918
 Revises: a7e4c19d5b30
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -12,6 +13,7 @@ revision = "p3pit20260918"
 down_revision = "a7e4c19d5b30"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
 
 def upgrade() -> None:
     op.create_table(
@@ -35,6 +37,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("as_of_date", sa.String(16), nullable=False),
         sa.Column("code", sa.String(32), nullable=False),
+        sa.Column("open", sa.Float(), nullable=True),
+        sa.Column("high", sa.Float(), nullable=True),
+        sa.Column("low", sa.Float(), nullable=True),
         sa.Column("close", sa.Float(), nullable=True),
         sa.Column("volume", sa.Float(), nullable=True),
         sa.Column("amount", sa.Float(), nullable=True),
@@ -79,14 +84,9 @@ def upgrade() -> None:
     )
     op.create_index("ix_snapshot_audits_as_of_date", "snapshot_audits", ["as_of_date"])
     op.create_index("ix_snapshot_audits_canonical_hash", "snapshot_audits", ["canonical_hash"])
-    op.create_unique_constraint(
-        "uq_snapshot_audits_operation_content",
-        "snapshot_audits",
-        ["operator", "as_of_date", "action", "mode", "canonical_hash"],
-    )
+
 
 def downgrade() -> None:
-    op.drop_constraint("uq_snapshot_audits_operation_content", "snapshot_audits", type_="unique")
     op.drop_table("snapshot_audits")
     op.drop_table("snapshot_industries")
     op.drop_table("snapshot_closes")

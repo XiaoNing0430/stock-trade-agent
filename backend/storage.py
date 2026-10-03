@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -266,6 +267,9 @@ class SnapshotClose(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     as_of_date: Mapped[str] = mapped_column(String(16), index=True)
     code: Mapped[str] = mapped_column(String(32), index=True)
+    open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low: Mapped[float | None] = mapped_column(Float, nullable=True)
     close: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume: Mapped[float | None] = mapped_column(Float, nullable=True)
     amount: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -298,13 +302,6 @@ class SnapshotAudit(Base):
     """Append-only audit record for explicit industry backfills."""
 
     __tablename__ = "snapshot_audits"
-    __table_args__ = (
-        UniqueConstraint(
-            "operator", "as_of_date", "action", "mode", "canonical_hash",
-            name="uq_snapshot_audits_operation_content",
-        ),
-    )
-
     id: Mapped[int] = mapped_column(primary_key=True)
     as_of_date: Mapped[str] = mapped_column(String(16), index=True)
     mode: Mapped[str] = mapped_column(String(16), default="backfill")
@@ -321,6 +318,13 @@ class SnapshotAudit(Base):
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+_snapshot_backfill_lock = threading.Lock()
+
+
+def _lock_snapshot_date(session: Any, key: str) -> None:
+    """Serialize snapshot mutations across PostgreSQL workers for one date."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"), {"lock_key": f"snapshot:{key}"})
 
 
 def initialize_storage() -> None:
@@ -448,10 +452,15 @@ def upsert_snapshot_closes(as_of_date: str | date, rows: list[dict[str, Any]]) -
                 row = SnapshotClose(as_of_date=key, code=code)
                 session.add(row)
             row.close = float(item["close"]) if item.get("close") is not None else None
+            row.open = float(item["open"]) if item.get("open") is not None else None
+            row.high = float(item["high"]) if item.get("high") is not None else None
+            row.low = float(item["low"]) if item.get("low") is not None else None
             row.volume = float(item["volume"]) if item.get("volume") is not None else None
             row.trade_date = str(item.get("tradeDate") or item.get("date") or "") or None
             row.amount = float(item["amount"]) if item.get("amount") is not None else None
-            row.trade_status = str(item.get("tradeStatus") or ("suspended" if row.volume is not None and row.volume <= 0 else "trading"))
+            row.trade_status = str(
+                item.get("tradeStatus") or ("suspended" if row.volume is not None and row.volume <= 0 else "trading")
+            )
             row.status = row.trade_status
             row.prev_close = float(item["prevClose"]) if item.get("prevClose") is not None else None
             row.provider = str(item.get("provider") or "eastmoney")
@@ -469,8 +478,22 @@ def load_snapshot_closes(as_of_date: str | date, codes: list[str] | None = None)
             stmt = stmt.where(SnapshotClose.code.in_(codes))
         rows = session.scalars(stmt.order_by(SnapshotClose.code)).all()
         return [
-            {"asOfDate": r.as_of_date, "code": r.code, "close": r.close, "volume": r.volume,
-             "tradeDate": r.trade_date, "status": r.status, "tradeStatus": r.trade_status, "prevClose": r.prev_close, "amount": r.amount, "provider": r.provider, "acquisition": r.acquisition}
+            {
+                "asOfDate": r.as_of_date,
+                "code": r.code,
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "volume": r.volume,
+                "tradeDate": r.trade_date,
+                "status": r.status,
+                "tradeStatus": r.trade_status,
+                "prevClose": r.prev_close,
+                "amount": r.amount,
+                "provider": r.provider,
+                "acquisition": r.acquisition,
+            }
             for r in rows
         ]
 
@@ -507,13 +530,22 @@ def load_snapshot_industries(as_of_date: str | date, codes: list[str] | None = N
             stmt = stmt.where(SnapshotIndustry.code.in_(codes))
         rows = session.scalars(stmt.order_by(SnapshotIndustry.code)).all()
         return [
-            {"asOfDate": r.as_of_date, "code": r.code, "name": r.name, "provider": r.provider,
-             "acquisition": r.acquisition, "pitQuality": r.pit_quality, "observedDate": r.observed_date}
+            {
+                "asOfDate": r.as_of_date,
+                "code": r.code,
+                "name": r.name,
+                "provider": r.provider,
+                "acquisition": r.acquisition,
+                "pitQuality": r.pit_quality,
+                "observedDate": r.observed_date,
+            }
             for r in rows
         ]
 
 
-def record_snapshot_audit(as_of_date: str | date, rows: list[dict[str, Any]], *, mode: str = "backfill") -> dict[str, Any] | None:
+def record_snapshot_audit(
+    as_of_date: str | date, rows: list[dict[str, Any]], *, mode: str = "backfill"
+) -> dict[str, Any] | None:
     if mode == "rebuild":
         return None
     key = _snapshot_date(as_of_date)
@@ -523,11 +555,241 @@ def record_snapshot_audit(as_of_date: str | date, rows: list[dict[str, Any]], *,
             select(SnapshotAudit).where(SnapshotAudit.as_of_date == key).order_by(SnapshotAudit.id.desc())
         ).first()
         if previous and previous.canonical_hash == digest:
-            return {"id": previous.id, "asOfDate": key, "mode": previous.mode, "canonicalHash": digest, "rowCount": previous.row_count}
-        audit = SnapshotAudit(as_of_date=key, mode=mode, canonical_hash=digest, row_count=len({r.get("code") for r in rows if r.get("code")}))
+            return {
+                "id": previous.id,
+                "asOfDate": key,
+                "mode": previous.mode,
+                "canonicalHash": digest,
+                "rowCount": previous.row_count,
+            }
+        audit = SnapshotAudit(
+            as_of_date=key,
+            mode=mode,
+            canonical_hash=digest,
+            row_count=len({r.get("code") for r in rows if r.get("code")}),
+        )
         session.add(audit)
         session.flush()
         return {"id": audit.id, "asOfDate": key, "mode": mode, "canonicalHash": digest, "rowCount": audit.row_count}
+
+
+def save_snapshot_batch(
+    *,
+    as_of_date: str | date,
+    close_rows: list[dict[str, Any]],
+    industry_rows: list[dict[str, Any]],
+    status: str,
+    universe_count: int,
+    suspended_count: int,
+    error_count: int,
+    coverage_pct: float | None,
+    degraded_reason: str | None = None,
+) -> dict[str, Any]:
+    """Persist one immutable daily snapshot and its run marker atomically."""
+    key = _snapshot_date(as_of_date)
+    now = datetime.now(UTC)
+    with SessionLocal.begin() as session:
+        _lock_snapshot_date(session, key)
+        run = session.get(SnapshotRun, key)
+        if run is not None and run.status == "complete":
+            return {"asOfDate": key, "status": run.status, "idempotent": True}
+        for item in close_rows:
+            code = str(item.get("code") or "")
+            if not code:
+                continue
+            close_existing = session.scalars(
+                select(SnapshotClose).where(SnapshotClose.as_of_date == key, SnapshotClose.code == code)
+            ).first()
+            if close_existing is not None:
+                continue
+            volume = float(item["volume"]) if item.get("volume") is not None else None
+            session.add(
+                SnapshotClose(
+                    as_of_date=key,
+                    code=code,
+                    open=float(item["open"]) if item.get("open") is not None else None,
+                    high=float(item["high"]) if item.get("high") is not None else None,
+                    low=float(item["low"]) if item.get("low") is not None else None,
+                    close=float(item["close"]) if item.get("close") is not None else None,
+                    volume=volume,
+                    amount=float(item["amount"]) if item.get("amount") is not None else None,
+                    trade_date=str(item.get("date") or key),
+                    status=str(item.get("tradeStatus") or "trading"),
+                    trade_status=str(item.get("tradeStatus") or "trading"),
+                    prev_close=float(item["prevClose"]) if item.get("prevClose") is not None else None,
+                    provider=str(item.get("provider") or "unknown"),
+                    acquisition=str(item.get("acquisition") or "realtime"),
+                    observed_at=now,
+                )
+            )
+        for item in industry_rows:
+            code = str(item.get("code") or "")
+            if not code:
+                continue
+            industry_existing = session.scalars(
+                select(SnapshotIndustry).where(SnapshotIndustry.as_of_date == key, SnapshotIndustry.code == code)
+            ).first()
+            incoming_quality = str(item.get("pitQuality") or "exact")
+            if industry_existing is not None:
+                if industry_existing.pit_quality == "inferred" and incoming_quality in ("exact", "rebuilt"):
+                    industry_existing.name = str(item.get("name") or "") or None
+                    industry_existing.provider = str(item.get("provider") or "unknown")
+                    industry_existing.acquisition = str(item.get("acquisition") or "realtime")
+                    industry_existing.pit_quality = incoming_quality
+                    industry_existing.observed_date = str(item.get("observedDate") or key)
+                continue
+            session.add(
+                SnapshotIndustry(
+                    as_of_date=key,
+                    code=code,
+                    name=str(item.get("name") or "") or None,
+                    provider=str(item.get("provider") or "unknown"),
+                    acquisition=str(item.get("acquisition") or "realtime"),
+                    pit_quality=incoming_quality,
+                    observed_date=str(item.get("observedDate") or key),
+                )
+            )
+        if run is None:
+            run = SnapshotRun(as_of_date=key)
+            session.add(run)
+        run.status = status
+        run.source = "daily_etl"
+        run.error = None
+        run.universe_count = int(universe_count)
+        run.bar_count = len(close_rows)
+        run.industry_count = len(industry_rows)
+        run.suspended_count = int(suspended_count)
+        run.error_count = int(error_count)
+        run.coverage_pct = coverage_pct if status != "failed" else None
+        run.degraded_reason = degraded_reason
+        run.completed_at = now
+    return {"asOfDate": key, "status": status, "idempotent": False}
+
+
+class SnapshotConflictError(ValueError):
+    pass
+
+
+def save_snapshot_failure(as_of_date: str | date, error: str) -> dict[str, Any]:
+    """Record a failed archive attempt without downgrading a usable snapshot."""
+    key = _snapshot_date(as_of_date)
+    now = datetime.now(UTC)
+    with SessionLocal.begin() as session:
+        run = session.get(SnapshotRun, key)
+        if run is not None and run.status in ("complete", "degraded"):
+            return {"asOfDate": key, "status": run.status, "idempotent": True}
+        if run is None:
+            run = SnapshotRun(as_of_date=key)
+            session.add(run)
+        run.status = "failed"
+        run.source = "daily_etl"
+        run.error = str(error)[:2000]
+        run.coverage_pct = None
+        run.completed_at = now
+    return {"asOfDate": key, "status": "failed", "idempotent": False}
+
+
+def backfill_industry_snapshot(
+    as_of_date: str | date, rows: list[dict[str, Any]], *, reason: str = "", operator: str = "local"
+) -> dict[str, Any]:
+    with _snapshot_backfill_lock:
+        return _backfill_industry_snapshot(as_of_date, rows, reason=reason, operator=operator)
+
+
+def _backfill_industry_snapshot(
+    as_of_date: str | date, rows: list[dict[str, Any]], *, reason: str = "", operator: str = "local"
+) -> dict[str, Any]:
+    """Replace inferred industry content and append its audit in one transaction."""
+    key = _snapshot_date(as_of_date)
+    normalized = [
+        {
+            "code": str(row.get("code") or ""),
+            "name": str(row.get("name") or ""),
+            "provider": str(row.get("provider") or ""),
+            "acquisition": str(row.get("acquisition") or "backfill"),
+        }
+        for row in rows
+        if row.get("code") and row.get("name")
+    ]
+    digest = canonical_snapshot_hash(normalized)
+    with SessionLocal.begin() as session:
+        _lock_snapshot_date(session, key)
+        existing = session.scalars(select(SnapshotIndustry).where(SnapshotIndustry.as_of_date == key)).all()
+        if any(row.pit_quality in ("exact", "rebuilt") for row in existing):
+            raise SnapshotConflictError("目标日已有 exact/rebuilt 行业快照")
+        before = sorted((row.code, row.name or "", row.provider, row.acquisition) for row in existing)
+        after = sorted((row["code"], row["name"], row["provider"], row["acquisition"]) for row in normalized)
+        if before == after:
+            audit = session.scalars(
+                select(SnapshotAudit).where(SnapshotAudit.as_of_date == key).order_by(SnapshotAudit.id.desc())
+            ).first()
+            return {"asOfDate": key, "affectedCount": 0, "idempotent": True, "auditId": audit.id if audit else None}
+        for row in existing:
+            session.delete(row)
+        session.flush()
+        for item in normalized:
+            session.add(
+                SnapshotIndustry(
+                    as_of_date=key,
+                    code=item["code"],
+                    name=item["name"],
+                    provider=item["provider"],
+                    acquisition=item["acquisition"],
+                    pit_quality="inferred",
+                    observed_date=key,
+                )
+            )
+        before_by_code = {item[0]: item for item in before}
+        after_by_code = {item[0]: item for item in after}
+        affected_count = 0
+        affected_sample: list[str] = []
+        affected_hasher = hashlib.sha256()
+        name_changes_count = 0
+        name_changes_sample: list[dict[str, str | None]] = []
+        name_changes_hasher = hashlib.sha256()
+        for code in sorted(set(before_by_code) | set(after_by_code)):
+            old = before_by_code.get(code)
+            new = after_by_code.get(code)
+            if old == new:
+                continue
+            affected_count += 1
+            affected_hasher.update(json.dumps(code, ensure_ascii=False).encode("utf-8") + b"\n")
+            if len(affected_sample) < 100:
+                affected_sample.append(code)
+            old_name = old[1] if old is not None else None
+            new_name = new[1] if new is not None else None
+            if old_name != new_name:
+                change = {"code": code, "old": old_name, "new": new_name}
+                name_changes_count += 1
+                name_changes_hasher.update(
+                    json.dumps(change, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                    + b"\n"
+                )
+                if len(name_changes_sample) < 50:
+                    name_changes_sample.append(change)
+        summary = {
+            "affectedCount": affected_count,
+            "affectedCodesHash": f"sha256:{affected_hasher.hexdigest()}",
+            "affectedCodesSample": affected_sample,
+            "nameChangesCount": name_changes_count,
+            "nameChangesHash": f"sha256:{name_changes_hasher.hexdigest()}",
+            "nameChangesSample": name_changes_sample,
+            "truncated": affected_count > len(affected_sample) or name_changes_count > len(name_changes_sample),
+        }
+        audit = SnapshotAudit(
+            as_of_date=key,
+            mode="backfill",
+            canonical_hash=digest,
+            row_count=len(after),
+            operator=operator,
+            action="backfill",
+            reason=reason or None,
+            before_summary=None if not before else dict(summary),
+            after_summary=summary,
+        )
+        session.add(audit)
+        session.flush()
+        return {"asOfDate": key, "affectedCount": affected_count, "idempotent": False, "auditId": audit.id}
 
 
 def redis_client() -> Redis:
