@@ -85,13 +85,17 @@
           chartDataSource === 'local' ? '本地缓存' : '实时·腾讯'
         }}</span>
       </div>
-      <div class="minute-toolbar" aria-label="分钟线周期"><button v-for="period in minutePeriods" :key="period" type="button" @click="loadMinute(period)">{{ period }}</button></div>
+      <div class="minute-toolbar" aria-label="分钟线周期">
+        <button v-for="period in minutePeriods" :key="period" type="button" @click="loadMinute(period)">
+          {{ period }}
+        </button>
+      </div>
     </section>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { chartSvg } from '@/modules/chart';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
@@ -116,11 +120,14 @@ const { renderIcons } = workspace;
 const minutePeriods = ['1m', '5m', '15m', '30m', '60m'];
 const minutePeriod = ref('5m');
 const minuteState = ref('');
-const minuteMessage = computed(() => minuteState.value || '');
 async function loadMinute(period: string) {
   minutePeriod.value = period;
   if (!selectedCode.value) return;
-  try { minuteState.value = (await fetchMinute(selectedCode.value, period)).state; } catch { minuteState.value = 'unavailable'; }
+  try {
+    minuteState.value = (await fetchMinute(selectedCode.value, period)).state;
+  } catch {
+    minuteState.value = 'unavailable';
+  }
 }
 
 /** 个股详情 → 草案：携带当前报价快照（无报价传 null 交由后端取实时价，绝不造数）。 */
