@@ -60,12 +60,12 @@
   - 验收前置：分钟线请求不得与日线 ETL 共用同一受限链路；必须有独立限流、熔断、缓存、健康暴露。
   - 结论：全市场分钟线不再是"数据中台 ETL 项"，降级为下方"受保护的交互式行情功能"；
     自选分钟线落库、全市场尽力而为、分钟线增量 ETL 均等接入独立源后 P3 再评估。
-- [ ] P2.5 自选/详情按需分钟线（受保护交互式行情功能）：仅自选/详情、单码、用户触发；不落库、不过 ETL、
+- [x] P2.5 自选/详情按需分钟线（受保护交互式行情功能）：仅自选/详情、单码、用户触发；不落库、不过 ETL、
   不后台批量预取、不自动轮询全自选；周期 {1m,5m,15m,30m,60m}、count≤320。护栏：独立令牌桶 1rps/burst≤3
   （与日线节流隔离、优先级低于日线）、日线 ETL 运行期互斥（只读缓存或如实降级）、短 TTL（L1 15s / L2 120s，
   新增 minute: 白名单且**不做陈旧降级读**）、上游连败 3 次熔断 900s（501 单次即熔断、半开单探测）、
   5xx 零重试、health 暴露 minuteCache/minuteCircuit。设计：`docs/superpowers/specs/2026-09-15-p2-leftovers-minute-crosscheck-spec.md`
-- [ ] P2.5 跨源交叉校验：Tushare daily 为主（token 配置才启用）/ 东财 clist 为辅（缺则降级、只校验最新收盘）；
+- [x] P2.5 跨源交叉校验：Tushare daily 为主（token 配置才启用）/ 东财 clist 为辅（缺则降级、只校验最新收盘）；
   日抽 30 码（锚定自选+计划 + 日期盐随机）比对 close/vol，阈值超限告警日志 + health.bars.crossCheck；
   停牌/缺行分账；**不阻断 ETL、不自动改数、不造数**；边界=校验最新收盘正确性，不校验历史完整性（后者归 bars_etl DQ/缺口/force 审计）；
   单位换算 T0 实测校准为启用门槛（`CROSS_CHECK_ENABLED` 默认关）
@@ -78,7 +78,13 @@
 - [x] P2 Redis 行情缓存接管：CacheFacade L1→L2（atlas:q: 前缀、quotes:/history: 白名单、
   ts 封装判新鲜、1860s+ 物理 TTL 保降级读、3 败 30s 熔断旁路、health redisCache 三态）。
   screener 缓存刻意不接管（D6）。重启不再丢行情 warm-up。
-- [ ] P3 Point-in-time 收盘快照归档：解除回测快照时点偏差（见 screener-pipeline 非目标）
+- [x] P3 Point-in-time 收盘快照归档：解除回测快照时点偏差（见 screener-pipeline 非目标）
+  - 完成（2026-10-03）：P2.5 两项合入——分钟线交互（周期切换 + 降级态呈现，护栏全落地；live 首验受 R1
+    mkline DNS 限制待用户真实网络做）与跨源校验（对账核心 + 15:35 调度 + health.bars.crossCheck；
+    `CROSS_CHECK_ENABLED` 默认关，Tushare 单位对拍 BLOCKED-token，启用后 live 验证）。
+  - 完成（2026-10-03）：分层 PIT 日快照合入——runs/closes/industries/audits 四表、ETL 后幂等归档
+    （complete 不可变、失败不降级）、行业回填幂等审计（exact 不可覆盖）、`asOfDate` 接入复盘与组合风险
+    （严格不跨日回退，三类缺失如实披露）。设计：`docs/superpowers/specs/2026-09-18-p3-pit-snapshots-design.md`
 
 ### 研究体验
 - [ ] P3 自定义策略编辑器：前端表单编辑 quick_filters / 因子权重 / 参数，存 DB（不止内置 JSON）
