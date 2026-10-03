@@ -29,14 +29,25 @@ export const useSettingsStore = defineStore('settings', () => {
     rrRatio: 2.0,
     stopMode: 'atr',
     positionCapPct: 25,
+    // 跨源校验三态开关（None=跟随环境 CROSS_CHECK_ENABLED）；token 不进 draft（掩码不回显，防全量保存误清除）
+    crossCheckEnabled: null as boolean | null,
   });
+  const tushareTokenInput = ref('');
   const dataSources = ref<any[]>([]);
   const settingsLoading = ref(false);
   const settingsTab = ref('workspace');
   const appliedSettings = ref<any>(null);
 
+  // GET/PUT 响应 data 中 tushareToken 恒为掩码空串——绝不并入 draft（防全量保存误清除）
+  function mergeSettingsData(data: Record<string, unknown> | undefined) {
+    const { tushareToken: _masked, ...rest } = data || {};
+    Object.assign(settingsDraft, rest);
+  }
+
   const settingsDirty = computed(
-    () => Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value)
+    () =>
+      tushareTokenInput.value !== '' ||
+      (Boolean(appliedSettings.value) && JSON.stringify(settingsDraft) !== JSON.stringify(appliedSettings.value))
   );
 
   const refreshIntervalLabel = computed(() => `${settingsDraft.refreshInterval} 秒`);
@@ -45,7 +56,7 @@ export const useSettingsStore = defineStore('settings', () => {
     settingsLoading.value = true;
     try {
       const payload = await workspace.requestJson('/api/settings');
-      Object.assign(settingsDraft, payload.data || {});
+      mergeSettingsData(payload.data);
       dataSources.value = payload.sources || [];
       appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
     } catch {
@@ -58,16 +69,36 @@ export const useSettingsStore = defineStore('settings', () => {
   async function saveSettings() {
     settingsLoading.value = true;
     try {
+      const body: Record<string, unknown> = { ...settingsDraft };
+      if (tushareTokenInput.value) body.tushareToken = tushareTokenInput.value;
       const payload = await workspace.requestJson('/api/settings', {
         method: 'PUT',
-        body: JSON.stringify(settingsDraft),
+        body: JSON.stringify(body),
       });
-      Object.assign(settingsDraft, payload.data || {});
+      mergeSettingsData(payload.data);
+      tushareTokenInput.value = '';
       appliedSettings.value = JSON.parse(JSON.stringify(settingsDraft));
       workspace.monitorEnabled = settingsDraft.monitorEnabled;
       workspace.showToast('网站设置已保存');
     } catch (error: any) {
       workspace.showToast(error.message || '设置保存失败', 'error');
+    } finally {
+      settingsLoading.value = false;
+    }
+  }
+
+  async function clearTushareToken() {
+    settingsLoading.value = true;
+    try {
+      const payload = await workspace.requestJson('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ tushareToken: '' }),
+      });
+      mergeSettingsData(payload.data);
+      tushareTokenInput.value = '';
+      workspace.showToast('Tushare Token 已清除');
+    } catch (error: any) {
+      workspace.showToast(error.message || '清除失败', 'error');
     } finally {
       settingsLoading.value = false;
     }
@@ -81,7 +112,9 @@ export const useSettingsStore = defineStore('settings', () => {
     appliedSettings,
     settingsDirty,
     refreshIntervalLabel,
+    tushareTokenInput,
     loadSettings,
     saveSettings,
+    clearTushareToken,
   };
 });

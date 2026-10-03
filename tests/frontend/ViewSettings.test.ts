@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewSettings from '@/views/ViewSettings.vue';
 import { useAlertsStore } from '@/stores/useAlertsStore';
@@ -207,5 +207,31 @@ describe('ViewSettings', () => {
     expect(wrapper.text()).toContain('东方财富');
     // 能力徽标文本
     expect(wrapper.findAll('.badge').length).toBe(7); // tencent: 3 badges, eastmoney: 4 badges
+  });
+
+  it('保存仅在填写 token 时携带 tushareToken，保存后清空输入', async () => {
+    const settings = useSettingsStore();
+    const workspace = useWorkspaceStore();
+    const spy = vi.spyOn(workspace, 'requestJson').mockResolvedValue({ data: {} });
+    settings.tushareTokenInput = 'my-token';
+    await settings.saveSettings();
+    await flushPromises();
+    const firstBody = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string);
+    expect(firstBody.tushareToken).toBe('my-token');
+    expect(settings.tushareTokenInput).toBe('');
+    await settings.saveSettings();
+    await flushPromises();
+    const secondBody = JSON.parse((spy.mock.calls[1][1] as RequestInit).body as string);
+    expect('tushareToken' in secondBody).toBe(false);
+  });
+
+  it('clearTushareToken 显式发送空串清除', async () => {
+    const settings = useSettingsStore();
+    const workspace = useWorkspaceStore();
+    const spy = vi.spyOn(workspace, 'requestJson').mockResolvedValue({ data: {} });
+    await settings.clearTushareToken();
+    await flushPromises();
+    const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.tushareToken).toBe('');
   });
 });
