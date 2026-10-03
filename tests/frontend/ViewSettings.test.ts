@@ -234,4 +234,35 @@ describe('ViewSettings', () => {
     const body = JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string);
     expect(body.tushareToken).toBe('');
   });
+
+  it('连接标签 Tushare 行提供 token 输入、掩码展示与三态开关', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'connection';
+    settings.dataSources = [
+      { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
+      {
+        id: 'tushare',
+        name: 'Tushare',
+        available: false,
+        realtime: false,
+        history: true,
+        screener: true,
+        fundamental: false,
+        installed: true,
+        tushareConfigured: true,
+        tushareTokenMasked: '****efgh',
+        reason: '',
+      },
+    ];
+    const wrapper = mount(ViewSettings);
+    const tokenInput = wrapper.find('input[aria-label="Tushare Token"]');
+    expect(tokenInput.exists()).toBe(true);
+    expect((tokenInput.element as HTMLInputElement).type).toBe('password');
+    expect(wrapper.text()).toContain('****efgh');
+    const select = wrapper.find('select[aria-label="跨源校验开关"]');
+    expect(select.exists()).toBe(true);
+    expect(wrapper.text()).toContain('对账偏差告警');
+  });
 });

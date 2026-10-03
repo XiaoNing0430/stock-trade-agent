@@ -3794,6 +3794,22 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.tushare-config {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.tushare-config input {
+  max-width: 260px;
+}
+
+.tushare-warn {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .screener-tabs {
   display: flex;
   gap: 8px;
