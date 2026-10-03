@@ -40,6 +40,18 @@ def test_notification_desktop_settings_defaults_and_normalization():
     assert normalized["notifyDesktopAlert"] is False
 
 
+def test_workspace_settings_tushare_keys_normalize():
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS, _normalize_workspace_settings
+
+    assert DEFAULT_WORKSPACE_SETTINGS["tushareToken"] == ""
+    assert DEFAULT_WORKSPACE_SETTINGS["crossCheckEnabled"] is None
+    normalized = _normalize_workspace_settings({"tushareToken": "  abc123  ", "crossCheckEnabled": True})
+    assert normalized["tushareToken"] == "abc123"
+    assert normalized["crossCheckEnabled"] is True
+    bogus = _normalize_workspace_settings({"crossCheckEnabled": "yes"})
+    assert bogus["crossCheckEnabled"] is None
+
+
 def test_settings_assist_defaults(monkeypatch):
     # 交易辅助 4 键默认值：风险%/盈亏比/止损模式/单票上限
     from backend.storage import DEFAULT_WORKSPACE_SETTINGS
