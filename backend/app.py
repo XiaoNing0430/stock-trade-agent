@@ -70,6 +70,7 @@ from backend.schemas import (
     WorkspacePut,
     WorkspacePutOut,
 )
+from backend.settings import get_settings
 from backend.sources import build_router, get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
@@ -430,9 +431,12 @@ def create_app() -> FastAPI:
             data = dict(DEFAULT_WORKSPACE_SETTINGS)
         akshare_installed = find_spec("akshare") is not None
         tushare_installed = find_spec("tushare") is not None
-        tushare_configured = bool(
-            getattr(__import__("backend.settings", fromlist=["get_settings"]).get_settings(), "tushare_token", "")
-        )
+        # token 掩码纪律：GET 的 data 恒不含明文；配置状态与尾 4 位经 sources.tushare 行下发
+        workspace_token = str(data.get("tushareToken") or "")
+        env_token = str(get_settings().tushare_token or "")
+        data = {**data, "tushareToken": ""}
+        tushare_configured = bool(workspace_token or env_token)
+        tushare_masked = f"****{(workspace_token or env_token)[-4:]}" if tushare_configured else ""
         sources: list[dict[str, Any]] = [dict(info) for info in get_all_sources_info()]
         # 已注册适配器之外的计划中源：保留 installed/config 探测信息（available=False）
         sources.extend(
@@ -458,6 +462,7 @@ def create_app() -> FastAPI:
                     "available": False,
                     "installed": tushare_installed,
                     "tushareConfigured": tushare_configured,
+                    "tushareTokenMasked": tushare_masked,
                     "reason": "暂未支持切换，适配器开发中" if tushare_configured else "未配置 TUSHARE_TOKEN",
                 },
             ]
@@ -476,7 +481,8 @@ def create_app() -> FastAPI:
                 cache_seconds=saved.get("cacheSeconds"),
                 rate_limit_rps=saved.get("rateLimitRps"),
             )
-            return SettingsPutOut(data=saved)
+            # PUT 响应同 GET 掩码纪律：不回显明文 token
+            return SettingsPutOut(data={**saved, "tushareToken": ""})
         except Exception as exc:
             raise api_error(422, ERR_VALIDATION_ERROR, f"设置保存失败: {exc}") from exc
 

@@ -15,7 +15,8 @@ def test_settings_api_returns_default_data_sources_without_secrets(monkeypatch):
     payload = response.json()
     assert payload["data"]["historySource"] == "tencent"
     assert payload["data"]["realtimeSource"] == "tencent"
-    assert "tushareToken" not in str(payload)
+    # 明文 token 绝不出现在响应任何位置（掩码键 tushareTokenMasked 由专测覆盖）
+    assert "abcd1234efgh" not in str(payload)
 
 
 def test_conflict_policy_normalization_defaults_and_whitelist():
@@ -50,6 +51,76 @@ def test_workspace_settings_tushare_keys_normalize():
     assert normalized["crossCheckEnabled"] is True
     bogus = _normalize_workspace_settings({"crossCheckEnabled": "yes"})
     assert bogus["crossCheckEnabled"] is None
+
+
+def test_settings_api_masks_tushare_token_and_reports_configured(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.storage import _normalize_workspace_settings
+
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": _normalize_workspace_settings({"tushareToken": "abcd1234efgh"}),
+    )
+    monkeypatch.setattr(app_module, "get_settings", lambda: SimpleNamespace(tushare_token=""))
+    with TestClient(app_module.create_app()) as client:
+        response = client.get("/api/settings")
+
+    payload = response.json()
+    assert payload["data"]["tushareToken"] == ""
+    assert "abcd1234efgh" not in str(payload)
+    tushare = next(s for s in payload["sources"] if s["id"] == "tushare")
+    assert tushare["tushareConfigured"] is True
+    assert tushare["tushareTokenMasked"] == "****efgh"
+
+
+def test_settings_api_tushare_env_fallback_and_workspace_priority(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS, _normalize_workspace_settings
+
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "get_settings", lambda: SimpleNamespace(tushare_token="envtoken9999"))
+    with TestClient(app_module.create_app()) as client:
+        env_only = client.get("/api/settings").json()
+        assert next(s for s in env_only["sources"] if s["id"] == "tushare")["tushareTokenMasked"] == "****9999"
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": _normalize_workspace_settings({"tushareToken": "abcd1234efgh"}),
+    )
+    with TestClient(app_module.create_app()) as client:
+        both = client.get("/api/settings").json()
+        assert next(s for s in both["sources"] if s["id"] == "tushare")["tushareTokenMasked"] == "****efgh"
+
+
+def test_settings_put_tushare_roundtrip_and_clear(monkeypatch):
+    from backend.storage import DEFAULT_WORKSPACE_SETTINGS, _normalize_workspace_settings
+
+    saved: dict[str, dict] = {}
+
+    def fake_save(payload, workspace_id="default"):
+        saved[workspace_id] = _normalize_workspace_settings({**saved.get(workspace_id, {}), **payload})
+        return saved[workspace_id]
+
+    monkeypatch.setattr(app_module, "save_workspace_settings", fake_save)
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": saved.get(workspace_id, dict(DEFAULT_WORKSPACE_SETTINGS)),
+    )
+    with TestClient(app_module.create_app()) as client:
+        put = client.put("/api/settings", json={"tushareToken": "tok12345", "crossCheckEnabled": True})
+        assert put.status_code == 200
+        assert put.json()["data"]["tushareToken"] == ""
+        client.put("/api/settings", json={"refreshInterval": 30})
+        assert saved["default"]["tushareToken"] == "tok12345"  # 缺省=不修改
+        assert saved["default"]["crossCheckEnabled"] is True
+        client.put("/api/settings", json={"tushareToken": ""})
+        assert saved["default"]["tushareToken"] == ""  # ""=清除
 
 
 def test_settings_assist_defaults(monkeypatch):
