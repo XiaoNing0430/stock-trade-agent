@@ -77,9 +77,33 @@ def sample_codes(
     return list(dict.fromkeys(anchors + rest))[:limit]
 
 
+def effective_config() -> dict[str, Any]:
+    """有效开关与 token：workspace 显式值 > env（离线测试 monkeypatch 本函数）。"""
+    from backend.settings import get_settings
+
+    try:
+        workspace = storage.get_workspace_settings("default")
+    except Exception:
+        workspace = {}
+    settings = get_settings()
+    flag = workspace.get("crossCheckEnabled")
+    enabled = bool(flag) if flag is not None else bool(settings.cross_check_enabled)
+    token = str(workspace.get("tushareToken") or "") or str(settings.tushare_token or "")
+    return {"enabled": enabled, "token": token}
+
+
+def _resolve_provider(provider: str | None, config: dict[str, Any]) -> str | None:
+    if provider:
+        return provider
+    if not config["enabled"]:
+        return None
+    return "tushare" if config["token"] else "eastmoney"
+
+
 def run(provider: str | None = None, *, date: str | None = None, sleep: Any = None) -> CrossStats:
     global _last
-    if not provider:
+    provider = _resolve_provider(provider, effective_config())
+    if provider is None:
         result = CrossStats(None, 0, [], [], 0, "disabled")
     else:
         try:
@@ -114,13 +138,11 @@ def fetch_eastmoney(codes: list[str]) -> dict[str, tuple[float | None, float | N
 
 
 def fetch_tushare(codes: list[str]) -> dict[str, tuple[float | None, float | None]]:
-    import tushare as ts
-
-    from backend.settings import get_settings
-
-    token = get_settings().tushare_token
+    token = effective_config()["token"]
     if not token:
         raise RuntimeError("TUSHARE_TOKEN 未配置")
+    import tushare as ts
+
     frame = ts.pro_api(token).daily(trade_date=date.today().strftime("%Y%m%d"))
     wanted = set(codes)
     return {
