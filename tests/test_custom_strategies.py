@@ -233,3 +233,29 @@ def test_custom_strategy_api_list_search(monkeypatch):
             assert resp.status_code == 200, resp.text
         listed = client.get("/api/screener/custom-strategies", params={"search": "动量1"}).json()
         assert listed["total"] == 1 and listed["strategies"][0]["name"] == "动量1"
+
+
+def test_scan_config_accepts_custom_strategy_and_isolates_after_delete(factory, monkeypatch):
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    created = storage.upsert_custom_strategy(
+        {"name": "扫描联动", **VALID_CONFIG}, strategy_id=None, expected_version=None
+    )
+
+    # 扫描配置可直接引用 custom id（无内置白名单）
+    storage.upsert_scan_config(created["id"], enabled=True, mode="quick")
+    assert storage.get_scan_config(created["id"])["strategyId"] == created["id"]
+
+    monkeypatch.setattr(storage, "SessionLocal", factory)
+    with TestClient(app_module.create_app()) as client:
+        configs = client.get("/api/screener/scan/configs").json()["configs"]
+        mine = next(c for c in configs if c["strategyId"] == created["id"])
+        assert mine["strategyName"] == "扫描联动"  # load_strategy 解析自定义
+
+        # 删除后：引用快照如实；扫描配置残留 → 运行时按未知策略失败隔离（FR-13④）
+        gone = client.delete(f"/api/screener/custom-strategies/{created['id']}")
+        assert gone.status_code == 200 and gone.json()["scanReferences"] == [created["id"]]
+        configs_after = client.get("/api/screener/scan/configs").json()["configs"]
+        mine_after = next(c for c in configs_after if c["strategyId"] == created["id"])
+        assert mine_after["strategyName"] == "（策略已不存在）"
