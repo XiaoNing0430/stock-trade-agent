@@ -9,6 +9,7 @@ import { useScreenerStore } from './useScreenerStore';
 import { useSettingsStore } from './useSettingsStore';
 import { useAlertsStore } from './useAlertsStore';
 import { usePlansStore } from './usePlansStore';
+import { useScanStore } from './useScanStore';
 
 /**
  * 工作区 store：自选列表 / 计划 / 提醒 / 服务端同步 / 409 冲突策略 / 本地持久化，
@@ -142,6 +143,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     clearTimeout(workspaceSyncTimer.value);
     workspaceSyncTimer.value = setTimeout(async () => {
+      // 触发时复查同步锁：syncNow 正在 PUT 时不抢跑（防 ~350ms 窗口内同载荷双重 PUT）
+      if (workspaceSyncInFlight) return;
       workspaceSyncInFlight = true;
       try {
         await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
@@ -173,6 +176,32 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         }
       }
     }, 350);
+  }
+
+  /** 立即执行一次工作区 PUT（对话框确认等需要确定性结果的动作用）；绝不自动重试 409。
+   *  失败时透传后端中文 detail（如交易对 422 规则）供调用方 toast；409 仅回 conflict 标记，策略处理留在调用方。 */
+  async function syncNow(): Promise<{ ok: boolean; conflict?: boolean; message?: string }> {
+    if (!workspaceSynced.value) return { ok: true };
+    let waited = 0;
+    // 等待上限 3s：定时同步卡死时不可让 UI 假死（二轮评审）
+    while (workspaceSyncInFlight && waited < 3000) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      waited += 120;
+    }
+    if (workspaceSyncInFlight) return { ok: false, message: '同步超时（定时同步长时间占用），请稍后重试' };
+    workspaceSyncInFlight = true;
+    try {
+      await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
+        method: 'PUT',
+        body: JSON.stringify(workspacePayload()),
+      });
+      return { ok: true };
+    } catch (error: any) {
+      if (error.status === 409) return { ok: false, conflict: true };
+      return { ok: false, message: error.message };
+    } finally {
+      workspaceSyncInFlight = false;
+    }
   }
 
   function showConflictBanner(snapshot: any) {
@@ -258,6 +287,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const quotes = useQuotesStore();
     const screener = useScreenerStore();
     const plans = usePlansStore();
+    const scan = useScanStore();
     if (refreshInFlight) {
       // 已有刷新进行中：定时轮询直接跳过，避免慢网络下请求堆积。
       if (silent) return;
@@ -266,7 +296,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     refreshInFlight = true;
     try {
       quotes.errorMessage = '';
-      const tasks = [quotes.fetchMarket(), screener.fetchScreener()];
+      // scan.fetchHits 自吞错误（内部 catch），不影响 Promise.allSettled 的失败归因语义。
+      const tasks = [quotes.fetchMarket(), screener.fetchScreener(), scan.fetchHits()];
       const now = Date.now();
       if (!quotes.indexHistory.length || now - quotes.indexHistoryFetchedAt > 60000) {
         tasks.push(quotes.fetchHistory('000001', 'index'));
@@ -357,6 +388,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     persist,
     workspacePayload,
     scheduleWorkspaceSync,
+    syncNow,
     showConflictBanner,
     adoptServerSnapshot,
     adoptServerWorkspace,

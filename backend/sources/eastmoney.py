@@ -12,8 +12,8 @@ from backend.sources.cn_impl import CNAssetMetadata, CNDataNormalizer, CNMarketC
 # 报价字段：f2=price f3=changePct f4=changeAmount f5=volume f6=amount f8=turnoverRate
 #           f9=pe f10=pb f12=code f14=name f15=high f16=low f17=open f18=prevClose
 _QUOTE_FIELDS = "f2,f3,f4,f5,f6,f8,f9,f10,f12,f14,f15,f16,f17,f18"
-# 排行字段（screener）
-_CLIST_FIELDS = "f2,f3,f5,f6,f8,f9,f10,f12,f14"
+# 排行字段（screener）：f100=行业（industry_map 用）
+_CLIST_FIELDS = "f2,f3,f5,f6,f8,f9,f10,f12,f14,f100"
 # 前端排序字段 → clist fid（f2 现价 f3 涨跌幅 f6 成交额 f8 换手率 f9 PE f20 总市值）
 _EM_SORT_MAP = {
     "changePct": "f3",
@@ -53,6 +53,9 @@ class EastMoneySource(DataSource):
     QUOTE_URL = "http://push2.eastmoney.com/api/qt/ulist.np/get"
     KLINE_URL = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
     CLIST_URL = "http://push2.eastmoney.com/api/qt/clist/get"
+    # 延时镜像（约 15 分钟）：仅行业预热等不敏感鲜度的分页可用（mirror_ok 显式开启），
+    # 选股器等价格敏感消费方保持主站失败如实上报，绝不静默降级为延时数据。
+    CLIST_MIRROR_URL = "http://push2delay.eastmoney.com/api/qt/clist/get"
     STOCK_URL = "http://push2.eastmoney.com/api/qt/stock/get"
     REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
 
@@ -106,6 +109,8 @@ class EastMoneySource(DataSource):
             "pb": numeric(raw.get("f10")),
             "pe": numeric(raw.get("f9")),
             "volumeRatio": None,
+            # 行归一带出行业（f100 原始串）；缺字段时为 None，行业空值由映射/消费侧处理
+            "industry": raw.get("f100"),
             "updatedAt": int(time.time() * 1000),
         }
 
@@ -124,12 +129,14 @@ class EastMoneySource(DataSource):
         quotes = [self._parse_quote(item) for item in raw_list]
         return [quote for quote in quotes if quote is not None]
 
-    def load_history(self, code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
+    def load_history(
+        self, code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq"
+    ) -> list[dict[str, Any]]:
         secid = _INDEX_SECID.get(code, _secid(code)) if is_index else _secid(code)
         params: dict[str, Any] = {
             "secid": secid,
             "klt": 101,  # 日线
-            "fqt": 1,  # 前复权
+            "fqt": 1 if adjustment == "qfq" else (2 if adjustment == "hfq" else 0),  # 前复权/后复权/不复权
             "end": "20500101",
             "lmt": limit,
             # 缺 fields1/fields2 时接口返回空 klines（实测 2026-09）
@@ -256,6 +263,32 @@ class EastMoneySource(DataSource):
             "rows": rows,
             "provider": self.provider_label,
         }
+
+    def _clist_page(self, page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        """行业映射用全市场分页：复用 clist 请求构造（同 load_screener_paged 的 URL/参数/解析）。
+
+        返回 (归一 rows, total)；每行由 _parse_quote 归一并带出 industry（f100 原始串）。
+        """
+        params: dict[str, Any] = {
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f12",
+            "po": 1,
+            "np": 1,
+            "pn": page,
+            "pz": size,
+            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+            "fields": _CLIST_FIELDS,
+        }
+        try:
+            data = self._http_get(self.CLIST_URL, params)
+        except (requests.HTTPError, requests.ConnectionError):
+            # 主站被网络重置/502 时走延时镜像：行业映射只用 f12/f14/f100（分类字段），
+            # 对价格鲜度无要求；同函数内 f2 等价格字段在 f100-only 流中本就丢弃。
+            data = self._http_get(self.CLIST_MIRROR_URL, params)
+        payload = data.get("data") or {}
+        rows = [q for q in (self._parse_quote(raw) for raw in payload.get("diff", [])) if q is not None]
+        return rows, int(payload.get("total", 0))
 
     def load_fundamentals(self, code: str) -> dict[str, Any]:
         """拉取个股财务字段（唯一 fundamental 提供方）。"""

@@ -80,6 +80,22 @@ cache: dict[str, tuple[float, Any]] = {}
 cache_lock = threading.Lock()
 stale_marker: dict[str, float] = {"at": 0.0, "age": 0.0}
 
+# P2-M2：L2 门面（None=未接线，行为与接管前逐字节一致——I8）
+_facade: Any | None = None
+
+
+def set_facade(facade: Any | None) -> None:
+    global _facade
+    _facade = facade
+
+
+def current_cache_ttl() -> int:
+    return _cache_ttl
+
+
+def facade_state() -> str:
+    return _facade.state() if _facade is not None else "down"
+
 
 def mark_stale(age: float) -> None:
     with cache_lock:
@@ -134,6 +150,12 @@ def cached(key: str, loader):
         item = cache.get(key)
         if item and now - item[0] < _cache_ttl:
             return item[1]
+    if _facade is not None:
+        hit = _facade.get(key)
+        if hit is not None:
+            with cache_lock:
+                cache[key] = (time.time(), hit)
+            return hit
     try:
         value = loader()
     except Exception:
@@ -142,9 +164,17 @@ def cached(key: str, loader):
         if item and now - item[0] <= STALE_MAX_AGE:
             mark_stale(now - item[0])
             return item[1]
+        if _facade is not None:
+            stale = _facade.stale_read(key, STALE_MAX_AGE)
+            if stale is not None:
+                # 降级读 L2：真实 age 入标记；绝不回填 L1（否则陈旧值被冒充新鲜一个 TTL）
+                mark_stale(stale[1])
+                return stale[0]
         raise
     with cache_lock:
         cache[key] = (now, value)
+    if _facade is not None:
+        _facade.set(key, value, _cache_ttl)
     return value
 
 
@@ -177,7 +207,7 @@ def index_symbol(code: str) -> str:
 
 def classify_code(code: str) -> dict[str, str]:
     code = code.strip()
-    if code.startswith(("4", "8")):
+    if code.startswith(("4", "8", "92")):
         return {
             "exchange": "北交所",
             "board": "北交所",
@@ -248,7 +278,9 @@ def price_limit_ratio(code: str) -> float:
     return 0.10
 
 
-def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
+def _http_get(url: str, params: dict[str, Any], *, retry_http_error: bool = True) -> requests.Response:
+    """retry_http_error=False：HTTP 状态类错误（含 501 惩罚窗）零重试立即抛——ETL/分钟线用，
+    防惩罚窗内每失败码白敲放大封禁；网络类（连接/超时）仍按 _retry_count 重试。"""
     _throttle()  # 外部接口限频
     for attempt in range(_retry_count + 1):
         try:
@@ -257,6 +289,8 @@ def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
             return response
         except requests.RequestException as exc:
             last_exc = exc
+            if isinstance(exc, requests.HTTPError) and not retry_http_error:
+                break  # L9：5xx/4xx 立即失败，不 sleep 不重敲
             if attempt < _retry_count:
                 time.sleep(0.5 * (2**attempt))
     if last_exc is not None:
@@ -264,8 +298,8 @@ def _http_get(url: str, params: dict[str, Any]) -> requests.Response:
     raise RuntimeError("请求失败")
 
 
-def fetch_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
-    return _http_get(url, params).json()
+def fetch_json(url: str, params: dict[str, Any], *, retry_http_error: bool = True) -> dict[str, Any]:
+    return _http_get(url, params, retry_http_error=retry_http_error).json()
 
 
 def fetch_text(url: str, params: dict[str, Any]) -> str:
@@ -308,9 +342,10 @@ def load_quote_symbols(symbols: list[str]) -> list[dict[str, Any]]:
     unique_symbols = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol.strip()))
     if not unique_symbols:
         return []
+    ordered = sorted(unique_symbols)  # 键归一：乱序入参命中同一缓存条目（P1-4）
     text = cached(
-        f"quotes:{','.join(unique_symbols)}",
-        lambda: fetch_text(QUOTE_URL, {"q": ",".join(unique_symbols)}),
+        f"quotes:{','.join(ordered)}",
+        lambda: fetch_text(QUOTE_URL, {"q": ",".join(ordered)}),
     )
     pattern = re.compile(r'v_([^=]+)="(.*?)";')
     parsed: dict[str, dict[str, Any]] = {}
@@ -326,15 +361,18 @@ def load_quotes(codes: list[str]) -> list[dict[str, Any]]:
     return load_quote_symbols([tencent_symbol(code) for code in unique_codes])
 
 
-def load_history(code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
+def load_history(
+    code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq", *, retry_http_error: bool = True
+) -> list[dict[str, Any]]:
     symbol = index_symbol(code) if is_index else tencent_symbol(code)
+    fq = adjustment or ""
     payload = cached(
-        f"history:{symbol}:{limit}",
-        lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},qfq"}),
+        f"history:{symbol}:{limit}:{fq}",
+        lambda: fetch_json(KLINE_URL, {"param": f"{symbol},day,,,{limit},{fq}"}, retry_http_error=retry_http_error),
     )
     data = payload.get("data") or {}
     symbol_data = data.get(symbol) or {}
-    rows = symbol_data.get("qfqday") or symbol_data.get("day") or []
+    rows = symbol_data.get(f"{fq}day") or symbol_data.get("day") or symbol_data.get("qfqday") or []
     history = []
     for row in rows[-limit:]:
         if len(row) < 6:

@@ -128,7 +128,10 @@ class MockUSSource(DataSource):
             for c in codes
         ]
 
-    def load_history(self, code: str, limit: int = 40, is_index: bool = False) -> list[dict[str, Any]]:
+    def load_history(
+        self, code: str, limit: int = 40, is_index: bool = False, adjustment: str = "qfq"
+    ) -> list[dict[str, Any]]:
+        """合成随机历史数据；adjustment 仅为签名兼容（合成数据 no-op）。"""
         import random
 
         random.seed(hash(code))

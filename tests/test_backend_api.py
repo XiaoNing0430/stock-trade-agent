@@ -22,7 +22,7 @@ def test_index_symbol_maps_to_dedicated_index_codes():
 def test_load_history_index_flag_uses_index_symbol(monkeypatch):
     captured = {}
 
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         captured["params"] = params
         return {"data": {"sh000001": {"qfqday": [["2026-08-06", 10, 11, 12, 9, 1000]]}}}
 
@@ -36,7 +36,7 @@ def test_load_history_index_flag_uses_index_symbol(monkeypatch):
 def test_load_history_stock_000001_uses_stock_symbol(monkeypatch):
     captured = {}
 
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         captured["params"] = params
         return {"data": {"sz000001": {"qfqday": [["2026-08-06", 10, 11, 12, 9, 1000]]}}}
 
@@ -221,7 +221,7 @@ def test_history_returns_daily_kline(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
 
-    def fake_history(code, limit=40, is_index=False):
+    def fake_history(code, limit=40, is_index=False, adjustment="qfq"):
         return [{"date": "2026-08-06", "open": 10, "close": 11, "high": 12, "low": 9, "volume": 1000}]
 
     monkeypatch.setattr("backend.data_source.load_history", fake_history)
@@ -544,7 +544,9 @@ def test_fallback_serves_local_when_upstream_fails(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(
+            ConnectionError("upstream down")
+        ),
     )
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=600888")
@@ -564,12 +566,79 @@ def test_fallback_raises_when_no_local_data(monkeypatch):
     )
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=120, is_index=False: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        lambda code, limit=120, is_index=False, adjustment="qfq": (_ for _ in ()).throw(
+            ConnectionError("upstream down")
+        ),
     )
     monkeypatch.setattr(app_module, "load_market_bars", lambda code, adjustment="qfq", limit=240: [])
     with TestClient(app_module.create_app()) as client:
         response = client.get("/api/history?code=absent")
     assert response.status_code == 502
+
+
+def test_history_index_uses_isolated_adjustment_bucket(monkeypatch):
+    """A1：指数历史不得写进个股 (code,'qfq') 同桶——落库键空间隔离为 qfq:idx。"""
+    from backend.storage import (
+        DEFAULT_WORKSPACE_SETTINGS,
+        MarketBar,
+        SessionLocal,
+        initialize_storage,
+        save_market_bars,
+    )
+    from sqlalchemy import delete, select
+
+    initialize_storage()
+    monkeypatch.setattr(
+        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
+    )
+    # 本用例聚焦桶隔离：旁路 lifespan 的 A1 幂等清理（它会按定义删任意 000001:qfq 行，
+    # 含本测试播种行——生产语义=个股缓存一次性回源，已由 lifespan 专测钉住，不该绞杀本用例）
+    monkeypatch.setattr(app_module, "cleanup_legacy_index_qfq", lambda: 0)
+    # 生僻交易日：与真实缓存行零相撞，用例结束后自行收尾
+    day = "2099-12-31"
+    stock_bar = {"date": day, "open": 10.5, "high": 11.0, "low": 10.0, "close": 10.8, "volume": 1000.0, "amount": 1e4}
+    index_bar = {"date": day, "open": 3000.1, "high": 3100.2, "low": 2900.0, "close": 3050.5, "volume": 1e8}
+    save_market_bars("000001", [stock_bar], adjustment="qfq")
+
+    captured: dict = {}
+
+    def fake_history(code, limit=40, is_index=False, adjustment="qfq"):
+        captured["is_index"] = is_index
+        captured["adjustment"] = adjustment
+        return [dict(index_bar)]
+
+    monkeypatch.setattr("backend.data_source.load_history", fake_history)
+    try:
+        with TestClient(app_module.create_app()) as client:
+            response = client.get("/api/history?code=000001&index=true")
+        assert response.status_code == 200
+        # 端点向历史源声明的仍是合法上游参数 qfq——A1 存储隔离只走 bucket 面，绝不影响上游请求（防回归锚）
+        assert captured == {"is_index": True, "adjustment": "qfq"}
+
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day)
+            ).all()
+        by_adjustment = {row.adjustment: row for row in rows}
+        # 个股 qfq 行逐字段不变（未被指数点位污染）
+        assert by_adjustment["qfq"].open == 10.5
+        assert by_adjustment["qfq"].close == 10.8
+        # 指数点位只落在新增的 qfq:idx 行
+        assert by_adjustment["qfq:idx"].close == 3050.5
+
+        # 兜底读路径同源隔离：上游故障时 index=true 读 qfq:idx、index=false 读 qfq，互不拿错
+        def boom(code, limit=40, is_index=False, adjustment="qfq"):
+            raise ConnectionError("upstream down")
+
+        monkeypatch.setattr("backend.data_source.load_history", boom)
+        with TestClient(app_module.create_app()) as client:
+            r_idx = client.get("/api/history?code=000001&index=true").json()
+            r_stock = client.get("/api/history?code=000001").json()
+        assert r_idx["dataSource"] == "local" and r_idx["history"][-1]["close"] == 3050.5
+        assert r_stock["dataSource"] == "local" and r_stock["history"][-1]["close"] == 10.8
+    finally:
+        with SessionLocal.begin() as session:
+            session.execute(delete(MarketBar).where(MarketBar.code == "000001", MarketBar.trade_date == day))
 
 
 def test_screener_v2_returns_paginated_results(monkeypatch):
@@ -931,6 +1000,12 @@ def test_price_limit_ratio_by_board():
     assert data_source.price_limit_ratio("600519") == 0.10
 
 
+def test_price_limit_ratio_bj_920_segment():
+    # 920xxx 北交所新码段（评审 I1）：classify_code 旧元组 ("4","8") 漏 92 → 未知 → 误回 0.10
+    assert data_source.classify_code("920001")["exchange"] == "北交所"
+    assert data_source.price_limit_ratio("920001") == 0.30
+
+
 def test_http_get_raises_after_retries_exhausted(monkeypatch):
     def always_fail(url, params=None, headers=None, timeout=None):
         raise data_source.requests.ConnectionError("boom")
@@ -989,7 +1064,7 @@ def test_load_queries_uses_tencent_symbols(monkeypatch):
 
 
 def test_load_history_skips_short_rows(monkeypatch):
-    def fake_fetch_json(url, params):
+    def fake_fetch_json(url, params, **kw):
         return {
             "data": {
                 "sh600519": {
@@ -1239,8 +1314,10 @@ def test_grid_optimize_returns_candidates(monkeypatch):
         app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
     )
     bars = _strategy_bars(60)
-    monkeypatch.setattr("backend.data_source.load_history", lambda code, limit=40, is_index=False: bars)
-    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history: "2026-08-30")
+    monkeypatch.setattr(
+        "backend.data_source.load_history", lambda code, limit=40, is_index=False, adjustment="qfq": bars
+    )
+    monkeypatch.setattr(app_module, "save_market_bars", lambda code, history, adjustment="qfq": "2026-08-30")
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519", "capital": 100000, "feeBps": 3})
     assert resp.status_code == 200
@@ -1251,7 +1328,14 @@ def test_grid_optimize_returns_candidates(monkeypatch):
 def test_grid_optimize_history_failure_returns_422(monkeypatch):
     monkeypatch.setattr(
         "backend.data_source.load_history",
-        lambda code, limit=40, is_index=False: (_ for _ in ()).throw(RuntimeError("no data")),
+        lambda code, limit=40, is_index=False, adjustment="qfq": (_ for _ in ()).throw(RuntimeError("no data")),
+    )
+    from backend.sources.eastmoney import EastMoneySource
+
+    monkeypatch.setattr(
+        EastMoneySource,
+        "load_history",
+        lambda self, code, limit=40, is_index=False, adjustment="qfq": (_ for _ in ()).throw(RuntimeError("no data")),
     )
     with TestClient(app_module.create_app()) as client:
         resp = client.post("/api/grid/optimize", json={"code": "600519"})
@@ -1684,3 +1768,33 @@ def test_screener_strategy_cached_second_call(monkeypatch):
         r2 = client.post("/api/screener/strategy", json={"strategy": "oversold_bounce"})
     assert r1.json()["cached"] is False
     assert r2.json()["cached"] is True
+
+
+def test_http_get_retry_http_error_false_single_hit(monkeypatch):
+    """L9：retry_http_error=False 时 HTTP 状态错误 1 击即抛（网络类不受影响）。"""
+    import pytest
+    import requests
+
+    hits = []
+
+    class _Resp:
+        status_code = 501
+
+        def raise_for_status(self):
+            raise requests.HTTPError("501 Server Error")
+
+    def fake_get(url, **kw):
+        hits.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(data_source.requests, "get", fake_get)
+    monkeypatch.setattr(data_source, "_throttle", lambda: None)
+    monkeypatch.setattr(data_source, "_retry_count", 2)
+    monkeypatch.setattr(data_source.time, "sleep", lambda s: None)  # 指数退避不真等
+    with pytest.raises(requests.HTTPError):
+        data_source._http_get("u", {}, retry_http_error=False)
+    assert len(hits) == 1
+    # 默认路径（报价面）维持既有重试语义
+    with pytest.raises(requests.HTTPError):
+        data_source._http_get("u", {})
+    assert len(hits) == 1 + 1 + 2

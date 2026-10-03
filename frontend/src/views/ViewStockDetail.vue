@@ -4,10 +4,21 @@
       <div>
         <span class="section-kicker">STOCK DETAIL</span>
         <h2>{{ selectedStock?.name || '个股详情' }}</h2>
-        <p class="heading-note">{{ selectedStock ? (selectedStock.code + ' · ' + selectedStock.exchange + ' · ' + selectedStock.board) : '选择一只股票' }}</p>
+        <p class="heading-note">
+          {{
+            selectedStock
+              ? selectedStock.code + ' · ' + selectedStock.exchange + ' · ' + selectedStock.board
+              : '选择一只股票'
+          }}
+        </p>
       </div>
       <div class="view-heading-actions">
-        <button class="button button-secondary" type="button" @click="backFromDetail"><i data-lucide="arrow-left" aria-hidden="true"></i>返回</button>
+        <button class="button button-secondary" type="button" data-testid="generate-draft" @click="openDraft">
+          <i data-lucide="file-pen-line" aria-hidden="true"></i>生成草案
+        </button>
+        <button class="button button-secondary" type="button" @click="backFromDetail">
+          <i data-lucide="arrow-left" aria-hidden="true"></i>返回
+        </button>
       </div>
     </div>
     <section class="selected-stock-panel surface">
@@ -15,30 +26,84 @@
         <div class="selected-stock-identity">
           <div class="stock-avatar">{{ selectedStock?.name?.slice(0, 1) || '—' }}</div>
           <div>
-            <div class="stock-name-line"><h3>{{ selectedStock?.name || '选择一只股票' }}</h3><span class="ticker-code">{{ selectedStock ? (selectedStock.code + ' · ' + selectedStock.exchange + ' · ' + selectedStock.board) : '从列表中选择' }}</span></div>
-            <span class="stock-sector">{{ selectedStock ? ('PE ' + formatNullable(selectedStock.pe, 1) + ' · PB ' + formatNullable(selectedStock.pb, 2)) : '暂无报价' }}</span>
+            <div class="stock-name-line">
+              <h3>{{ selectedStock?.name || '选择一只股票' }}</h3>
+              <span class="ticker-code">{{
+                selectedStock
+                  ? selectedStock.code + ' · ' + selectedStock.exchange + ' · ' + selectedStock.board
+                  : '从列表中选择'
+              }}</span>
+            </div>
+            <span class="stock-sector">{{
+              selectedStock
+                ? 'PE ' + formatNullable(selectedStock.pe, 1) + ' · PB ' + formatNullable(selectedStock.pb, 2)
+                : '暂无报价'
+            }}</span>
           </div>
         </div>
-        <div class="selected-stock-quote"><strong>{{ formatNullable(selectedStock?.price) }}</strong><span :class="trendClass(selectedStock?.change)">{{ formatPctNullable(selectedStock?.change) }}</span></div>
+        <div class="selected-stock-quote">
+          <strong>{{ formatNullable(selectedStock?.price) }}</strong
+          ><span :class="trendClass(selectedStock?.change)">{{ formatPctNullable(selectedStock?.change) }}</span>
+        </div>
         <div class="selected-stock-metrics">
-          <div><span>开盘</span><strong>{{ formatNullable(selectedStock?.open) }}</strong></div>
-          <div><span>最高 / 最低</span><strong>{{ formatNullable(selectedStock?.high) }} / {{ formatNullable(selectedStock?.low) }}</strong></div>
-          <div><span>成交额</span><strong>{{ formatAmount(selectedStock?.amount) }}</strong></div>
+          <div>
+            <span>开盘</span><strong>{{ formatNullable(selectedStock?.open) }}</strong>
+          </div>
+          <div>
+            <span>最高 / 最低</span
+            ><strong>{{ formatNullable(selectedStock?.high) }} / {{ formatNullable(selectedStock?.low) }}</strong>
+          </div>
+          <div>
+            <span>成交额</span><strong>{{ formatAmount(selectedStock?.amount) }}</strong>
+          </div>
         </div>
         <div class="selected-stock-actions">
-          <button class="button button-secondary" type="button" @click="toggleWatch(selectedCode)"><i :data-lucide="isWatched(selectedCode) ? 'star-off' : 'star'" aria-hidden="true"></i>{{ isWatched(selectedCode) ? '移出自选' : '加入自选' }}</button>
-          <button class="button button-secondary" type="button" @click="openGridStrategy(selectedCode)"><i data-lucide="grid-3x3" aria-hidden="true"></i>网格策略</button>
-          <button class="button button-primary" type="button" @click="createPlan(selectedCode)"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i>制定计划</button>
+          <button class="button button-secondary" type="button" @click="toggleWatch(selectedCode)">
+            <i :data-lucide="isWatched(selectedCode) ? 'star-off' : 'star'" aria-hidden="true"></i
+            >{{ isWatched(selectedCode) ? '移出自选' : '加入自选' }}
+          </button>
+          <button class="button button-secondary" type="button" @click="openGridStrategy(selectedCode)">
+            <i data-lucide="grid-3x3" aria-hidden="true"></i>网格策略
+          </button>
+          <button class="button button-primary" type="button" @click="createPlan(selectedCode)">
+            <i data-lucide="clipboard-pen-line" aria-hidden="true"></i>制定计划
+          </button>
         </div>
       </div>
-      <div class="stock-detail-chart" v-html="chartSvg(selectedHistory.map((item: any) => item.close), '#3b6fb6', (selectedStock?.name || '股票') + '近期走势')"></div>
-      <div class="chart-source-row"><span :class="['source-badge', { 'source-badge-local': chartDataSource === 'local' }]">{{ chartDataSource === 'local' ? '本地缓存' : '实时·腾讯' }}</span></div>
+      <div
+        class="stock-detail-chart"
+        v-html="
+          chartSvg(
+            selectedHistory.map((item: any) => item.close),
+            '#3b6fb6',
+            (selectedStock?.name || '股票') + '近期走势'
+          )
+        "
+      ></div>
+      <div class="chart-source-row">
+        <span :class="['source-badge', { 'source-badge-local': chartDataSource === 'local' }]">{{
+          chartDataSource === 'local' ? '本地缓存' : '实时·腾讯'
+        }}</span>
+      </div>
+      <div class="minute-toolbar" aria-label="分钟线周期">
+        <button v-for="period in minutePeriods" :key="period" type="button" @click="loadMinute(period)">
+          {{ period }}
+        </button>
+      </div>
+      <div v-if="minuteSvg" class="stock-detail-chart minute-chart" data-testid="minute-chart" v-html="minuteSvg"></div>
+      <div v-if="minuteCacheText" class="chart-source-row">
+        <span class="source-badge source-badge-local minute-status-badge">{{ minuteCacheText }}</span>
+      </div>
+      <div v-if="minuteStripText" class="minute-status" role="status">
+        <span>{{ minuteStripText }}</span>
+        <button class="text-button" type="button" data-testid="minute-retry" @click="retryMinute">重试</button>
+      </div>
     </section>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { chartSvg } from '@/modules/chart';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
@@ -46,17 +111,94 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useGridStore } from '@/stores/useGridStore';
 import { usePlansStore } from '@/stores/usePlansStore';
+import { useAssistStore } from '@/stores/useAssistStore';
+import { fetchMinute } from '@/api/client';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const grid = useGridStore();
 const plans = usePlansStore();
+const assist = useAssistStore();
 
 const { selectedStock, selectedCode, selectedHistory, chartDataSource } = storeToRefs(quotes);
 const { backFromDetail, toggleWatch, isWatched } = quotes;
 const { openGridStrategy } = grid;
 const { createPlan } = plans;
 const { renderIcons } = workspace;
+const minutePeriods = ['1m', '5m', '15m', '30m', '60m'];
+const minutePeriod = ref('5m');
+const minuteState = ref('');
+const minuteSource = ref<string | null>(null);
+const minuteDegraded = ref(false);
+const minuteUpdatedAtMs = ref<number | null>(null);
+const minuteBars = ref<any[]>([]);
+const minuteChartPeriod = ref('');
+
+// spec §6 逐字文案：state→黄标/灰条映射，429 走 toast 不进状态条
+const MINUTE_STRIP_TEXT: Record<string, string> = {
+  etl_busy: '日线同步中，分钟线稍后可用',
+  circuit_open: '分钟线暂不可用',
+  unavailable: '分钟线暂不可用',
+};
+const minuteStripText = computed(() => MINUTE_STRIP_TEXT[minuteState.value] || '');
+const minuteCacheText = computed(() => {
+  if (minuteState.value !== 'ok') return '';
+  const fromCache = Boolean(minuteSource.value?.startsWith('cache')) || minuteDegraded.value;
+  if (!fromCache) return '';
+  if (!minuteUpdatedAtMs.value) return '分钟线（缓存）';
+  const minutes = Math.max(1, Math.floor((Date.now() - minuteUpdatedAtMs.value) / 60000));
+  return `分钟线（缓存，${minutes} 分钟前）`;
+});
+const minuteSvg = computed(() =>
+  minuteState.value === 'ok' && minuteBars.value.length
+    ? chartSvg(
+        minuteBars.value.map((bar: any) => bar.close),
+        '#3b6fb6',
+        `分钟线 ${minuteChartPeriod.value}`
+      )
+    : ''
+);
+
+async function loadMinute(period: string) {
+  minutePeriod.value = period;
+  if (!selectedCode.value) return;
+  try {
+    const res = await fetchMinute(selectedCode.value, period);
+    minuteState.value = res.state;
+    minuteSource.value = res.source;
+    minuteDegraded.value = res.degraded;
+    minuteUpdatedAtMs.value = res.updatedAtMs ?? null;
+    minuteBars.value = res.bars || [];
+    minuteChartPeriod.value = period;
+  } catch (error: any) {
+    if (error?.status === 429) {
+      workspace.showToast('请求过于频繁', 'error');
+      return;
+    }
+    minuteState.value = 'unavailable';
+    minuteSource.value = null;
+    minuteDegraded.value = true;
+    minuteUpdatedAtMs.value = null;
+    minuteBars.value = [];
+  }
+}
+
+/** 灰条态重试 = 一次手动请求（无轮询纪律）。 */
+function retryMinute() {
+  void loadMinute(minutePeriod.value);
+}
+
+/** 个股详情 → 草案：携带当前报价快照（无报价传 null 交由后端取实时价，绝不造数）。 */
+async function openDraft() {
+  const stock = selectedStock.value as any;
+  await assist.openFor({
+    code: selectedCode.value,
+    name: stock?.name,
+    price: stock?.price ?? null,
+    asOfMs: stock?.updatedAt ?? null,
+    source: 'monitor',
+  });
+}
 
 onMounted(() => renderIcons());
 </script>

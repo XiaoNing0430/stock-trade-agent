@@ -21,8 +21,12 @@
     <div class="desk-kpis">
       <section class="desk-kpi surface">
         <span class="desk-kpi-label">市场状态</span>
-        <strong :class="trendClass(selectedIndex?.change)">{{ selectedIndex ? formatPct(selectedIndex.change) : '--' }}</strong>
-        <span class="desk-kpi-note">上证指数 {{ selectedIndex ? formatNumber(selectedIndex.price) : '--' }} · {{ marketStatus }}</span>
+        <strong :class="trendClass(selectedIndex?.change)">{{
+          selectedIndex ? formatPct(selectedIndex.change) : '--'
+        }}</strong>
+        <span class="desk-kpi-note"
+          >上证指数 {{ selectedIndex ? formatNumber(selectedIndex.price) : '--' }} · {{ marketStatus }}</span
+        >
       </section>
       <section class="desk-kpi surface">
         <span class="desk-kpi-label">候选数量</span>
@@ -32,7 +36,10 @@
       <section class="desk-kpi surface">
         <span class="desk-kpi-label">运行中策略</span>
         <strong>{{ strategyStats.running }}</strong>
-        <span class="desk-kpi-note">待重新回测 {{ strategyStats.pending }} 个 · 样本外超额 {{ strategyStats.latestExcess != null ? formatPct(strategyStats.latestExcess) : '--' }}</span>
+        <span class="desk-kpi-note"
+          >待重新回测 {{ strategyStats.pending }} 个 · 样本外超额
+          {{ strategyStats.latestExcess != null ? formatPct(strategyStats.latestExcess) : '--' }}</span
+        >
       </section>
       <section class="desk-kpi surface">
         <span class="desk-kpi-label">待处理提醒</span>
@@ -51,17 +58,38 @@
           <span class="strategy-label">{{ presetName }}</span>
         </div>
         <div class="preset-hits">
-          <button v-for="preset in presetHits" :key="preset.name" class="preset-hit" type="button" @click="applyPreset(preset); switchView('screener')">
-            <span :class="['preset-icon', preset.iconClass]"><i :data-lucide="preset.icon" aria-hidden="true"></i></span>
+          <button
+            v-for="preset in presetHits"
+            :key="preset.name"
+            class="preset-hit"
+            type="button"
+            @click="
+              applyPreset(preset);
+              switchView('screener');
+            "
+          >
+            <span :class="['preset-icon', preset.iconClass]"
+              ><i :data-lucide="preset.icon" aria-hidden="true"></i
+            ></span>
             <span class="preset-hit-name">{{ preset.name }}</span>
             <strong class="preset-hit-count">{{ preset.count }}</strong>
           </button>
         </div>
         <div class="mini-stock-list">
-          <div v-for="stock in filteredRows.slice(0, 4)" :key="stock.code" class="mini-stock-item" @click="selectStock(stock.code)">
+          <div
+            v-for="stock in filteredRows.slice(0, 4)"
+            :key="stock.code"
+            class="mini-stock-item"
+            @click="selectStock(stock.code)"
+          >
             <span class="stock-dot stock-dot-blue">{{ stock.name.slice(0, 1) }}</span>
-            <div class="mini-stock-copy"><strong>{{ stock.name }}</strong><span>{{ stock.code }} · 量比 {{ formatNullable(stock.volumeRatio, 2) }}</span></div>
-            <span class="mini-stock-change" :class="trendClass(stock.change)">{{ formatPctNullable(stock.change) }}</span>
+            <div class="mini-stock-copy">
+              <strong>{{ stock.name }}</strong
+              ><span>{{ stock.code }} · 量比 {{ formatNullable(stock.volumeRatio, 2) }}</span>
+            </div>
+            <span class="mini-stock-change" :class="trendClass(stock.change)">{{
+              formatPctNullable(stock.change)
+            }}</span>
           </div>
           <div v-if="!filteredRows.length" class="empty-state compact-empty"><span>当前条件下暂无结果。</span></div>
         </div>
@@ -79,9 +107,18 @@
           </div>
         </div>
         <div class="desk-stat-rows">
-          <div class="desk-stat-row"><span>运行中策略</span><strong>{{ strategyStats.running }}</strong></div>
-          <div class="desk-stat-row"><span>待重新回测</span><strong>{{ strategyStats.pending }}</strong></div>
-          <div class="desk-stat-row"><span>最近样本外超额</span><strong :class="trendClass(strategyStats.latestExcess)">{{ strategyStats.latestExcess != null ? formatPct(strategyStats.latestExcess) : '--' }}</strong></div>
+          <div class="desk-stat-row">
+            <span>运行中策略</span><strong>{{ strategyStats.running }}</strong>
+          </div>
+          <div class="desk-stat-row">
+            <span>待重新回测</span><strong>{{ strategyStats.pending }}</strong>
+          </div>
+          <div class="desk-stat-row">
+            <span>最近样本外超额</span
+            ><strong :class="trendClass(strategyStats.latestExcess)">{{
+              strategyStats.latestExcess != null ? formatPct(strategyStats.latestExcess) : '--'
+            }}</strong>
+          </div>
         </div>
         <div v-if="!gridStrategies.length" class="empty-state compact-empty"><span>还没有保存的网格策略。</span></div>
         <button class="button button-secondary button-full" type="button" @click="openGridStrategy()">
@@ -98,16 +135,38 @@
           </div>
         </div>
         <div class="desk-stat-rows">
-          <div class="desk-stat-row"><span>活跃计划</span><strong>{{ riskStats.active }}</strong></div>
-          <div class="desk-stat-row desk-stat-row-risk"><span>触及止损</span><strong>{{ riskStats.stopHit }}</strong></div>
-          <div class="desk-stat-row"><span>未读提醒</span><strong>{{ unreadAlerts }}</strong></div>
+          <div class="desk-stat-row">
+            <span>活跃计划</span><strong>{{ riskStats.active }}</strong>
+          </div>
+          <div class="desk-stat-row desk-stat-row-risk">
+            <span>触及止损</span><strong>{{ riskStats.stopHit }}</strong>
+          </div>
+          <div class="desk-stat-row">
+            <span>未读提醒</span><strong>{{ unreadAlerts }}</strong>
+          </div>
         </div>
         <div class="activity-list">
           <div v-for="alert in alerts.slice(0, 2)" :key="alert.id" class="activity-item">
-            <div :class="['activity-icon', alert.kind === 'alert' ? 'alert' : alert.kind === 'success' ? 'success' : '']">
-              <i :data-lucide="alert.kind === 'success' ? 'check-circle-2' : alert.kind === 'alert' ? 'triangle-alert' : alert.kind === 'system' ? 'wrench' : 'bell-ring'" aria-hidden="true"></i>
+            <div
+              :class="['activity-icon', alert.kind === 'alert' ? 'alert' : alert.kind === 'success' ? 'success' : '']"
+            >
+              <i
+                :data-lucide="
+                  alert.kind === 'success'
+                    ? 'check-circle-2'
+                    : alert.kind === 'alert'
+                      ? 'triangle-alert'
+                      : alert.kind === 'system'
+                        ? 'wrench'
+                        : 'bell-ring'
+                "
+                aria-hidden="true"
+              ></i>
             </div>
-            <div class="activity-copy"><strong>{{ alert.title }}</strong><span>{{ alert.message }}</span></div>
+            <div class="activity-copy">
+              <strong>{{ alert.title }}</strong
+              ><span>{{ alert.message }}</span>
+            </div>
           </div>
           <div v-if="!alerts.length" class="empty-state compact-empty"><span>还没有提醒动态。</span></div>
         </div>
@@ -124,7 +183,13 @@
           <span class="section-kicker">MARKET PULSE</span>
           <h3>盘面温度</h3>
         </div>
-        <button class="icon-button" type="button" aria-label="打开盯盘中心" data-tooltip="盯盘中心" @click="switchView('monitor')">
+        <button
+          class="icon-button"
+          type="button"
+          aria-label="打开盯盘中心"
+          data-tooltip="盯盘中心"
+          @click="switchView('monitor')"
+        >
           <i data-lucide="arrow-up-right" aria-hidden="true"></i>
         </button>
       </div>
@@ -159,9 +224,20 @@
             <span class="chart-label">上证指数 · 近 40 个交易日</span>
             <strong>{{ selectedIndex ? formatNumber(selectedIndex.price) : '--' }}</strong>
           </div>
-          <span :class="trendClass(selectedIndex?.change)">{{ selectedIndex ? formatPct(selectedIndex.change) : '--' }}</span>
+          <span :class="trendClass(selectedIndex?.change)">{{
+            selectedIndex ? formatPct(selectedIndex.change) : '--'
+          }}</span>
         </div>
-        <div class="market-chart" v-html="chartSvg(indexHistory.map((item: any) => item.close), '#ef6d53', '上证指数近 40 个交易日走势')"></div>
+        <div
+          class="market-chart"
+          v-html="
+            chartSvg(
+              indexHistory.map((item: any) => item.close),
+              '#ef6d53',
+              '上证指数近 40 个交易日走势'
+            )
+          "
+        ></div>
       </div>
 
       <div class="market-breadth">
@@ -170,9 +246,9 @@
           <strong>{{ breadth.up }} / {{ breadth.down }}</strong>
         </div>
         <div class="breadth-bar" aria-label="已加载候选池上涨家数与下跌家数">
-          <span class="breadth-up" :style="{ width: (breadth.upRatio + '%') }"></span>
-          <span class="breadth-flat" :style="{ width: (breadth.flatRatio + '%') }"></span>
-          <span class="breadth-down" :style="{ width: (breadth.downRatio + '%') }"></span>
+          <span class="breadth-up" :style="{ width: breadth.upRatio + '%' }"></span>
+          <span class="breadth-flat" :style="{ width: breadth.flatRatio + '%' }"></span>
+          <span class="breadth-down" :style="{ width: breadth.downRatio + '%' }"></span>
         </div>
         <div class="breadth-legend">
           <span><i class="legend-dot up"></i>上涨 {{ breadth.up }}</span>
@@ -201,10 +277,8 @@ const screener = useScreenerStore();
 const strategy = useStrategyStore();
 const grid = useGridStore();
 
-const {
-  fetchedLabel, todayLabel, errorMessage, selectedIndex, indices, marketStatus, loading,
-  indexHistory,
-} = storeToRefs(quotes);
+const { fetchedLabel, todayLabel, errorMessage, selectedIndex, indices, marketStatus, loading, indexHistory } =
+  storeToRefs(quotes);
 const { breadth, screenRows, filteredRows, presetName, presetHits } = storeToRefs(screener);
 const { strategyStats, riskStats } = storeToRefs(strategy);
 const { gridStrategies } = storeToRefs(grid);

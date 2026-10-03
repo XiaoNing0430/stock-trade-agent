@@ -3,9 +3,17 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
+import { useAssistStore } from '@/stores/useAssistStore';
+import { useStrategyStore } from '@/stores/useStrategyStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { requestJson } from '@/api/client';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>();
+  return { ...actual, requestJson: vi.fn() };
+});
 
 const makeRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
   code: '600519',
@@ -104,7 +112,9 @@ describe('ViewScreener', () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce({
-        strategies: [{ id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 }],
+        strategies: [
+          { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+        ],
       })
       .mockResolvedValueOnce({
         strategy: 'oversold_bounce',
@@ -135,8 +145,14 @@ describe('ViewScreener', () => {
     const wrapper = mount(ViewScreener);
     const tabs = wrapper.findAll('.screener-tab');
     await tabs.find((t) => t.text() === '策略')!.trigger('click');
-    await wrapper.findAll('.screener-tab').find((t) => t.text() === '深度')!.trigger('click');
-    await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
+    await wrapper
+      .findAll('.screener-tab')
+      .find((t) => t.text() === '深度')!
+      .trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('运行策略'))!
+      .trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenLastCalledWith('/api/screener/strategy', {
@@ -153,7 +169,11 @@ describe('ViewScreener', () => {
     const ws = useWorkspaceStore();
     const fetchSpy = vi
       .fn()
-      .mockResolvedValueOnce({ strategies: [{ id: 'oversold_bounce', name: '超跌反弹', description: 'x', topN: 10, deepCap: 200, factorCount: 1 }] })
+      .mockResolvedValueOnce({
+        strategies: [
+          { id: 'oversold_bounce', name: '超跌反弹', description: 'x', topN: 10, deepCap: 200, factorCount: 1 },
+        ],
+      })
       .mockResolvedValueOnce({
         strategy: 'oversold_bounce',
         name: '超跌反弹',
@@ -171,8 +191,148 @@ describe('ViewScreener', () => {
     const wrapper = mount(ViewScreener);
     const tabs = wrapper.findAll('.screener-tab');
     await tabs.find((t) => t.text() === '策略')!.trigger('click');
-    await wrapper.findAll('button').find((b) => b.text().includes('运行策略'))!.trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('运行策略'))!
+      .trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.text()).toContain('数据可能滞后');
+  });
+
+  it('策略命中行：草案按钮 → openFor 携带代码/名称/快照价（无 updatedAt 传 null）', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategyRows = [
+      { code: '600519', name: '贵州茅台', price: 1700, changePct: 2.5, pe: 30, pb: 8, roe: 30, score: 3, factors: {} },
+    ];
+    const assist = useAssistStore();
+    const spy = vi.spyOn(assist, 'openFor').mockResolvedValue(undefined);
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('button[data-testid="draft-600519"]').trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ code: '600519', name: '贵州茅台', price: 1700, asOfMs: null })
+    );
+  });
+
+  it('策略命中行：行价缺失时 openFor 携带 null（绝不造数）', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategyRows = [
+      { code: '000001', name: '平安银行', price: null, changePct: 1.2, pe: 6, pb: 0.6, roe: 11, score: 2, factors: {} },
+    ];
+    const assist = useAssistStore();
+    const spy = vi.spyOn(assist, 'openFor').mockResolvedValue(undefined);
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('button[data-testid="draft-000001"]').trigger('click');
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ code: '000001', name: '平安银行', price: null }));
+  });
+
+  it('策略命中行：回测按钮 → 预填代码并切到策略实验室', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategyRows = [
+      { code: '600519', name: '贵州茅台', price: 1700, changePct: 2.5, pe: 30, pb: 8, roe: 30, score: 3, factors: {} },
+    ];
+    const strategy = useStrategyStore();
+    const quotes = useQuotesStore();
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('button[data-testid="backtest-600519"]').trigger('click');
+    expect(strategy.strategyDraft.code).toBe('600519');
+    expect(quotes.view).toBe('grid');
+  });
+
+  it('定时扫描开关保存失败时回滚并提示', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    vi.spyOn(ws, 'requestJson').mockResolvedValue({
+      strategies: [
+        { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+      ],
+    });
+    const toastSpy = vi.spyOn(ws, 'showToast');
+    vi.mocked(requestJson)
+      .mockResolvedValueOnce({
+        configs: [
+          {
+            strategyId: 'oversold_bounce',
+            strategyName: '超跌反弹',
+            enabled: false,
+            mode: 'quick',
+            lastRunAt: null,
+            lastStatus: null,
+            hitCount: 0,
+            newCount: 0,
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('save failed'));
+
+    const wrapper = mount(ViewScreener);
+    const tabs = wrapper.findAll('.screener-tab');
+    await tabs.find((t) => t.text() === '策略')!.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await wrapper.find('[data-testid="scan-toggle"]').setValue(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((wrapper.find('[data-testid="scan-toggle"]').element as HTMLInputElement).checked).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith('扫描配置保存失败，稍后重试', 'error');
+  });
+
+  it('立即扫描调用扫描端点并显示命中', async () => {
+    const { useWorkspaceStore } = await import('@/stores/useWorkspaceStore');
+    const ws = useWorkspaceStore();
+    const fetchSpy = vi.fn().mockResolvedValue({
+      strategies: [
+        { id: 'oversold_bounce', name: '超跌反弹', description: 'RSI 超卖', topN: 10, deepCap: 200, factorCount: 3 },
+      ],
+    });
+    vi.spyOn(ws, 'requestJson').mockImplementation(fetchSpy);
+    vi.mocked(requestJson)
+      .mockResolvedValueOnce({
+        configs: [
+          {
+            strategyId: 'oversold_bounce',
+            strategyName: '超跌反弹',
+            enabled: false,
+            mode: 'quick',
+            lastRunAt: null,
+            lastStatus: null,
+            hitCount: 0,
+            newCount: 0,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        config: { strategyId: 'oversold_bounce', strategyName: '超跌反弹', enabled: true, mode: 'quick' },
+        alerted: 2,
+      })
+      .mockResolvedValueOnce({ hits: [] })
+      .mockResolvedValueOnce({
+        configs: [
+          {
+            strategyId: 'oversold_bounce',
+            strategyName: '超跌反弹',
+            enabled: true,
+            mode: 'quick',
+            lastRunAt: '2026-09-07T07:40:00+00:00',
+            lastStatus: 'ok',
+            hitCount: 3,
+            newCount: 2,
+          },
+        ],
+      });
+
+    const wrapper = mount(ViewScreener);
+    const tabs = wrapper.findAll('.screener-tab');
+    await tabs.find((t) => t.text() === '策略')!.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await wrapper.find('[data-testid="scan-now"]').trigger('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
+    expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
   });
 });

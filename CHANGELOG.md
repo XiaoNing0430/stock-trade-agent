@@ -2,6 +2,42 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.6.0] - 2026-10-03
+
+### 交易辅助决策闭环（P0/P1 主线）
+
+- **交易计划草案生成**：`POST /api/assist/plan-draft`（30 次/分钟滑窗限频 + 降级/stale 透传 + 涨停提示 + 观测日志）+ `PlanDraftDialog` 草案对话框（调参重算零 API、零股禁存、降级黄标、Kelly 半仓参考）+ 选股/详情/设置页入口。
+- **仓位计算器**：建议股数 = 单笔风险%（默认 1%）× 账户权益 ÷ 止损距离，整手取整；账户权益与风险偏好为设置项，可选半凯利。
+- **选股 → 回测联动**：命中行一键对该票跑回测引擎（参数预填）。
+- **策略定时扫描 + 指令推送（P1）**：策略实验室每策略开关（quick/deep）+ 工作日 15:40 / 周末 10:00 自动扫描 → 提醒中心合成提醒（跌出再报去重）→ 点击重算草案 → 人工确认落计划。
+- **计划绩效复盘（P1）**：bfq 原始价日线回放（反前视起点）→ 胜率/盈亏比/期望值 + 来源归因分组（scan/screener/monitor/manual）→ ViewPlans 绩效面板。
+- **组合风险视图（P1，第 8 视图）**：自选 + 计划合计敞口、行业集中度、毛/净 NAV 双线、交易对与事件折叠区（`backend/portfolio_risk.py` 纯函数引擎）。
+
+### 策略引擎泛化
+
+- `strategy_base` 统一基类（signal_at 钩子 + 整手/手续费/T+1/权益曲线/基准指标）+ `strategies/` 六策略（双均线、MACD、布林带反转、唐奇安突破、动量、定投）+ 多因子（ADX 状态过滤 + 动态切换 + 僵局保护）+ 注册表 `strategy_engines`。
+- `indicators.py` 技术指标库（BOLL/ATR/Donchian/Momentum/RSI/ADX + `closed_bars` 反前视截断）。
+
+### 数据中台（P2 + P2.5）
+
+- **全市场日线 ETL**（`bars_etl`）：水位时刻粒度/universe 并集/缺口四档/DQ 逐根拒收/空响应失败熔断自愈/三触发调度（交易日 15:20 日补、周六 10:30 审计、启动 60s 探测）；500 根 bfq、1500 码/日预算、3.3rps 节奏。
+- **Redis CacheFacade 接管行情缓存**：前缀策略表白名单（quotes:/history:/minute:）、ts 封装判新鲜、熔断旁路、降级读；重启不再丢 warm-up。
+- **受保护按需分钟线（P2.5）**：独立令牌桶 1rps / 熔断 900s / ETL 互斥 / 双缓存短 TTL 无降级读；详情页周期切换（1m–60m）与降级态呈现（黄标缓存、灰条+重试、429 toast）；`/api/health` 暴露 minuteCache/minuteCircuit。
+- **跨源交叉校验（P2.5）**：Tushare daily 为主 / 东财 clist 为辅，日抽 30 码对账最新收盘；`CROSS_CHECK_ENABLED` 默认关，`health.bars.crossCheck` 观测位。
+- 行业映射 `industry_map` 表 + 双层缓存（进程 TTL + 表）。
+
+### P3 Point-in-time 日快照归档
+
+- 四表（snapshot_runs/closes/industries/audits）+ ETL 后幂等归档：complete 快照不可变、失败记录不降级、PostgreSQL advisory lock 序列化同日变更。
+- 行业回填 API：A→B→A 追加审计、相同重试幂等、exact 不可覆盖（409）、canonical SHA-256 + 有界样本摘要。
+- **`asOfDate` 历史口径**：计划复盘与组合风险按"历史今天"走 PIT 快照路径——行情严格不跨日回退、停牌无前收分账、coverage（market/industry）驼峰如实披露；设计见 `docs/superpowers/specs/2026-09-18-p3-pit-snapshots-design.md`。
+
+### 修复与工程
+
+- `fix`: /api/health 分钟熔断态无参调用 TypeError（P2.5 引入的必现崩溃）及同期 mypy/eslint/prettier 门禁债归一。
+- `test`: test_bars_etl_run 直连真实 PG 的泄库隔离（run_full 归档路径哑化）；pytest 临时根自愈（Windows 提权遗留 DACL 毒目录致 tmp_path 崩溃）。
+- CI/pre-commit 全量钩子（mypy/eslint/prettier/vue-tsc）在每次提交强制执行。
+
 ## [v0.5.0] - 2026-09-04
 
 ### 多数据源架构

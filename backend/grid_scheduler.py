@@ -108,6 +108,9 @@ def start_scheduler() -> None:
         schedule_strategy(strategy)
     for strategy in list_scheduled_strategies():
         schedule_strategy(strategy)
+    from backend.screener.scan import register_scan_jobs  # 本地导入避免模块加载期循环
+
+    register_scan_jobs()
 
 
 def stop_scheduler() -> None:

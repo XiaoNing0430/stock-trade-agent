@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { chartSvg, compareChartSvg } from '@/modules/chart';
+import { chartSvg, compareChartSvg, multiLineSvg } from '@/modules/chart';
 
 test('chartSvg 空数组返回空状态', () => {
   assert.equal(chartSvg([], '#3b6fb6', '测试'), '<div class="chart-empty">暂无足够的日线数据</div>');
@@ -71,4 +71,59 @@ test('compareChartSvg 正常结果生成双曲线对比图', () => {
   assert.match(svg, /chart-legend/);
   assert.match(svg, /网格策略/);
   assert.match(svg, /持有基准/);
+});
+
+// ── multiLineSvg 三钉：null 断线 / 双系列 / escapeHtml ──
+
+test('multiLineSvg null 断线：空洞前后各成独立子路径（两个 M，不连线）', () => {
+  const svg = multiLineSvg([{ label: '毛', points: [10, 12, null, 14, 15], style: 'solid', color: '#ef6d53' }], {
+    legend: false,
+  });
+  const d = svg.match(/class="chart-line multi-line-path"[^>]*d="([^"]+)"/)![1];
+  assert.equal(d.match(/\bM\b/g)!.length, 2, 'null 处断线成两段');
+  assert.equal(d.match(/\bL\b/g)!.length, 2, '段内仅 2 条 L（3+2 点）');
+});
+
+test('multiLineSvg 双系列各自成线且虚线带 dasharray', () => {
+  const svg = multiLineSvg(
+    [
+      { label: '毛净值', points: [1, 2, 3], style: 'solid', color: '#ef6d53' },
+      { label: '净净值', points: [1, 1.5, 2.5], style: 'dash', color: '#9aa7bd' },
+    ],
+    { ariaLabel: '毛净对比' }
+  );
+  assert.equal(svg.match(/multi-line-path/g)!.length, 2);
+  assert.match(svg, /stroke:#ef6d53/);
+  assert.match(svg, /stroke:#9aa7bd" stroke-dasharray="4 3"/);
+  assert.match(svg, /aria-label="毛净对比"/);
+  assert.match(svg, /chart-legend/);
+  assert.match(svg, /毛净值/);
+  assert.match(svg, /净净值/);
+});
+
+test('multiLineSvg 转义 label 与 ariaLabel 注入', () => {
+  const svg = multiLineSvg([{ label: '<script>alert(1)</script>', points: [1, 2], style: 'solid', color: '#000' }], {
+    ariaLabel: '<img src=x onerror=1>',
+  });
+  assert.ok(!svg.includes('<script>'), '标签内容必须被转义');
+  assert.ok(!svg.includes('<img'), 'ariaLabel 必须被转义');
+  assert.match(svg, /&lt;script&gt;/);
+  assert.match(svg, /&lt;img src=x onerror=1&gt;/);
+});
+
+test('multiLineSvg 全 null 或无有效系列返回空状态', () => {
+  assert.equal(
+    multiLineSvg([{ label: '空', points: [null, null], style: 'solid', color: '#000' }], {}),
+    '<div class="chart-empty">暂无足够的组合净值数据</div>'
+  );
+  assert.equal(multiLineSvg([], {}), '<div class="chart-empty">暂无足够的组合净值数据</div>');
+});
+
+test('multiLineSvg 非数 height 防御：合法字符串数归一、非法值回默认（收尾硬化 L5）', () => {
+  const s = [{ label: 'a', points: [1, 2], style: 'solid' as const, color: '#000' }];
+  assert.match(multiLineSvg(s, { height: '180' as unknown as number }), /viewBox="0 0 640 180"/);
+  // 注入串/负数/NaN 一律回默认 150，viewBox 永不含外来字符
+  for (const bad of ['200px" onload="x', -5, 'abc'] as unknown as number[]) {
+    assert.match(multiLineSvg(s, { height: bad }), /viewBox="0 0 640 150"/);
+  }
 });

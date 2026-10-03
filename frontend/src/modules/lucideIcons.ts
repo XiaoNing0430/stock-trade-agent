@@ -1,6 +1,6 @@
 /**
  * lucide 图标按需注册表。
- * 只打包本项目模板中实际使用的 45 个图标，避免全量 icons 导入导致 chunk >500KB。
+ * 只打包本项目模板中实际使用的图标（组合风险视图补 Gauge/ChevronDown/ChartLine），避免全量 icons 导入导致 chunk >500KB。
  *
  * 使用方式：
  * ```ts
@@ -23,16 +23,19 @@ import {
   BellRing,
   CalendarClock,
   ChartNoAxesCombined,
+  ChartLine,
   Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ClipboardPenLine,
   ClipboardPlus,
   CloudUpload,
   Database,
   Download,
   Gem,
+  Gauge,
   Grid3x3,
   Info,
   LayoutDashboard,
@@ -73,16 +76,19 @@ export const UI_ICONS = {
   BellRing,
   CalendarClock,
   ChartNoAxesCombined,
+  ChartLine,
   Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ClipboardPenLine,
   ClipboardPlus,
   CloudUpload,
   Database,
   Download,
   Gem,
+  Gauge,
   Grid3x3,
   Info,
   LayoutDashboard,

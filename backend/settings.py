@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     redis_password: str = Field(default="", alias="REDIS_PASSWORD")
     redis_db: int = Field(default=15, alias="REDIS_DB")
     tushare_token: str = Field(default="", alias="TUSHARE_TOKEN")
+    cross_check_enabled: bool = Field(default=False, alias="CROSS_CHECK_ENABLED")
 
     @property
     def database_url(self) -> URL:

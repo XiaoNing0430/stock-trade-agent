@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import hashlib
+import json
+import threading
+from datetime import UTC, date, datetime
 from typing import Any
 
 from redis import Redis
-from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, select, text
+from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, delete, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from backend.settings import get_settings
@@ -40,6 +44,15 @@ class TradePlan(Base):
     note: Mapped[str] = mapped_column(String(2000), default="")
     status: Mapped[str] = mapped_column(String(32), default="执行中", index=True)
     triggered: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 交易对关联：仅 sell 使用，指向同 workspace 内 buy 计划 id；与 trade_plans.id 主键同宽 String(96)
+    related_plan: Mapped[str | None] = mapped_column(
+        String(96), nullable=True, comment="交易对关联：sell→buy 计划 id（仅 sell 使用）"
+    )
+    # 离场模式枚举 race|sell_priority|sell_stop_only|sell_only；NULL≡race（先到先平）
+    exit_mode: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="交易对离场模式 race|sell_priority|sell_stop_only|sell_only；NULL≡race"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -156,6 +169,40 @@ class MarketBar(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class ScreenerScanConfig(Base):
+    """策略定时扫描配置（策略本体是包内 JSON，用户状态落库）。"""
+
+    __tablename__ = "screener_scan_configs"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    enabled: Mapped[bool] = mapped_column(default=False)
+    mode: Mapped[str] = mapped_column(String(8), default="quick")
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_hits: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    last_new_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
+class ScreenerScanHistory(Base):
+    """扫描运行摘要（FR-12）：仅计数不存明细，全表滚动 500 行。"""
+
+    __tablename__ = "screener_scan_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(96), index=True)
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    status: Mapped[str] = mapped_column(String(16))
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    new_count: Mapped[int] = mapped_column(Integer, default=0)
+    elapsed_ms: Mapped[int] = mapped_column(Integer, default=0)
+    trace_id: Mapped[str] = mapped_column(String(16), default="")
+
+
 class WorkspaceSettings(Base):
     __tablename__ = "workspace_settings"
 
@@ -176,9 +223,108 @@ class WorkspaceState(Base):
     )
 
 
+class IndustryMap(Base):
+    """行业映射持久层（组合风险视图 Task 2）：全市场 code→行业（东财 f100），后台每日刷新。
+
+    name 存原始 f100 字符串；行业缺失（空/缺）的行不落库——消费侧对未命中统一走"未知"桶。
+    """
+
+    __tablename__ = "industry_map"
+
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
+class SnapshotRun(Base):
+    """One point-in-time archive attempt and its completeness status."""
+
+    __tablename__ = "snapshot_runs"
+
+    as_of_date: Mapped[str] = mapped_column(String(16), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="no-run")
+    source: Mapped[str] = mapped_column(String(64), default="")
+    error: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    universe_count: Mapped[int] = mapped_column(Integer, default=0)
+    bar_count: Mapped[int] = mapped_column(Integer, default=0)
+    industry_count: Mapped[int] = mapped_column(Integer, default=0)
+    suspended_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    coverage_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    degraded_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SnapshotClose(Base):
+    """Raw, unadjusted close outcome for one code on one archive date."""
+
+    __tablename__ = "snapshot_closes"
+    __table_args__ = (UniqueConstraint("as_of_date", "code", name="uq_snapshot_closes_date_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    as_of_date: Mapped[str] = mapped_column(String(16), index=True)
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trade_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="trading")
+    trade_status: Mapped[str] = mapped_column(String(16), default="trading")
+    prev_close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    provider: Mapped[str] = mapped_column(String(64), default="eastmoney")
+    acquisition: Mapped[str] = mapped_column(String(32), default="realtime")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class SnapshotIndustry(Base):
+    """Industry membership with explicit PIT quality and acquisition provenance."""
+
+    __tablename__ = "snapshot_industries"
+    __table_args__ = (UniqueConstraint("as_of_date", "code", name="uq_snapshot_industries_date_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    as_of_date: Mapped[str] = mapped_column(String(16), index=True)
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider: Mapped[str] = mapped_column(String(64), default="")
+    acquisition: Mapped[str] = mapped_column(String(32), default="daily")
+    pit_quality: Mapped[str] = mapped_column(String(16), default="exact")
+    observed_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class SnapshotAudit(Base):
+    """Append-only audit record for explicit industry backfills."""
+
+    __tablename__ = "snapshot_audits"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    as_of_date: Mapped[str] = mapped_column(String(16), index=True)
+    mode: Mapped[str] = mapped_column(String(16), default="backfill")
+    canonical_hash: Mapped[str] = mapped_column(String(64), index=True)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    operator: Mapped[str] = mapped_column(String(64), default="local")
+    action: Mapped[str] = mapped_column(String(32), default="backfill")
+    reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    before_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    after_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 settings = get_settings()
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+_snapshot_backfill_lock = threading.Lock()
+
+
+def _lock_snapshot_date(session: Any, key: str) -> None:
+    """Serialize snapshot mutations across PostgreSQL workers for one date."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"), {"lock_key": f"snapshot:{key}"})
 
 
 def initialize_storage() -> None:
@@ -204,6 +350,446 @@ def initialize_storage() -> None:
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS last_backtest_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE grid_strategies ADD COLUMN IF NOT EXISTS latest_metrics JSONB"))
+
+
+def _snapshot_date(value: str | date) -> str:
+    """Normalize the public date key while rejecting ambiguous timestamps."""
+    if isinstance(value, date):
+        return value.isoformat()
+    parsed = date.fromisoformat(str(value))
+    return parsed.isoformat()
+
+
+def canonical_snapshot_hash(rows: list[dict[str, Any]]) -> str:
+    """Hash the canonical set of PIT industry tuples, independent of input order."""
+    canonical = sorted(
+        {
+            (
+                str(row.get("code") or ""),
+                str(row.get("name") or ""),
+                str(row.get("provider") or ""),
+                str(row.get("acquisition") or ""),
+            )
+            for row in rows
+            if row.get("code")
+        }
+    )
+    payload = json.dumps(canonical, ensure_ascii=False, separators=(",", ":"), sort_keys=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def save_snapshot_run(
+    as_of_date: str | date,
+    *,
+    status: str,
+    source: str = "",
+    error: str | None = None,
+    completed: bool = False,
+    universe_count: int = 0,
+    bar_count: int = 0,
+    industry_count: int = 0,
+    suspended_count: int = 0,
+    error_count: int = 0,
+    coverage_pct: float | None = None,
+    degraded_reason: str | None = None,
+) -> dict[str, Any]:
+    """Create/update an archive run; retrying a failed date is idempotent."""
+    key = _snapshot_date(as_of_date)
+    with SessionLocal.begin() as session:
+        row = session.get(SnapshotRun, key)
+        if row is None:
+            row = SnapshotRun(as_of_date=key)
+            session.add(row)
+        row.status = str(status)
+        row.source = str(source)
+        row.error = error
+        row.universe_count = universe_count
+        row.bar_count = bar_count
+        row.industry_count = industry_count
+        row.suspended_count = suspended_count
+        row.error_count = error_count
+        row.coverage_pct = coverage_pct
+        row.degraded_reason = degraded_reason
+        if completed:
+            row.completed_at = datetime.now(UTC)
+    return get_snapshot_run(key) or {"asOfDate": key, "status": status}
+
+
+def get_snapshot_run(as_of_date: str | date) -> dict[str, Any] | None:
+    key = _snapshot_date(as_of_date)
+    with SessionLocal() as session:
+        row = session.get(SnapshotRun, key)
+        if row is None:
+            return None
+        return {
+            "asOfDate": row.as_of_date,
+            "status": row.status,
+            "source": row.source,
+            "error": row.error,
+            "universeCount": row.universe_count,
+            "barCount": row.bar_count,
+            "industryCount": row.industry_count,
+            "suspendedCount": row.suspended_count,
+            "errorCount": row.error_count,
+            "coveragePct": row.coverage_pct,
+            "startedAt": row.started_at.isoformat() if row.started_at else None,
+            "completedAt": row.completed_at.isoformat() if row.completed_at else None,
+        }
+
+
+def upsert_snapshot_closes(as_of_date: str | date, rows: list[dict[str, Any]]) -> int:
+    key = _snapshot_date(as_of_date)
+    count = 0
+    with SessionLocal.begin() as session:
+        for item in rows:
+            code = str(item.get("code") or "")
+            if not code:
+                continue
+            row = session.scalars(
+                select(SnapshotClose).where(SnapshotClose.as_of_date == key, SnapshotClose.code == code)
+            ).first()
+            if row is None:
+                row = SnapshotClose(as_of_date=key, code=code)
+                session.add(row)
+            row.close = float(item["close"]) if item.get("close") is not None else None
+            row.open = float(item["open"]) if item.get("open") is not None else None
+            row.high = float(item["high"]) if item.get("high") is not None else None
+            row.low = float(item["low"]) if item.get("low") is not None else None
+            row.volume = float(item["volume"]) if item.get("volume") is not None else None
+            row.trade_date = str(item.get("tradeDate") or item.get("date") or "") or None
+            row.amount = float(item["amount"]) if item.get("amount") is not None else None
+            row.trade_status = str(
+                item.get("tradeStatus") or ("suspended" if row.volume is not None and row.volume <= 0 else "trading")
+            )
+            row.status = row.trade_status
+            row.prev_close = float(item["prevClose"]) if item.get("prevClose") is not None else None
+            row.provider = str(item.get("provider") or "eastmoney")
+            row.acquisition = str(item.get("acquisition") or "realtime")
+            row.observed_at = datetime.now(UTC)
+            count += 1
+    return count
+
+
+def load_snapshot_closes(as_of_date: str | date, codes: list[str] | None = None) -> list[dict[str, Any]]:
+    key = _snapshot_date(as_of_date)
+    with SessionLocal() as session:
+        stmt = select(SnapshotClose).where(SnapshotClose.as_of_date == key)
+        if codes:
+            stmt = stmt.where(SnapshotClose.code.in_(codes))
+        rows = session.scalars(stmt.order_by(SnapshotClose.code)).all()
+        return [
+            {
+                "asOfDate": r.as_of_date,
+                "code": r.code,
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "volume": r.volume,
+                "tradeDate": r.trade_date,
+                "status": r.status,
+                "tradeStatus": r.trade_status,
+                "prevClose": r.prev_close,
+                "amount": r.amount,
+                "provider": r.provider,
+                "acquisition": r.acquisition,
+            }
+            for r in rows
+        ]
+
+
+def upsert_snapshot_industries(as_of_date: str | date, rows: list[dict[str, Any]]) -> int:
+    key = _snapshot_date(as_of_date)
+    count = 0
+    with SessionLocal.begin() as session:
+        for item in rows:
+            code = str(item.get("code") or "")
+            if not code:
+                continue
+            row = session.scalars(
+                select(SnapshotIndustry).where(SnapshotIndustry.as_of_date == key, SnapshotIndustry.code == code)
+            ).first()
+            if row is None:
+                row = SnapshotIndustry(as_of_date=key, code=code)
+                session.add(row)
+            row.name = str(item.get("name") or "") or None
+            row.provider = str(item.get("provider") or "")
+            row.acquisition = str(item.get("acquisition") or "daily")
+            quality = str(item.get("pitQuality") or item.get("pit_quality") or "exact")
+            row.pit_quality = quality
+            row.observed_date = str(item.get("observedDate") or "") or None
+            count += 1
+    return count
+
+
+def load_snapshot_industries(as_of_date: str | date, codes: list[str] | None = None) -> list[dict[str, Any]]:
+    key = _snapshot_date(as_of_date)
+    with SessionLocal() as session:
+        stmt = select(SnapshotIndustry).where(SnapshotIndustry.as_of_date == key)
+        if codes:
+            stmt = stmt.where(SnapshotIndustry.code.in_(codes))
+        rows = session.scalars(stmt.order_by(SnapshotIndustry.code)).all()
+        return [
+            {
+                "asOfDate": r.as_of_date,
+                "code": r.code,
+                "name": r.name,
+                "provider": r.provider,
+                "acquisition": r.acquisition,
+                "pitQuality": r.pit_quality,
+                "observedDate": r.observed_date,
+            }
+            for r in rows
+        ]
+
+
+def record_snapshot_audit(
+    as_of_date: str | date, rows: list[dict[str, Any]], *, mode: str = "backfill"
+) -> dict[str, Any] | None:
+    if mode == "rebuild":
+        return None
+    key = _snapshot_date(as_of_date)
+    digest = canonical_snapshot_hash(rows)
+    with SessionLocal.begin() as session:
+        previous = session.scalars(
+            select(SnapshotAudit).where(SnapshotAudit.as_of_date == key).order_by(SnapshotAudit.id.desc())
+        ).first()
+        if previous and previous.canonical_hash == digest:
+            return {
+                "id": previous.id,
+                "asOfDate": key,
+                "mode": previous.mode,
+                "canonicalHash": digest,
+                "rowCount": previous.row_count,
+            }
+        audit = SnapshotAudit(
+            as_of_date=key,
+            mode=mode,
+            canonical_hash=digest,
+            row_count=len({r.get("code") for r in rows if r.get("code")}),
+        )
+        session.add(audit)
+        session.flush()
+        return {"id": audit.id, "asOfDate": key, "mode": mode, "canonicalHash": digest, "rowCount": audit.row_count}
+
+
+def save_snapshot_batch(
+    *,
+    as_of_date: str | date,
+    close_rows: list[dict[str, Any]],
+    industry_rows: list[dict[str, Any]],
+    status: str,
+    universe_count: int,
+    suspended_count: int,
+    error_count: int,
+    coverage_pct: float | None,
+    degraded_reason: str | None = None,
+) -> dict[str, Any]:
+    """Persist one immutable daily snapshot and its run marker atomically."""
+    key = _snapshot_date(as_of_date)
+    now = datetime.now(UTC)
+    with SessionLocal.begin() as session:
+        _lock_snapshot_date(session, key)
+        run = session.get(SnapshotRun, key)
+        if run is not None and run.status == "complete":
+            return {"asOfDate": key, "status": run.status, "idempotent": True}
+        for item in close_rows:
+            code = str(item.get("code") or "")
+            if not code:
+                continue
+            close_existing = session.scalars(
+                select(SnapshotClose).where(SnapshotClose.as_of_date == key, SnapshotClose.code == code)
+            ).first()
+            if close_existing is not None:
+                continue
+            volume = float(item["volume"]) if item.get("volume") is not None else None
+            session.add(
+                SnapshotClose(
+                    as_of_date=key,
+                    code=code,
+                    open=float(item["open"]) if item.get("open") is not None else None,
+                    high=float(item["high"]) if item.get("high") is not None else None,
+                    low=float(item["low"]) if item.get("low") is not None else None,
+                    close=float(item["close"]) if item.get("close") is not None else None,
+                    volume=volume,
+                    amount=float(item["amount"]) if item.get("amount") is not None else None,
+                    trade_date=str(item.get("date") or key),
+                    status=str(item.get("tradeStatus") or "trading"),
+                    trade_status=str(item.get("tradeStatus") or "trading"),
+                    prev_close=float(item["prevClose"]) if item.get("prevClose") is not None else None,
+                    provider=str(item.get("provider") or "unknown"),
+                    acquisition=str(item.get("acquisition") or "realtime"),
+                    observed_at=now,
+                )
+            )
+        for item in industry_rows:
+            code = str(item.get("code") or "")
+            if not code:
+                continue
+            industry_existing = session.scalars(
+                select(SnapshotIndustry).where(SnapshotIndustry.as_of_date == key, SnapshotIndustry.code == code)
+            ).first()
+            incoming_quality = str(item.get("pitQuality") or "exact")
+            if industry_existing is not None:
+                if industry_existing.pit_quality == "inferred" and incoming_quality in ("exact", "rebuilt"):
+                    industry_existing.name = str(item.get("name") or "") or None
+                    industry_existing.provider = str(item.get("provider") or "unknown")
+                    industry_existing.acquisition = str(item.get("acquisition") or "realtime")
+                    industry_existing.pit_quality = incoming_quality
+                    industry_existing.observed_date = str(item.get("observedDate") or key)
+                continue
+            session.add(
+                SnapshotIndustry(
+                    as_of_date=key,
+                    code=code,
+                    name=str(item.get("name") or "") or None,
+                    provider=str(item.get("provider") or "unknown"),
+                    acquisition=str(item.get("acquisition") or "realtime"),
+                    pit_quality=incoming_quality,
+                    observed_date=str(item.get("observedDate") or key),
+                )
+            )
+        if run is None:
+            run = SnapshotRun(as_of_date=key)
+            session.add(run)
+        run.status = status
+        run.source = "daily_etl"
+        run.error = None
+        run.universe_count = int(universe_count)
+        run.bar_count = len(close_rows)
+        run.industry_count = len(industry_rows)
+        run.suspended_count = int(suspended_count)
+        run.error_count = int(error_count)
+        run.coverage_pct = coverage_pct if status != "failed" else None
+        run.degraded_reason = degraded_reason
+        run.completed_at = now
+    return {"asOfDate": key, "status": status, "idempotent": False}
+
+
+class SnapshotConflictError(ValueError):
+    pass
+
+
+def save_snapshot_failure(as_of_date: str | date, error: str) -> dict[str, Any]:
+    """Record a failed archive attempt without downgrading a usable snapshot."""
+    key = _snapshot_date(as_of_date)
+    now = datetime.now(UTC)
+    with SessionLocal.begin() as session:
+        run = session.get(SnapshotRun, key)
+        if run is not None and run.status in ("complete", "degraded"):
+            return {"asOfDate": key, "status": run.status, "idempotent": True}
+        if run is None:
+            run = SnapshotRun(as_of_date=key)
+            session.add(run)
+        run.status = "failed"
+        run.source = "daily_etl"
+        run.error = str(error)[:2000]
+        run.coverage_pct = None
+        run.completed_at = now
+    return {"asOfDate": key, "status": "failed", "idempotent": False}
+
+
+def backfill_industry_snapshot(
+    as_of_date: str | date, rows: list[dict[str, Any]], *, reason: str = "", operator: str = "local"
+) -> dict[str, Any]:
+    with _snapshot_backfill_lock:
+        return _backfill_industry_snapshot(as_of_date, rows, reason=reason, operator=operator)
+
+
+def _backfill_industry_snapshot(
+    as_of_date: str | date, rows: list[dict[str, Any]], *, reason: str = "", operator: str = "local"
+) -> dict[str, Any]:
+    """Replace inferred industry content and append its audit in one transaction."""
+    key = _snapshot_date(as_of_date)
+    normalized = [
+        {
+            "code": str(row.get("code") or ""),
+            "name": str(row.get("name") or ""),
+            "provider": str(row.get("provider") or ""),
+            "acquisition": str(row.get("acquisition") or "backfill"),
+        }
+        for row in rows
+        if row.get("code") and row.get("name")
+    ]
+    digest = canonical_snapshot_hash(normalized)
+    with SessionLocal.begin() as session:
+        _lock_snapshot_date(session, key)
+        existing = session.scalars(select(SnapshotIndustry).where(SnapshotIndustry.as_of_date == key)).all()
+        if any(row.pit_quality in ("exact", "rebuilt") for row in existing):
+            raise SnapshotConflictError("目标日已有 exact/rebuilt 行业快照")
+        before = sorted((row.code, row.name or "", row.provider, row.acquisition) for row in existing)
+        after = sorted((row["code"], row["name"], row["provider"], row["acquisition"]) for row in normalized)
+        if before == after:
+            audit = session.scalars(
+                select(SnapshotAudit).where(SnapshotAudit.as_of_date == key).order_by(SnapshotAudit.id.desc())
+            ).first()
+            return {"asOfDate": key, "affectedCount": 0, "idempotent": True, "auditId": audit.id if audit else None}
+        for row in existing:
+            session.delete(row)
+        session.flush()
+        for item in normalized:
+            session.add(
+                SnapshotIndustry(
+                    as_of_date=key,
+                    code=item["code"],
+                    name=item["name"],
+                    provider=item["provider"],
+                    acquisition=item["acquisition"],
+                    pit_quality="inferred",
+                    observed_date=key,
+                )
+            )
+        before_by_code = {item[0]: item for item in before}
+        after_by_code = {item[0]: item for item in after}
+        affected_count = 0
+        affected_sample: list[str] = []
+        affected_hasher = hashlib.sha256()
+        name_changes_count = 0
+        name_changes_sample: list[dict[str, str | None]] = []
+        name_changes_hasher = hashlib.sha256()
+        for code in sorted(set(before_by_code) | set(after_by_code)):
+            old = before_by_code.get(code)
+            new = after_by_code.get(code)
+            if old == new:
+                continue
+            affected_count += 1
+            affected_hasher.update(json.dumps(code, ensure_ascii=False).encode("utf-8") + b"\n")
+            if len(affected_sample) < 100:
+                affected_sample.append(code)
+            old_name = old[1] if old is not None else None
+            new_name = new[1] if new is not None else None
+            if old_name != new_name:
+                change = {"code": code, "old": old_name, "new": new_name}
+                name_changes_count += 1
+                name_changes_hasher.update(
+                    json.dumps(change, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                    + b"\n"
+                )
+                if len(name_changes_sample) < 50:
+                    name_changes_sample.append(change)
+        summary = {
+            "affectedCount": affected_count,
+            "affectedCodesHash": f"sha256:{affected_hasher.hexdigest()}",
+            "affectedCodesSample": affected_sample,
+            "nameChangesCount": name_changes_count,
+            "nameChangesHash": f"sha256:{name_changes_hasher.hexdigest()}",
+            "nameChangesSample": name_changes_sample,
+            "truncated": affected_count > len(affected_sample) or name_changes_count > len(name_changes_sample),
+        }
+        audit = SnapshotAudit(
+            as_of_date=key,
+            mode="backfill",
+            canonical_hash=digest,
+            row_count=len(after),
+            operator=operator,
+            action="backfill",
+            reason=reason or None,
+            before_summary=None if not before else dict(summary),
+            after_summary=summary,
+        )
+        session.add(audit)
+        session.flush()
+        return {"asOfDate": key, "affectedCount": affected_count, "idempotent": False, "auditId": audit.id}
 
 
 def redis_client() -> Redis:
@@ -249,6 +835,9 @@ def _plan_dict(plan: TradePlan) -> dict[str, Any]:
         "note": plan.note,
         "status": plan.status,
         "triggered": plan.triggered or {},
+        "source": plan.source,
+        "relatedPlan": plan.related_plan,
+        "exitMode": plan.exit_mode,
         "createdAt": plan.created_at.astimezone().strftime("%H:%M"),
         "createdAtMs": int(plan.created_at.timestamp() * 1000),
     }
@@ -307,6 +896,13 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "conflictPolicy": "server",
     "notifyDesktopAlert": True,
     "notifyDesktopSystem": False,
+    # 交易辅助 4 键：风险%/盈亏比/止损模式/单票仓位上限
+    "riskPerTradePct": 1.0,
+    "rrRatio": 2.0,
+    "stopMode": "atr",
+    "positionCapPct": 25,
+    # 组合风险视图：总仓位上限（敞口卡"上限对比"分母与 >100% 提示锚，范围 20..300）
+    "totalPositionCapPct": 100,
 }
 
 
@@ -332,7 +928,60 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     data["monitorEnabled"] = bool(data["monitorEnabled"])
     data["notifyDesktopAlert"] = bool(data["notifyDesktopAlert"])
     data["notifyDesktopSystem"] = bool(data["notifyDesktopSystem"])
+    # 交易辅助 4 键越界回退默认值（同现有 source 校验模式）
+    data["riskPerTradePct"] = max(0.1, min(float(data["riskPerTradePct"]), 5.0))
+    data["rrRatio"] = max(1.0, min(float(data["rrRatio"]), 10.0))
+    data["stopMode"] = data["stopMode"] if data["stopMode"] in {"atr", "ma20"} else "atr"
+    data["positionCapPct"] = max(5.0, min(float(data["positionCapPct"]), 100.0))
+    # 组合风险视图：总仓位上限 int 化 + clamp（照 defaultCapital 行式）
+    data["totalPositionCapPct"] = max(20, min(int(data["totalPositionCapPct"]), 300))
     return data
+
+
+def validate_plan_links(plans_payload: list[dict[str, Any]]) -> str | None:
+    """交易对关联写路径校验（spec §3 规则）。None=通过；返回中文错误串即 422 detail。
+
+    规则：exitMode 若设置须落四值白名单（整表校验，不限 sell；留空≡race）；
+    仅 sell 可携带 relatedPlan；目标须存在、为 buy、workspace 内、非归档；
+    禁自引用；同 code；一 buy 至多被一 sell 关联。悬空（目标已删）消息含"请先解除关联"
+    指引；悬空数据的引擎侧容错（孤儿 + degraded 标注）由回放任务负责，不在此处。
+    """
+    # 评审 I-1（fix round 1）：exitMode 白名单先跑，杜绝任意串落库与超长 500 兜底
+    exit_modes = {"race", "sell_priority", "sell_stop_only", "sell_only"}
+    for item in plans_payload:
+        mode = item.get("exitMode")
+        if mode and str(mode) not in exit_modes:
+            sid = str(item.get("id") or "")
+            return (
+                f"计划「{sid}」的离场模式「{mode}」无效；"
+                f"合法值：race / sell_priority / sell_stop_only / sell_only（留空≡race）"
+            )
+    by_id = {str(item.get("id")): item for item in plans_payload if item.get("id")}
+    linked_buy: dict[str, str] = {}  # buy id → 首个关联它的 sell id（一 buy 一 sell）
+    for item in plans_payload:
+        related = item.get("relatedPlan")
+        if not related:
+            continue
+        sid = str(item.get("id") or "")
+        tid = str(related)
+        if item.get("direction", "buy") != "sell":
+            return f"计划「{sid}」为建仓方向，不能携带关联建仓计划；仅卖出计划可设置 relatedPlan"
+        if sid and sid == tid:
+            return f"计划「{sid}」不能关联自身"
+        target = by_id.get(tid)
+        if target is None:
+            return f"卖出计划「{sid}」关联的建仓计划「{tid}」不存在；如需删除该建仓计划，请先解除关联"
+        if target.get("direction", "buy") != "buy":
+            return f"卖出计划「{sid}」只能关联建仓（buy）计划，「{tid}」方向为 {target.get('direction')}"
+        if target.get("status") == "已归档":
+            return f"卖出计划「{sid}」关联的建仓计划「{tid}」已归档；请先解除关联或改关联未归档的建仓计划"
+        if str(target.get("code") or "") != str(item.get("code") or ""):
+            return f"卖出计划「{sid}」与关联建仓计划「{tid}」的证券代码不一致，不能跨代码关联"
+        owner = linked_buy.get(tid)
+        if owner is not None:
+            return f"建仓计划「{tid}」已被卖出计划「{owner}」关联，不能被「{sid}」重复关联；如需换绑请先解除原关联"
+        linked_buy[tid] = sid
+    return None
 
 
 def get_workspace_settings(workspace_id: str = "default") -> dict[str, Any]:
@@ -407,6 +1056,9 @@ def save_workspace(payload: dict[str, Any], workspace_id: str = "default") -> di
             plan.note = item.get("note", "")
             plan.status = item.get("status", "执行中")
             plan.triggered = item.get("triggered") or {}
+            plan.source = item.get("source") or None
+            plan.related_plan = item.get("relatedPlan") or None
+            plan.exit_mode = item.get("exitMode") or None
 
         alerts_payload = [item for item in payload.get("alerts", []) if item.get("id")]
         alert_ids = {item["id"] for item in alerts_payload}
@@ -588,6 +1240,69 @@ def save_market_bars(code: str, bars: list[dict[str, Any]], adjustment: str = "q
     return latest_date
 
 
+def upsert_market_bars_batch(code: str, bars: list[dict[str, Any]], adjustment: str, session: Any = None) -> int:
+    """I10 批量幂等写（ETL 性能预算）：单语句 ON CONFLICT 覆盖；批内同日去重保后者。
+
+    空 bars 拒写——上游空响应不是数据（P0-2 防线）。session 传入则加入调用方事务
+    （外层按码 begin_nested 拿 SAVEPOINT 隔离单码失败）；缺省自开自提。返回影响行数。
+    """
+    if not bars:
+        raise ValueError("bars 不能为空——空响应不是数据")
+    dedup: dict[str, dict[str, Any]] = {}
+    for bar in bars:
+        date = str(bar.get("date") or "")
+        if date:
+            dedup[date] = bar
+    if not dedup:
+        raise ValueError("bars 无有效交易日——空响应不是数据")
+    now = datetime.now(UTC)
+    values = [
+        {
+            "code": code,
+            "trade_date": date,
+            "adjustment": adjustment,
+            "open": bar.get("open"),
+            "high": bar.get("high"),
+            "low": bar.get("low"),
+            "close": bar.get("close"),
+            "volume": bar.get("volume"),
+            "amount": bar.get("amount"),
+            "fetched_at": now,
+        }
+        for date, bar in dedup.items()
+    ]
+    stmt = pg_insert(MarketBar).values(values)
+    # 影响行数走 RETURNING 计数而非 cursor.rowcount——psycopg3 对 ON CONFLICT 语句报 -1（方言怪癖）
+    upsert = stmt.on_conflict_do_update(
+        constraint="uq_market_bars_code_date_adjustment",
+        set_={
+            "open": stmt.excluded.open,
+            "high": stmt.excluded.high,
+            "low": stmt.excluded.low,
+            "close": stmt.excluded.close,
+            "volume": stmt.excluded.volume,
+            "amount": stmt.excluded.amount,
+            "fetched_at": stmt.excluded.fetched_at,
+        },
+    ).returning(MarketBar.trade_date)
+    if session is not None:
+        return len(session.execute(upsert).all())
+    with SessionLocal.begin() as own:
+        return len(own.execute(upsert).all())
+
+
+def cleanup_legacy_index_qfq() -> int:
+    """A1 一次性清理：指数与个股共享 (code,'qfq') 桶的历史混写行整删（幂等）。
+
+    000001 与平安银行同码歧义不可分，qfq 缓存按需重取，删除代价≈首访一次回源。
+    """
+    with SessionLocal.begin() as session:
+        n = session.execute(
+            delete(MarketBar).where(MarketBar.adjustment == "qfq", MarketBar.code.in_(["000001", "399001", "399006"]))
+        ).rowcount
+    return int(n)
+
+
 def save_grid_backtest(
     strategy_id: str, code: str, config: dict[str, Any], result: dict[str, Any], workspace_id: str = "default"
 ) -> None:
@@ -721,3 +1436,125 @@ def save_strategy_backtest(
         if strategy:
             strategy.last_backtest_at = datetime.now(UTC)
             strategy.latest_metrics = result["metrics"]
+
+
+def _scan_config_dict(cfg: ScreenerScanConfig) -> dict[str, Any]:
+    return {
+        "strategyId": cfg.id,
+        "workspaceId": cfg.workspace_id,
+        "enabled": bool(cfg.enabled),
+        "mode": cfg.mode,
+        "lastRunAt": cfg.last_run_at,
+        "lastStatus": cfg.last_status,
+        "lastHits": cfg.last_hits,
+        "lastNewCount": int(cfg.last_new_count or 0),
+    }
+
+
+def _parse_scan_hits(raw: Any) -> list[dict[str, Any]] | None:
+    """last_hits JSON 容错：坏 JSON / 异形结构 → None（视为从未扫描）。"""
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict) and item.get("code")]
+    return None
+
+
+def list_scan_configs() -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(select(ScreenerScanConfig).order_by(ScreenerScanConfig.id)).all()
+        return [_scan_config_dict(c) for c in rows]
+
+
+def get_scan_config(strategy_id: str) -> dict[str, Any] | None:
+    with SessionLocal() as session:
+        cfg = session.get(ScreenerScanConfig, strategy_id)
+        if cfg is None:
+            return None
+        d = _scan_config_dict(cfg)
+        d["lastHits"] = _parse_scan_hits(cfg.last_hits)
+        return d
+
+
+def list_enabled_scan_configs() -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(ScreenerScanConfig).where(ScreenerScanConfig.enabled.is_(True)).order_by(ScreenerScanConfig.id)
+        ).all()
+        return [_scan_config_dict(c) for c in rows]
+
+
+def upsert_scan_config(strategy_id: str, enabled: bool, mode: str, workspace_id: str = "default") -> dict[str, Any]:
+    with SessionLocal.begin() as session:
+        cfg = session.get(ScreenerScanConfig, strategy_id)
+        if cfg is None:
+            cfg = ScreenerScanConfig(id=strategy_id, workspace_id=workspace_id)
+            session.add(cfg)
+        cfg.enabled = bool(enabled)
+        cfg.mode = mode
+        cfg.workspace_id = workspace_id
+    return get_scan_config(strategy_id)  # type: ignore[return-value]
+
+
+def update_scan_state(
+    strategy_id: str,
+    status: str,
+    hits: list[dict[str, Any]],
+    run_at: datetime,
+    new_count: int = 0,
+    require_enabled: bool = True,
+) -> bool:
+    with SessionLocal.begin() as session:
+        cfg = session.get(ScreenerScanConfig, strategy_id)
+        if cfg is None:
+            return False
+        if require_enabled and not cfg.enabled:
+            return False
+        cfg.last_status = status
+        cfg.last_hits = hits
+        cfg.last_run_at = run_at
+        cfg.last_new_count = int(new_count)
+        return True
+
+
+def insert_scan_history(
+    strategy_id: str, status: str, hit_count: int, new_count: int, elapsed_ms: int, trace_id: str
+) -> None:
+    with SessionLocal.begin() as session:
+        session.add(
+            ScreenerScanHistory(
+                strategy_id=strategy_id,
+                status=status,
+                hit_count=hit_count,
+                new_count=new_count,
+                elapsed_ms=elapsed_ms,
+                trace_id=trace_id,
+            )
+        )
+        # FR-12 全表滚动 500 行：裁剪历史，仅保留最新 500 条。
+        session.execute(
+            text(
+                "DELETE FROM screener_scan_history WHERE id NOT IN "
+                "(SELECT id FROM screener_scan_history ORDER BY id DESC LIMIT 500)"
+            )
+        )
+
+
+def list_scan_history(strategy_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    with SessionLocal() as session:
+        stmt = select(ScreenerScanHistory).order_by(ScreenerScanHistory.id.desc()).limit(limit)
+        if strategy_id is not None:
+            stmt = stmt.where(ScreenerScanHistory.strategy_id == strategy_id)
+        return [
+            {
+                "id": r.id,
+                "strategyId": r.strategy_id,
+                "runAt": r.run_at,
+                "status": r.status,
+                "hitCount": r.hit_count,
+                "newCount": r.new_count,
+                "elapsedMs": r.elapsed_ms,
+                "traceId": r.trace_id,
+            }
+            for r in session.scalars(stmt).all()
+        ]

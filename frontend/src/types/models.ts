@@ -27,6 +27,11 @@ export interface Plan {
   note: string;
   status: string;
   triggered: Record<string, boolean>;
+  source?: string;
+  /** 交易对关联：sell→buy 计划 id（仅 sell 使用） */
+  relatedPlan?: string;
+  /** 离场模式；后端 NULL ≡ race（先到先平） */
+  exitMode?: 'race' | 'sell_priority' | 'sell_stop_only' | 'sell_only';
   createdAtMs: number;
 }
 
@@ -40,6 +45,10 @@ export interface Alert {
   count?: number;
   /** 显示用便捷时间串（HH:MM），仅前端 UX 状态，不入库 */
   time?: string;
+  /** 扫描合成项（useScanStore ScanAlertItem）透传字段：仅扫描命中提醒存在（useAlertsStore allAlerts 合成） */
+  code?: string;
+  strategyId?: string;
+  firstSeen?: string;
 }
 
 export interface HistoryBar {
@@ -49,4 +58,33 @@ export interface HistoryBar {
   low: number;
   close: number;
   volume: number;
+}
+
+// ---------- 交易辅助（Task 2 契约 PlanDraftOut，字段名逐字保持） ----------
+
+/** POST /api/assist/plan-draft 响应草案（响应包裹 {data: AssistDraft} 由调用方解包）。 */
+export interface AssistDraft {
+  code: string;
+  name: string;
+  direction: string;
+  entry: number;
+  stopAtr: number | null;
+  stopMa20: number | null;
+  stop: number | null;
+  target: number | null;
+  stopDistance: number | null;
+  atr14: number | null;
+  ma20: number | null;
+  riskAmount: number | null;
+  suggestedShares: number;
+  positionPct: number;
+  referenceDate: string;
+  entryAsOf: number | null;
+  stale: boolean;
+  fallbackUsed: boolean;
+  provider: string;
+  warnings: string[];
+  disclaimer: string;
+  /** 入口归因（前端 openFor 写入，非后端响应字段）：scan:{strategyId} | screener | monitor | manual */
+  source?: string;
 }

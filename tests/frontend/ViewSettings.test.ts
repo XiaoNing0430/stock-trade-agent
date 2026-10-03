@@ -71,8 +71,24 @@ describe('ViewSettings', () => {
     // 注入模拟数据源
     settings.dataSources = [
       { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
-      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
-      { id: 'mock_us', name: '美股模拟', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      {
+        id: 'eastmoney',
+        name: '东方财富',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
+      {
+        id: 'mock_us',
+        name: '美股模拟',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
     ];
     settings.settingsDraft.realtimeSource = 'tencent';
     settings.settingsDraft.historySource = 'eastmoney';
@@ -110,13 +126,63 @@ describe('ViewSettings', () => {
     settings.settingsTab = 'data';
     settings.dataSources = [
       { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
-      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      {
+        id: 'eastmoney',
+        name: '东方财富',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
     ];
     const wrapper = mount(ViewSettings);
     // realtime 下拉有 2 个选项
     expect(wrapper.find('select[aria-label="实时行情来源"]').findAll('option').length).toBe(2);
     // fundamental 下拉只有 1 个选项
     expect(wrapper.find('select[aria-label="财务数据源"]').findAll('option').length).toBe(1);
+  });
+
+  it('交易辅助分区：4 个字段渲染并回显 settingsDraft 值', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'assist';
+    settings.settingsDraft.riskPerTradePct = 1.5;
+    settings.settingsDraft.rrRatio = 3;
+    settings.settingsDraft.stopMode = 'ma20';
+    settings.settingsDraft.positionCapPct = 40;
+    const wrapper = mount(ViewSettings);
+    expect(wrapper.text()).toContain('交易辅助');
+    const risk = wrapper.find('input[data-testid="assist-risk"]');
+    expect(risk.exists()).toBe(true);
+    expect((risk.element as HTMLInputElement).value).toBe('1.5');
+    const rr = wrapper.find('input[data-testid="assist-rr"]');
+    expect(rr.exists()).toBe(true);
+    expect((rr.element as HTMLInputElement).value).toBe('3');
+    const stopMode = wrapper.find('select[data-testid="assist-stop-mode"]');
+    expect(stopMode.exists()).toBe(true);
+    expect((stopMode.element as HTMLSelectElement).value).toBe('ma20');
+    expect(stopMode.findAll('option').map((o) => o.element.value)).toEqual(['atr', 'ma20']);
+    const cap = wrapper.find('input[data-testid="assist-cap"]');
+    expect(cap.exists()).toBe(true);
+    expect((cap.element as HTMLInputElement).value).toBe('40');
+  });
+
+  it('交易辅助分区：编辑输入写回 settingsDraft 且遵守边界', async () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'assist';
+    const wrapper = mount(ViewSettings);
+    await wrapper.find('input[data-testid="assist-risk"]').setValue('0.1');
+    await wrapper.find('input[data-testid="assist-rr"]').setValue('10');
+    await wrapper.find('select[data-testid="assist-stop-mode"]').setValue('atr');
+    await wrapper.find('input[data-testid="assist-cap"]').setValue('100');
+    expect(settings.settingsDraft.riskPerTradePct).toBe(0.1);
+    expect(settings.settingsDraft.rrRatio).toBe(10);
+    expect(settings.settingsDraft.stopMode).toBe('atr');
+    expect(settings.settingsDraft.positionCapPct).toBe(100);
   });
 
   it('连接分组展示能力徽标', () => {
@@ -126,7 +192,15 @@ describe('ViewSettings', () => {
     settings.settingsTab = 'connection';
     settings.dataSources = [
       { id: 'tencent', name: '腾讯公开行情', available: true, realtime: true, history: true, screener: true },
-      { id: 'eastmoney', name: '东方财富', available: true, realtime: true, history: true, screener: true, fundamental: true },
+      {
+        id: 'eastmoney',
+        name: '东方财富',
+        available: true,
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
     ];
     const wrapper = mount(ViewSettings);
     expect(wrapper.text()).toContain('腾讯公开行情');
