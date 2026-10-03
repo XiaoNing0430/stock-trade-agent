@@ -7,7 +7,20 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from redis import Redis
-from sqlalchemy import JSON, DateTime, Float, Integer, String, UniqueConstraint, create_engine, delete, select, text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+    delete,
+    func,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -201,6 +214,23 @@ class ScreenerScanHistory(Base):
     new_count: Mapped[int] = mapped_column(Integer, default=0)
     elapsed_ms: Mapped[int] = mapped_column(Integer, default=0)
     trace_id: Mapped[str] = mapped_column(String(16), default="")
+
+
+class ScreenerCustomStrategy(Base):
+    """自定义选股策略（P3 编辑器）：config 与内置 configs/*.json 同构，version 乐观锁。"""
+
+    __tablename__ = "screener_custom_strategies"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str] = mapped_column(String(256), default="")
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    source_builtin: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
 
 
 class WorkspaceSettings(Base):
@@ -790,6 +820,147 @@ def _backfill_industry_snapshot(
         session.add(audit)
         session.flush()
         return {"asOfDate": key, "affectedCount": affected_count, "idempotent": False, "auditId": audit.id}
+
+
+class CustomStrategyConflict(Exception):
+    """自定义策略乐观锁冲突：server_row 为服务器当前行（409 响应回显）。"""
+
+    def __init__(self, server_row: dict[str, Any]):
+        super().__init__("custom strategy version conflict")
+        self.server_row = server_row
+
+
+def _custom_strategy_row_to_dict(row: ScreenerCustomStrategy) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "description": row.description,
+        "config": row.config,
+        "version": row.version,
+        "sourceBuiltin": row.source_builtin,
+        "createdAtMs": int(row.created_at.timestamp() * 1000) if row.created_at else None,
+        "updatedAtMs": int(row.updated_at.timestamp() * 1000) if row.updated_at else None,
+    }
+
+
+def _custom_strategy_config(data: dict[str, Any], strategy_id: str) -> dict[str, Any]:
+    """camel/snake 入参归一并经 ScreenerStrategyConfig 校验（存前校验，失败 ValueError）。"""
+    from backend.screener.loader import ScreenerStrategyConfig
+
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise ValueError("name 不能为空")
+    validated = ScreenerStrategyConfig.model_validate(
+        {
+            "id": strategy_id,
+            "name": name,
+            "description": str(data.get("description") or "").strip(),
+            "quick_filters": data.get("quick_filters") or {},
+            "advanced_factors": data.get("advanced_factors") or [],
+            "sort_by": str(data.get("sort_by") or "changePct"),
+            "top_n": data.get("top_n") if data.get("top_n") is not None else 10,
+            "deep_cap": data.get("deep_cap") if data.get("deep_cap") is not None else 200,
+        }
+    )
+    return validated.model_dump()
+
+
+def upsert_custom_strategy(
+    data: dict[str, Any], strategy_id: str | None, expected_version: int | None
+) -> dict[str, Any]:
+    """创建（strategy_id=None）/ 原子乐观锁更新（单条 UPDATE ... WHERE id AND version）。
+
+    冲突抛 CustomStrategyConflict（携带服务器最新行）；未知 id 抛 ValueError。
+    """
+    from uuid import uuid4
+
+    now = datetime.now(UTC)
+    with SessionLocal.begin() as session:
+        if strategy_id is None:
+            new_id = f"custom_{uuid4().hex[:12]}"
+            row = ScreenerCustomStrategy(
+                id=new_id,
+                name=name.strip() if (name := str(data.get("name") or "")) else "",
+                description=str(data.get("description") or "").strip(),
+                config=_custom_strategy_config(data, new_id),
+                version=1,
+                source_builtin=(str(data["source_builtin"])[:64] if data.get("source_builtin") else None),
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(row)
+            session.flush()
+            return _custom_strategy_row_to_dict(row)
+        config = _custom_strategy_config(data, strategy_id)
+        result = session.execute(
+            update(ScreenerCustomStrategy)
+            .where(
+                ScreenerCustomStrategy.id == strategy_id,
+                ScreenerCustomStrategy.version == int(expected_version if expected_version is not None else -1),
+            )
+            .values(
+                name=str(config["name"]),
+                description=str(config.get("description") or ""),
+                config=config,
+                source_builtin=(str(data["source_builtin"])[:64] if data.get("source_builtin") else None),
+                version=ScreenerCustomStrategy.version + 1,
+                updated_at=now,
+            )
+        )
+        if result.rowcount == 0:
+            current = session.get(ScreenerCustomStrategy, strategy_id)
+            if current is None:
+                raise ValueError(f"unknown custom strategy: {strategy_id}")
+            raise CustomStrategyConflict(_custom_strategy_row_to_dict(current))
+        updated = session.get(ScreenerCustomStrategy, strategy_id)
+        if updated is None:  # rowcount==1 保证存在——类型收窄用，运行时不可达
+            raise ValueError(f"unknown custom strategy: {strategy_id}")
+        return _custom_strategy_row_to_dict(updated)
+
+
+def get_custom_strategy(strategy_id: str) -> dict[str, Any] | None:
+    with SessionLocal() as session:
+        row = session.get(ScreenerCustomStrategy, strategy_id)
+        return _custom_strategy_row_to_dict(row) if row else None
+
+
+def list_custom_strategies(search: str = "", limit: int = 200, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
+    limit = max(1, min(int(limit or 200), 500))
+    offset = max(0, int(offset or 0))
+    with SessionLocal() as session:
+        base = select(ScreenerCustomStrategy)
+        if search:
+            base = base.where(ScreenerCustomStrategy.name.contains(search))
+        total = session.scalar(select(func.count()).select_from(base.subquery())) or 0
+        rows = session.scalars(
+            base.order_by(ScreenerCustomStrategy.updated_at.desc(), ScreenerCustomStrategy.id)
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        return [_custom_strategy_row_to_dict(r) for r in rows], int(total)
+
+
+def list_scan_references(strategy_id: str, *, for_update: bool = False) -> list[str]:
+    with SessionLocal() as session:
+        stmt = select(ScreenerScanConfig.id).where(ScreenerScanConfig.id == strategy_id)
+        if for_update and session.get_bind().dialect.name == "postgresql":
+            stmt = stmt.with_for_update()
+        return [r for (r,) in session.execute(stmt).all()]
+
+
+def delete_custom_strategy(strategy_id: str) -> dict[str, Any] | None:
+    """事务内复查扫描引用 + 删除；返回 None 表示策略不存在。"""
+    with SessionLocal.begin() as session:
+        row = session.get(ScreenerCustomStrategy, strategy_id)
+        if row is None:
+            return None
+        stmt = select(ScreenerScanConfig.id).where(ScreenerScanConfig.id == strategy_id)
+        if session.get_bind().dialect.name == "postgresql":
+            stmt = stmt.with_for_update()
+        refs = [r for (r,) in session.execute(stmt).all()]
+        snapshot = _custom_strategy_row_to_dict(row)
+        session.delete(row)
+        return {"deleted": snapshot, "scanReferences": refs}
 
 
 def redis_client() -> Redis:
