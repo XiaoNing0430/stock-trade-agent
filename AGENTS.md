@@ -36,7 +36,7 @@ backend/
   snapshot_archive.py     P3 PIT 日快照归档：ETL 后幂等落库（complete 不可变/失败记录不降级/仅当日归档 exact 行业）
   snapshot_query.py       PIT 快照统一查询：行情/行业覆盖判定（驼峰 coverage）、load_archived_bars、asOfDate 路径
   minute_path.py          受保护按需分钟线：令牌桶 1rps/熔断 900s 半开/ETL 互斥/双缓存/L1 逐出（不落库不轮询）
-  cross_check.py          日线最新收盘跨源校验（Tushare 主/东财辅；CROSS_CHECK_ENABLED 默认关）
+  cross_check.py          日线最新收盘跨源校验（Tushare 主/东财辅；启用=设置页三态开关或 env CROSS_CHECK_ENABLED，默认关）
   redis_cache.py          CacheFacade：Redis L2（前缀策略表白名单、ts 封装、熔断旁路）
   grid_strategy.py        网格策略计算：build_grid, suggest_grid, backtest_grid, optimize_grid（含基准/风险指标）
   grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）

@@ -46,6 +46,9 @@ class SettingsPut(BaseModel):
     rrRatio: float = 2.0
     stopMode: str = "atr"
     positionCapPct: float = 25
+    # 跨源校验（P2.5）：token（GET 永不回显；PUT 缺省=不修改、""=清除）与三态启用（None=跟随环境）
+    tushareToken: str = ""
+    crossCheckEnabled: bool | None = None
 
 
 class GridPreviewIn(BaseModel):

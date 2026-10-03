@@ -297,6 +297,32 @@
               ><span v-if="source.screener" class="badge badge-orange">选股</span
               ><span v-if="source.fundamental" class="badge badge-purple">基本面</span>
             </div>
+            <template v-if="source.id === 'tushare'">
+              <div class="tushare-config">
+                <input
+                  v-model="tushareTokenInput"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="Tushare Token（留空保持不变）"
+                  aria-label="Tushare Token"
+                /><button
+                  v-if="source.tushareTokenMasked"
+                  class="text-button"
+                  type="button"
+                  data-testid="clear-tushare-token"
+                  @click="clearTushareToken"
+                >清除</button
+                ><span v-if="source.tushareTokenMasked" class="setting-status">已配置 {{ source.tushareTokenMasked }}</span>
+              </div>
+              <div class="tushare-config">
+                <select v-model="settingsDraft.crossCheckEnabled" aria-label="跨源校验开关">
+                  <option :value="null">跟随环境变量 CROSS_CHECK_ENABLED</option>
+                  <option :value="true">启用</option>
+                  <option :value="false">停用</option>
+                </select>
+                <span class="tushare-warn">Tushare 单位对拍（T0）未完成前启用可能出现对账偏差告警（只告警，不改数）</span>
+              </div>
+            </template>
           </section></template
         >
       </div>
@@ -317,9 +343,10 @@ const alerts = useAlertsStore();
 const settings = useSettingsStore();
 
 const { hubTab, alertFilter, filteredAlerts } = storeToRefs(alerts);
-const { settingsDirty, settingsLoading, settingsTab, settingsDraft, dataSources } = storeToRefs(settings);
+const { settingsDirty, settingsLoading, settingsTab, settingsDraft, dataSources, tushareTokenInput } =
+  storeToRefs(settings);
 const { clearReadAlerts, markAlertRead } = alerts;
-const { saveSettings } = settings;
+const { saveSettings, clearTushareToken } = settings;
 const { renderIcons } = workspace;
 
 const settingsTabs = SETTINGS_TABS;

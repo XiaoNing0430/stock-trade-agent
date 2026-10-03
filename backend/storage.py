@@ -903,6 +903,10 @@ DEFAULT_WORKSPACE_SETTINGS = {
     "positionCapPct": 25,
     # 组合风险视图：总仓位上限（敞口卡"上限对比"分母与 >100% 提示锚，范围 20..300）
     "totalPositionCapPct": 100,
+    # 跨源校验（P2.5）：Tushare token 页面配置（GET 掩码不回显；env TUSHARE_TOKEN 作 fallback）
+    # 与三态启用开关（None=跟随环境 CROSS_CHECK_ENABLED；true/false=DB 显式覆盖）
+    "tushareToken": "",
+    "crossCheckEnabled": None,
 }
 
 
@@ -916,6 +920,9 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
         if data[key] not in allowed_sources:
             data[key] = "tencent"
     data["workspaceName"] = str(data["workspaceName"]).strip()[:64] or DEFAULT_WORKSPACE_SETTINGS["workspaceName"]
+    data["tushareToken"] = str(data.get("tushareToken") or "").strip()[:128]
+    if data.get("crossCheckEnabled") not in (True, False):
+        data["crossCheckEnabled"] = None
     data["defaultCapital"] = max(1000, min(float(data["defaultCapital"]), 100000000))
     data["refreshInterval"] = max(5, min(int(data["refreshInterval"]), 300))
     data["cacheSeconds"] = max(2, min(int(data["cacheSeconds"]), 300))
