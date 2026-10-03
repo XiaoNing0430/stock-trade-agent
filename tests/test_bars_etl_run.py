@@ -18,6 +18,9 @@ def _clean(monkeypatch):
     monkeypatch.setattr(bars_etl, "authoritative_watermark", lambda now=None: WM)
     monkeypatch.setattr(bars_etl, "UNIVERSE_MIN", 1)  # 小样本测试面降护栏；护栏行为另有专测
     monkeypatch.setattr(bars_etl, "market_code_count", lambda: 10**6)  # 默认关护栏（不依赖本机 industry 表状态）
+    # run_full 成功路径会触发快照归档——本文件直连真实 PG（只清 cov% K 线），归档必须整体哑掉，
+    # 否则每次跑测试都往真库写 2099-10-09 假水位快照（P3 回归泄库实证：runs+1/closes+5）
+    monkeypatch.setattr("backend.snapshot_archive.archive_daily_snapshot", lambda *a, **k: {"status": "skipped_test"})
     yield
     bars_etl._recheck.clear()
     with storage.SessionLocal.begin() as s:

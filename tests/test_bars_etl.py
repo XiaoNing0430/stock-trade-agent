@@ -174,6 +174,7 @@ def test_bars_health_shape_and_error_none(monkeypatch):
         "universeSize": 3,
         "lastRunAt": None,
         "abortReason": None,
+        "crossCheck": None,  # P2.5 跨源校验健康位（未运行时为 None）
     }
     monkeypatch.setattr(bars_etl, "resolve_universe", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     monkeypatch.setattr(bars_etl, "_h_at", 0.0)

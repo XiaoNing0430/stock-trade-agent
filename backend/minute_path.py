@@ -1,4 +1,5 @@
 """受保护的按需分钟线读取路径（不落库、不后台轮询）。"""
+
 from __future__ import annotations
 
 import logging
@@ -71,7 +72,7 @@ def _bucket_take(now: float) -> bool:
 
 
 def breaker_state(now: float | None = None) -> str:
-    return "open" if _now(now if callable(now) else (lambda: now)) < _open_until else "closed"
+    return "open" if (now if now is not None else time.time()) < _open_until else "closed"
 
 
 def _cache_facade() -> Any | None:
@@ -129,17 +130,31 @@ def _parse_rows(payload: Any, symbol: str) -> list[dict[str, Any]]:
         stamp = str(row[0])
         if len(stamp) == 12 and stamp.isdigit():
             stamp = f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[8:10]}:{stamp[10:12]}"
-        out.append({"date": stamp, "open": data_source.numeric(row[1]), "close": data_source.numeric(row[2]), "high": data_source.numeric(row[3]), "low": data_source.numeric(row[4]), "volume": data_source.numeric(row[5]), "amount": data_source.numeric(row[6]) if len(row) > 6 else None})
+        out.append(
+            {
+                "date": stamp,
+                "open": data_source.numeric(row[1]),
+                "close": data_source.numeric(row[2]),
+                "high": data_source.numeric(row[3]),
+                "low": data_source.numeric(row[4]),
+                "volume": data_source.numeric(row[5]),
+                "amount": data_source.numeric(row[6]) if len(row) > 6 else None,
+            }
+        )
     return out
 
 
 def load_minute_kline(code: str, period: str, count: int, index: bool = False) -> list[dict[str, Any]]:
     symbol = data_source.index_symbol(code) if index else data_source.tencent_symbol(code)
-    payload = data_source.fetch_json(data_source.KLINE_URL, {"param": f"{symbol},{PERIODS[period]},,,{count}"}, retry_http_error=False)
+    payload = data_source.fetch_json(
+        data_source.KLINE_URL, {"param": f"{symbol},{PERIODS[period]},,,{count}"}, retry_http_error=False
+    )
     return _parse_rows(payload, symbol)
 
 
-def fetch_minute(code: str, period: str, count: int, index: bool = False, *, now: Callable[[], float] = time.time) -> MinuteFetch:
+def fetch_minute(
+    code: str, period: str, count: int, index: bool = False, *, now: Callable[[], float] = time.time
+) -> MinuteFetch:
     global _fails, _open_until, _probe_inflight
     code = str(code).strip()
     if period not in PERIODS:

@@ -28,7 +28,9 @@ def test_rate_limit_and_cache_only(monkeypatch):
 
 def test_breaker_opens_after_three_failures(monkeypatch):
     minute_path.reset_for_test()
-    monkeypatch.setattr(minute_path.data_source, "fetch_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(
+        minute_path.data_source, "fetch_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+    )
     for i in range(3):
         minute_path.fetch_minute(f"600{i:03}", "1m", 10, now=lambda i=i: 100 + i * 2)
     assert minute_path.breaker_state(200) == "open"

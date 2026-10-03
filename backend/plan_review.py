@@ -316,17 +316,23 @@ def aggregate_min(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def review_plans(plans: list[dict[str, Any]], days: int, fee_rate: float, load_bars) -> dict[str, Any]:
+def review_plans(
+    plans: list[dict[str, Any]], days: int, fee_rate: float, load_bars, *, as_of_date: str | None = None
+) -> dict[str, Any]:
     from datetime import datetime as _dt
 
-    now_ms = int(_dt.now(SHANGHAI).timestamp() * 1000)
-    min_created = 0 if days == 0 else now_ms - days * 86_400_000
-    scoped = [p for p in plans if int(p.get("createdAtMs") or 0) >= min_created]
+    today = as_of_date or _dt.now(SHANGHAI).strftime("%Y-%m-%d")
+    day_start = _dt.strptime(today, "%Y-%m-%d").replace(tzinfo=SHANGHAI)
+    next_day = day_start + timedelta(days=1)
+    now_ms = int(next_day.timestamp() * 1000) - 1
+    replay_today = next_day.strftime("%Y-%m-%d") if as_of_date else today
+    min_created = 0 if days == 0 else int((day_start - timedelta(days=days)).timestamp() * 1000)
+    scoped = [p for p in plans if min_created <= int(p.get("createdAtMs") or 0) <= now_ms]
     codes = sorted({str(p.get("code")) for p in scoped if p.get("code")})
     bars_map = load_bars(codes) if codes else {}
     records: list[dict[str, Any]] = []
     for p in scoped:
-        rec = replay_plan(p, bars_map.get(str(p.get("code")) or "", []), fee_rate)
+        rec = replay_plan(p, bars_map.get(str(p.get("code")) or "", []), fee_rate, today=replay_today)
         rec["createdMonth"] = shanghai_date_str(int(p.get("createdAtMs") or 0))[:7]
         rec["_createdAtMs"] = int(p.get("createdAtMs") or 0)
         records.append(rec)

@@ -3776,6 +3776,24 @@ textarea:focus-visible {
   color: var(--gold);
 }
 
+.minute-chart {
+  margin-top: 12px;
+}
+
+.minute-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font-size: 12px;
+}
+
 .screener-tabs {
   display: flex;
   gap: 8px;

@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
-from backend import bars_etl, minute_path, plan_review, portfolio_risk, redis_cache
+from backend import bars_etl, minute_path, plan_review, portfolio_risk, redis_cache, snapshot_archive, snapshot_query
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -237,6 +237,38 @@ def _validated_start(start: str, today: str) -> str:
     return parsed.strftime("%Y-%m-%d")
 
 
+def _validated_as_of(value: str | None) -> str | None:
+    if value is None:
+        return None
+    from backend.sources.cn_impl import CNMarketCalendar
+
+    parsed = _parse_iso_day(value, "asOfDate")
+    current = datetime.now(plan_review.SHANGHAI).date()
+    if parsed.date() > current:
+        raise api_error(422, ERR_VALIDATION_ERROR, "asOfDate 不得晚于今天")
+    if not CNMarketCalendar().is_trading_day(parsed.date()):
+        raise api_error(422, ERR_VALIDATION_ERROR, "asOfDate 必须为交易日")
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _snapshot_loader(as_of_date: str):
+    from backend import storage
+
+    with storage.SessionLocal() as session:
+        _rows, initial_coverage = snapshot_query.query_market_snapshots(session, [], as_of_date, storage=storage)
+    state: dict[str, Any] = {"coverage": initial_coverage}
+
+    def load(codes: list[str]) -> dict[str, list[dict[str, Any]]]:
+        with storage.SessionLocal() as session:
+            rows, coverage = snapshot_query.query_market_snapshots(session, codes, as_of_date, storage=storage)
+            eligible_codes = [code for code in codes if code in rows]
+            bars = snapshot_query.load_archived_bars(session, eligible_codes, as_of_date, storage=storage)
+        state["coverage"] = coverage
+        return bars
+
+    return load, state
+
+
 def _industry_warmup_job() -> None:
     """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。"""
     try:
@@ -344,7 +376,9 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
         if result.state == "rate_limited":
-            raise HTTPException(status_code=429, detail={"error": "分钟线请求过于频繁，请稍后再试", "code": ERR_RATE_LIMITED})
+            raise HTTPException(
+                status_code=429, detail={"error": "分钟线请求过于频繁，请稍后再试", "code": ERR_RATE_LIMITED}
+            )
         return MinuteOut(
             bars=result.bars,
             source=result.source,
@@ -679,18 +713,49 @@ def create_app() -> FastAPI:
         rows = list_scan_history(strategy_id=strategyId or None, limit=limit)
         return {"history": [_scan_history_out(r) for r in rows]}
 
+    @app.post("/api/snapshots/industry")
+    def snapshots_industry(payload: dict[str, Any]) -> dict[str, Any]:
+        as_of = str(payload.get("asOfDate") or "")
+        mode = str(payload.get("mode") or "backfill")
+        if not payload.get("confirm"):
+            raise api_error(422, ERR_VALIDATION_ERROR, "confirm 必须为 true")
+        as_of = _validated_as_of(as_of) or ""
+        if mode not in ("backfill", "rebuild"):
+            raise api_error(422, ERR_VALIDATION_ERROR, "mode 仅支持 backfill/rebuild")
+        if mode == "rebuild":
+            raise api_error(501, "NOT_IMPLEMENTED", "真实历史源未接入，rebuild 暂不可用")
+        try:
+            return snapshot_archive.backfill_industry(as_of, reason=str(payload.get("reason") or ""), mode=mode)
+        except snapshot_archive.storage.SnapshotConflictError as exc:
+            raise api_error(409, "SNAPSHOT_CONFLICT", str(exc)) from exc
+        except ValueError as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+        except Exception as exc:
+            raise api_error(500, ERR_STORAGE_UNAVAILABLE, "行业快照回填失败") from exc
+
     @app.get("/api/plans/review")
-    def plans_review(days: int = 90, feeRate: float = plan_review.DEFAULT_FEE_RATE) -> dict[str, Any]:
+    def plans_review(
+        days: int = 90,
+        feeRate: float = plan_review.DEFAULT_FEE_RATE,
+        asOfDate: str | None = None,
+    ) -> dict[str, Any]:
         """计划绩效复盘（只读，设计口径回算；红线：零写 plans）。"""
         if days not in (0, 30, 90):
             raise api_error(422, ERR_VALIDATION_ERROR, "days 仅支持 0/30/90")
         if not (0.0 <= feeRate <= plan_review.FEE_RATE_MAX):
             raise api_error(422, ERR_VALIDATION_ERROR, f"feeRate 须在 [0, {plan_review.FEE_RATE_MAX}]")
+        asOfDate = _validated_as_of(asOfDate)
         plans = get_workspace().get("plans") or []
         # bars 预取走路由历史源（historySource/fallbackEnabled+本地 market_bars 兜底），bfq 口径 adjustment=""；
         # 命中本地兜底的 code 记入 degraded 如实披露（红线：降级不得静默），历史源按请求解析一次
         t0 = time.perf_counter()
-        load_bars, stats, degraded = _resolve_history_loader()
+        snapshot_state: dict[str, Any] = {}
+        degraded: list[str]
+        if asOfDate:
+            load_bars, snapshot_state = _snapshot_loader(asOfDate)
+            stats, degraded = {"upstream": 0}, []
+        else:
+            load_bars, stats, degraded = _resolve_history_loader()
 
         try:
             result = plan_review.review_plans(
@@ -698,11 +763,15 @@ def create_app() -> FastAPI:
                 days=days,
                 fee_rate=float(feeRate),
                 load_bars=load_bars,
+                as_of_date=asOfDate,
             )
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, "历史行情拉取失败", failedCodes=exc.codes) from exc
         result["degraded"] = sorted(set(degraded))
+        if asOfDate:
+            coverage = snapshot_state.get("coverage")
+            result["snapshot"] = coverage.to_dict() if coverage else snapshot_query.SnapshotCoverage(asOfDate).to_dict()
         review_logger.info(
             "review_ok plans=%d window_days=%d codes=%d upstream=%d degraded=%s fee_rate=%.4f elapsed_ms=%d",
             len(plans),
@@ -722,6 +791,7 @@ def create_app() -> FastAPI:
         layer: str = "core",
         withWatch: bool = False,
         feeRate: float = plan_review.DEFAULT_FEE_RATE,
+        asOfDate: str | None = None,
         workspace_id: str = Query(default="default", alias="workspace"),
     ) -> dict[str, Any]:
         """组合风险视图（只读，设计口径回放；红线：零写 plans、永不连券商/自动下单）。spec §6 I11。"""
@@ -737,6 +807,10 @@ def create_app() -> FastAPI:
 
         # —— 2. 参数校验（422 中文 detail，同复盘纪律）——
         today = datetime.now(plan_review.SHANGHAI).strftime("%Y-%m-%d")
+        asOfDate = _validated_as_of(asOfDate)
+        if asOfDate is not None:
+            today = asOfDate
+        replay_today = _shift_date_str(today, 1) if asOfDate else today
         window_start: str
         window_span: int  # 日志 window 字段：days 档给 days，start 档给起止日差
         if start is None:
@@ -756,7 +830,16 @@ def create_app() -> FastAPI:
         # —— 3. 取数（历史源按请求解析一次；stats/degraded 与复盘同源，Task 6 段 1 提取物）——
         t0 = time.perf_counter()
         workspace = get_workspace(workspace_id)
-        plans = workspace.get("plans") or []
+        end_ms = (
+            int(
+                (
+                    datetime.strptime(today, "%Y-%m-%d").replace(tzinfo=plan_review.SHANGHAI) + timedelta(days=1)
+                ).timestamp()
+                * 1000
+            )
+            - 1
+        )
+        plans = [p for p in (workspace.get("plans") or []) if int(p.get("createdAtMs") or 0) <= end_ms]
         watchlist = workspace.get("watchlist") or []
         settings = get_workspace_settings(workspace_id)
         links, link_events = portfolio_risk.build_links(plans)
@@ -787,9 +870,24 @@ def create_app() -> FastAPI:
             ]
         codes = plan_codes + watch_codes  # 日志 codes 字段 = 两趟总取数码
 
-        load_bars, stats, degraded = _resolve_history_loader()
+        snapshot_state: dict[str, Any] = {}
+        degraded: list[str]
+        if asOfDate:
+            load_bars, snapshot_state = _snapshot_loader(asOfDate)
+            stats, degraded = {"upstream": 0}, []
+        else:
+            load_bars, stats, degraded = _resolve_history_loader()
         try:
-            industry, industry_status = get_industry_map()  # 只读缓存：API 绝不内联拉全市场（spec §3）
+            if asOfDate:
+                from backend import storage
+
+                with storage.SessionLocal() as session:
+                    industry, industry_coverage = snapshot_query.query_industry_map(
+                        session, codes, asOfDate, storage=storage
+                    )
+                industry_status = "fresh" if not industry_coverage.degraded else "stale"
+            else:
+                industry, industry_status = get_industry_map()  # 只读缓存：API 绝不内联拉全市场（spec §3）
             bars_map: dict[str, list[dict[str, Any]]] = load_bars(plan_codes) if plan_codes else {}
         except plan_review.ReviewUpstreamError as exc:
             review_logger.error("review_upstream_failed codes=%s", exc.codes)
@@ -806,8 +904,10 @@ def create_app() -> FastAPI:
                     review_logger.warning("review_degraded code=%s as_of=%s", code, "-")
 
         # —— 4. 单趟回放 + NAV 组装（compose_nav 只调一次，nav 五键同源，评审三钉）——
-        positions, replay_events = portfolio_risk.replay_positions(plans, bars_map, window_start, today, layer, links)
-        dates = portfolio_risk.nav_dates(bars_map, window_start, today)
+        positions, replay_events = portfolio_risk.replay_positions(
+            plans, bars_map, window_start, replay_today, layer, links
+        )
+        dates = portfolio_risk.nav_dates(bars_map, window_start, replay_today)
         nav = portfolio_risk.compose_nav(positions, dates, float(feeRate))
         payload = portfolio_risk.aggregate_portfolio(
             plans=plans,
@@ -822,7 +922,7 @@ def create_app() -> FastAPI:
             links=links,
             layer=layer,
             window_start=window_start,
-            today=today,
+            today=replay_today,
             fee_rate=float(feeRate),
             industry=industry,
             industry_status=industry_status,
@@ -832,6 +932,13 @@ def create_app() -> FastAPI:
         payload["nav"]["feeCum"] = nav["feeCum"]
         payload["nav"]["feeSum"] = nav["feeSum"]
         payload["degraded"] = sorted(set(degraded))  # 降级不得静默（同复盘）
+        if asOfDate:
+            market_coverage = snapshot_state.get("coverage") or snapshot_query.SnapshotCoverage(asOfDate)
+            payload["snapshot"] = {
+                "degraded": bool(market_coverage.degraded or industry_coverage.degraded),
+                "market": market_coverage.to_dict(),
+                "industry": industry_coverage.to_dict(),
+            }
         # bars 取数受 BARS_LIMIT 根上限：轴被拉满即窗起点存在截断，如实披露（评审 F2——判据与 days/start 解耦；
         # 值为多码并集轴首日；无截断不产该键，聚合层 T5 三处缺席钉语义不变）
         if len(dates) >= plan_review.BARS_LIMIT:
