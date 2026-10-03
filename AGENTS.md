@@ -52,7 +52,7 @@ backend/
   assist/                 交易辅助：build_plan_draft 草案服务 / 单笔风险 calculator / 滑窗限频 limiter
   sources/                数据源适配器（tencent/eastmoney/mock_us + base/router/cn_impl 日历与归一化）
   schemas.py              30 个 Pydantic 请求/响应模型
-  storage.py              SQLAlchemy 模型 + 持久化助手（17 张表，含 snapshot_runs/closes/industries/audits 四张 PIT 快照表）
+  storage.py              SQLAlchemy 模型 + 持久化助手（18 张表，含 4 张 PIT 快照表与 screener_custom_strategies）
   settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN, MOCK_US_ENABLED, CROSS_CHECK_ENABLED）
   migrations/             Alembic 迁移脚本（基线 + 前向迁移，最新 p3pit20260918 PIT 快照四表）
 frontend/
@@ -64,6 +64,7 @@ frontend/
     styles.css            全部样式（CSS 变量，单文件）
     components/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
+      CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；乐观锁 409 回显）
     api/
       client.ts           类似 Axios 的 fetch 封装
     stores/               12 个 Pinia 状态仓库
@@ -100,6 +101,7 @@ tests/
   test_cached_facade.py   cached()×门面接线：L2 回填/写穿/降级真实 age/screener 零触达/quotes 键归一
   test_minute_path.py     受保护分钟线：令牌桶/熔断半开/ETL 互斥/L1 逐出/降级态矩阵
   test_p3_snapshots.py    P3 PIT 快照：状态映射/停牌无前收/审计幂等与哈希/回填冲突/asOfDate 接入
+  test_custom_strategies.py 自定义选股策略：CRUD/原子乐观锁/事务删除引用快照/白名单与资源上界/扫描联动
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
   frontend/               21 个 vitest 测试文件（共 220 项测试）

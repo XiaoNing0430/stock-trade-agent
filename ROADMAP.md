@@ -89,7 +89,10 @@
     （严格不跨日回退，三类缺失如实披露）。设计：`docs/superpowers/specs/2026-09-18-p3-pit-snapshots-design.md`
 
 ### 研究体验
-- [ ] P3 自定义策略编辑器：前端表单编辑 quick_filters / 因子权重 / 参数，存 DB（不止内置 JSON）
+- [x] P3 自定义策略编辑器：前端表单编辑 quick_filters / 因子权重 / 参数，存 DB（不止内置 JSON）
+  - 完成（2026-10-03）：screener_custom_strategies 表 + CRUD API（version 乐观锁 409/事务删除引用快照/
+    因子与 quick_filters 白名单 + 资源上界）+ CustomStrategyDialog（空白新建/从内置复制）+ 扫描联动；
+    设计：`docs/superpowers/specs/2026-10-03-custom-strategy-editor-design.md`
 - [ ] P3 多策略回测对比 + CSV 导出
 - [ ] P3 多语言（英文 UI）/ 自定义主题配色
 
