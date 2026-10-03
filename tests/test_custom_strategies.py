@@ -103,3 +103,26 @@ def test_get_custom_strategy_roundtrip(factory):
     loaded = storage.get_custom_strategy(created["id"])
     assert loaded is not None and loaded["description"] == "desc" and loaded["version"] == 1
     assert storage.get_custom_strategy("custom_deadbeefdead") is None
+
+
+def test_factor_and_quick_filter_whitelists_and_bounds():
+    from backend.screener.loader import ScreenerStrategyConfig, list_strategies
+
+    def build(factors, filters=None):
+        return ScreenerStrategyConfig.model_validate(
+            {"id": "t", "name": "t", "quick_filters": filters or {}, "advanced_factors": factors}
+        )
+
+    with pytest.raises(ValueError, match="factor name must be one of"):
+        build([{"name": "made_up", "operator": ">", "threshold": 1}])
+    with pytest.raises(ValueError):
+        build([{"name": "rsi", "operator": ">", "threshold": 1, "weight": 101}])  # weight 上界
+    with pytest.raises(ValueError):
+        build([{"name": "rsi", "operator": ">", "threshold": 1, "weight": 0.001}])  # weight 下界
+    with pytest.raises(ValueError):
+        build([{"name": "rsi", "operator": ">", "threshold": float("inf")}])  # 非有限值
+    with pytest.raises(ValueError):
+        build([{"name": "rsi", "operator": ">", "threshold": 1} for _ in range(21)])  # 因子条数上限
+    with pytest.raises(ValueError, match="not allowed"):
+        build([], filters={"marketCap": [0, 1]})  # 未知 quick_filter 字段
+    assert len(list_strategies()) >= 2  # 内置配置在加严后仍全部合法
