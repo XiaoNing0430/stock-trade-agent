@@ -128,11 +128,15 @@ class FakeScheduler:
         self.calls.append(kwargs)
 
 
-def test_register_jobs_three_triggers_overlap_flags():
+def test_register_jobs_four_triggers_overlap_flags():
     calls = bars_etl.register_jobs(FakeScheduler())
-    assert len(calls) == 3
+    assert len(calls) == 4
     ids = {c["id"] for c in calls}
-    assert ids == {"bars-etl-startup", "bars-etl-daily", "bars-etl-weekly"}
+    assert ids == {"bars-etl-startup", "bars-etl-daily", "bars-etl-weekly", "bars-crosscheck"}
+    crosscheck = next(c for c in calls if c["id"] == "bars-crosscheck")
+    assert crosscheck["trigger"] == "cron" and crosscheck["day_of_week"] == "mon-fri"
+    assert crosscheck["hour"] == 15 and crosscheck["minute"] == 35
+    assert crosscheck["kwargs"] == {}  # 运行时按有效开关/token 自动路由（spec 2026-10-03）
     for c in calls:
         assert c["max_instances"] == 1 and c["coalesce"] is True and c["misfire_grace_time"] == 300
         assert c["replace_existing"] is True
