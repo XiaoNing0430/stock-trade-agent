@@ -295,6 +295,22 @@ class ScreenerStrategyRunIn(BaseModel):
     referenceDate: str | None = None  # YYYY-MM-DD；默认上一交易日
 
 
+class CustomStrategyIn(BaseModel):
+    """POST/PUT 自定义选股策略请求体（camelCase；形状/上界校验在存储层 ScreenerStrategyConfig）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    description: str = ""
+    quickFilters: dict[str, Any] = Field(default_factory=dict)
+    advancedFactors: list[dict[str, Any]] = Field(default_factory=list)
+    sortBy: str = "changePct"
+    topN: int | None = None
+    deepCap: int | None = None
+    sourceBuiltin: str | None = None
+    version: int | None = None  # PUT 必携（乐观锁）；POST 忽略
+
+
 class ScreenerStrategyOut(BaseModel):
     """POST /api/screener/strategy 响应；rows 内含 score/factors/roe 等透传字段。"""
 

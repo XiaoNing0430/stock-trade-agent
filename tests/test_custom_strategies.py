@@ -158,3 +158,78 @@ def test_pipeline_invalidate_strategy_drops_cache_keys():
     assert pipeline.invalidate_strategy("custom_x") == 2
     assert set(pipeline._cache) == {"screener:other:quick:CN"}
     assert pipeline.invalidate_strategy("custom_x") == 0  # 幂等
+
+
+def test_custom_strategy_api_crud_roundtrip(monkeypatch):
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        created = client.post(
+            "/api/screener/custom-strategies",
+            json={
+                "name": "测试策略",
+                "description": "d",
+                "quickFilters": {"pe": [0, 25]},
+                "advancedFactors": [{"name": "rsi", "period": 14, "operator": "<", "threshold": 30, "weight": 2}],
+            },
+        )
+        assert created.status_code == 200, created.text
+        row = created.json()
+        assert row["id"].startswith("custom_") and row["version"] == 1
+
+        merged = client.get("/api/screener/strategies").json()["strategies"]
+        mine = next(s for s in merged if s["id"] == row["id"])
+        assert mine["custom"] is True and mine["version"] == 1 and mine["topN"] == 10
+        assert all(s.get("custom") is not True for s in merged if s["id"] != row["id"])  # 内置行零变化
+
+        single = client.get(f"/api/screener/custom-strategies/{row['id']}").json()
+        assert single["scanReferences"] == [] and single["config"]["top_n"] == 10
+
+        updated = client.put(
+            f"/api/screener/custom-strategies/{row['id']}",
+            json={"name": "测试策略2", "version": 1, "quickFilters": {}, "advancedFactors": [], "topN": 5},
+        )
+        assert updated.status_code == 200 and updated.json()["version"] == 2
+
+        conflict = client.put(
+            f"/api/screener/custom-strategies/{row['id']}",
+            json={"name": "x", "version": 1, "quickFilters": {}, "advancedFactors": []},
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"]["code"] == "SCREENER_STRATEGY_CONFLICT"
+        assert conflict.json()["detail"]["server"]["version"] == 2
+
+        gone = client.delete(f"/api/screener/custom-strategies/{row['id']}")
+        assert gone.status_code == 200 and gone.json()["scanReferences"] == []
+        assert client.delete(f"/api/screener/custom-strategies/{row['id']}").status_code == 404
+
+
+def test_custom_strategy_api_validation_and_missing_version(monkeypatch):
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        bad = client.post("/api/screener/custom-strategies", json={"name": "坏", "quickFilters": {"marketCap": [0, 1]}})
+        assert bad.status_code == 422
+        no_version = client.put("/api/screener/custom-strategies/custom_x", json={"name": "n"})
+        assert no_version.status_code == 422
+        assert client.get("/api/screener/custom-strategies/custom_nope").status_code == 404
+
+
+def test_custom_strategy_api_list_search(monkeypatch):
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        for i in range(3):
+            resp = client.post(
+                "/api/screener/custom-strategies",
+                json={"name": f"动量{i}", "advancedFactors": [{"name": "momentum", "operator": ">", "threshold": 0}]},
+            )
+            assert resp.status_code == 200, resp.text
+        listed = client.get("/api/screener/custom-strategies", params={"search": "动量1"}).json()
+        assert listed["total"] == 1 and listed["strategies"][0]["name"] == "动量1"

@@ -38,6 +38,7 @@ from backend.grid_scheduler import (
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
 from backend.industry_map import get_industry_map, refresh_industry_map
 from backend.schemas import (
+    CustomStrategyIn,
     DeleteOut,
     GridBacktestIn,
     GridBacktestOut,
@@ -74,8 +75,11 @@ from backend.settings import get_settings
 from backend.sources import build_router, get_all_sources_info
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
+    CustomStrategyConflict,
     cleanup_legacy_index_qfq,
+    delete_custom_strategy,
     delete_grid_strategy,
+    get_custom_strategy,
     get_grid_strategy,
     get_scan_config,
     get_strategy,
@@ -83,10 +87,12 @@ from backend.storage import (
     get_workspace_revision,
     get_workspace_settings,
     initialize_storage,
+    list_custom_strategies,
     list_enabled_scan_configs,
     list_grid_strategies,
     list_scan_configs,
     list_scan_history,
+    list_scan_references,
     list_strategies,
     load_market_bars,
     save_grid_backtest,
@@ -97,6 +103,7 @@ from backend.storage import (
     save_workspace,
     save_workspace_settings,
     storage_status,
+    upsert_custom_strategy,
     upsert_scan_config,
     validate_plan_links,
 )
@@ -112,10 +119,12 @@ ERR_UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"  # 502 行情/排名上游失�
 ERR_VALIDATION_ERROR = "VALIDATION_ERROR"  # 422 参数/设置/策略类型
 ERR_NOT_FOUND = "NOT_FOUND"  # 404 资源不存在
 ERR_RATE_LIMITED = "RATE_LIMITED"  # 429 草案限频
+ERR_SCREENER_STRATEGY_CONFLICT = "SCREENER_STRATEGY_CONFLICT"  # 409 自定义策略乐观锁冲突
 
 logger = logging.getLogger("atlas.assist")
 review_logger = logging.getLogger("atlas.review")  # 计划复盘独立通道：上游失败 codes 落日志（r3.1）
 industry_logger = logging.getLogger("atlas.industry")  # 行业映射后台预热独立通道（Task 2）
+screener_logger = logging.getLogger("atlas.screener")  # 自定义选股策略写路径与删除快照通道
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -561,7 +570,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/screener/strategies")
     def screener_strategies():
-        from backend.screener.loader import list_strategies
+        from backend.screener.loader import list_strategies as list_builtin_strategies
 
         strategies = [
             {
@@ -573,8 +582,27 @@ def create_app() -> FastAPI:
                 "deepCap": c.deep_cap,
                 "factorCount": len(c.advanced_factors),
             }
-            for c in list_strategies()
+            for c in list_builtin_strategies()
         ]
+        # 自定义策略合并（custom 标志 + 乐观锁 version）；内置行字段零变化
+        try:
+            custom_rows, _total = list_custom_strategies(limit=500)
+        except Exception:
+            custom_rows = []
+        strategies.extend(
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "sortBy": str(r["config"].get("sort_by") or "changePct"),
+                "topN": int(r["config"].get("top_n") or 10),
+                "deepCap": int(r["config"].get("deep_cap") or 200),
+                "factorCount": len(r["config"].get("advanced_factors") or []),
+                "custom": True,
+                "version": r["version"],
+            }
+            for r in custom_rows
+        )
         return {"strategies": strategies}
 
     @app.post("/api/screener/strategy", response_model=ScreenerStrategyOut)
@@ -601,6 +629,90 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
         return ScreenerStrategyOut(**result)
+
+    def _invalidate_custom_strategy_cache(strategy_id: str) -> None:
+        pipeline = _strategy_pipeline.get("p")
+        if pipeline is None:
+            return
+        try:
+            pipeline.invalidate_strategy(strategy_id)
+        except Exception:
+            logger.warning("screener.custom_cache_invalidate_failed", extra={"strategyId": strategy_id})
+
+    @app.get("/api/screener/custom-strategies")
+    def custom_strategies_list(
+        search: str = Query(default=""),
+        limit: int = Query(default=200, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        try:
+            rows, total = list_custom_strategies(search=search, limit=limit, offset=offset)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"自定义策略读取失败: {exc}") from exc
+        return {"strategies": rows, "total": total}
+
+    def _write_custom_strategy(payload: CustomStrategyIn, strategy_id: str | None, expected_version: int | None):
+        data = {
+            "name": payload.name,
+            "description": payload.description,
+            "quick_filters": payload.quickFilters,
+            "advanced_factors": payload.advancedFactors,
+            "sort_by": payload.sortBy,
+            "top_n": payload.topN,
+            "deep_cap": payload.deepCap,
+            "source_builtin": payload.sourceBuiltin,
+        }
+        try:
+            row = upsert_custom_strategy(data, strategy_id=strategy_id, expected_version=expected_version)
+        except CustomStrategyConflict as exc:
+            raise api_error(
+                409,
+                ERR_SCREENER_STRATEGY_CONFLICT,
+                "策略已被其他页面更新，请刷新后重试",
+                server=exc.server_row,
+            ) from exc
+        except ValueError as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"保存自定义策略失败: {exc}") from exc
+        _invalidate_custom_strategy_cache(row["id"])
+        return row
+
+    @app.post("/api/screener/custom-strategies")
+    def custom_strategies_create(payload: CustomStrategyIn) -> dict[str, Any]:
+        return _write_custom_strategy(payload, strategy_id=None, expected_version=None)
+
+    @app.get("/api/screener/custom-strategies/{strategy_id}")
+    def custom_strategies_get(strategy_id: str) -> dict[str, Any]:
+        try:
+            row = get_custom_strategy(strategy_id)
+            refs = list_scan_references(strategy_id)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"自定义策略读取失败: {exc}") from exc
+        if row is None:
+            raise api_error(404, ERR_NOT_FOUND, "未知自定义策略")
+        return {**row, "scanReferences": refs}
+
+    @app.put("/api/screener/custom-strategies/{strategy_id}")
+    def custom_strategies_update(strategy_id: str, payload: CustomStrategyIn) -> dict[str, Any]:
+        if payload.version is None:
+            raise api_error(422, ERR_VALIDATION_ERROR, "更新自定义策略必须携带 version（乐观锁）")
+        return _write_custom_strategy(payload, strategy_id=strategy_id, expected_version=payload.version)
+
+    @app.delete("/api/screener/custom-strategies/{strategy_id}")
+    def custom_strategies_delete(strategy_id: str) -> dict[str, Any]:
+        try:
+            result = delete_custom_strategy(strategy_id)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"删除自定义策略失败: {exc}") from exc
+        if result is None:
+            raise api_error(404, ERR_NOT_FOUND, "未知自定义策略")
+        screener_logger.info(
+            "screener.custom_strategy_deleted",
+            extra={"strategyId": strategy_id, "snapshot": result["deleted"]},
+        )
+        _invalidate_custom_strategy_cache(strategy_id)
+        return {"deleted": result["deleted"], "scanReferences": result["scanReferences"]}
 
     def _scan_config_out(cfg: dict[str, Any]) -> dict[str, Any]:
         from backend.screener.loader import load_strategy
