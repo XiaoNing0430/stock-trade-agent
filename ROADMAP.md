@@ -2,6 +2,7 @@
 
 ## 已发布版本
 
+- **v0.6.0** — 交易辅助决策闭环（P0 草案/仓位/回测联动 + P1 定时扫描/绩效复盘/组合风险视图）+ 策略引擎泛化（统一基类 + 六策略 + 多因子）+ 数据中台（全市场日线 ETL、Redis CacheFacade、DQ 守护）+ P2.5 受保护分钟线与跨源交叉校验 + P3 PIT 日快照归档与 `asOfDate` 历史口径
 - **v0.5.0** — 多数据源架构（DataSource ABC + 能力位 + Router，腾讯/东财/MockUS）+ 全市场选股器双源接入 + 策略选股管道（混合管道、声明式配置、无未来函数、缓存击穿防护、stale 降级、限频、可观测）
 - **v0.4.0** — 全栈工程化改造（ESLint/Prettier/ruff/mypy、Vite 8+TS 5.9、Pinia 8 store、Pydantic+Alembic、vitest+pytest-cov、GitHub Actions CI）
 
