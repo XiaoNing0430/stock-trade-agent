@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
@@ -334,5 +334,117 @@ describe('ViewScreener', () => {
 
     expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
     expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
+  });
+});
+
+describe('ViewScreener 自定义策略编辑器', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+  });
+
+  function builtinRow() {
+    return {
+      id: 'oversold_bounce',
+      name: '超跌反弹',
+      description: '内置',
+      sortBy: 'changePct',
+      topN: 10,
+      deepCap: 200,
+      factorCount: 1,
+      quickFilters: { pe: [0, 25] },
+      advancedFactors: [{ name: 'rsi', period: 14, operator: '<', threshold: 30, weight: 2 }],
+    };
+  }
+
+  async function openEditor() {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategies = [builtinRow()];
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('[data-testid="new-custom-strategy"]').trigger('click');
+    await flushPromises();
+    return { screener, wrapper };
+  }
+
+  it('新建模式渲染编辑器表单与 fork 下拉', async () => {
+    const { wrapper } = await openEditor();
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(true);
+    expect(wrapper.find('input[aria-label="策略名称"]').exists()).toBe(true);
+    expect(wrapper.find('select[aria-label="从内置策略复制"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('粗筛区间');
+  });
+
+  it('从内置策略复制预填表单（名称加副本后缀）', async () => {
+    const { wrapper } = await openEditor();
+    await wrapper.find('select[aria-label="从内置策略复制"]').setValue('oversold_bounce');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '预填')!
+      .trigger('click');
+    const nameInput = wrapper.find('input[aria-label="策略名称"]');
+    expect((nameInput.element as HTMLInputElement).value).toBe('超跌反弹（副本）');
+    expect(wrapper.findAll('.factor-row').length).toBe(1);
+  });
+
+  it('保存组装 POST payload（空粗筛区间被过滤）', async () => {
+    const { wrapper } = await openEditor();
+    // workspace.requestJson 走原生 fetch——这里 stub 全局 fetch（响应形状 = workspace 契约）
+    const fetchMock = vi.fn(async (_url: string | URL, _options?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ strategies: [], total: 0 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await wrapper.find('input[aria-label="策略名称"]').setValue('我的动量');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '添加因子')!
+      .trigger('click');
+    await wrapper.find('select[aria-label="因子1"]').setValue('momentum');
+    await wrapper.find('input[aria-label="权重"]').setValue('1.5');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+    const post = fetchMock.mock.calls.find(
+      (c) => String(c[0]) === '/api/screener/custom-strategies' && c[1]?.method === 'POST'
+    );
+    expect(post).toBeTruthy();
+    const body = JSON.parse(post![1]!.body as string);
+    expect(body.name).toBe('我的动量');
+    expect(body.quickFilters).toEqual({});
+    expect(body.advancedFactors).toEqual([{ name: 'momentum', period: 14, operator: '<', threshold: 30, weight: 1.5 }]);
+  });
+
+  it('乐观锁 409：显示冲突横幅并回显服务器版本', async () => {
+    const { wrapper } = await openEditor();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        headers: { get: () => null },
+        json: async () => ({
+          detail: {
+            error: '策略已被其他页面更新，请刷新后重试',
+            code: 'SCREENER_STRATEGY_CONFLICT',
+            server: { version: 7, name: '服务器名', config: { quick_filters: {}, advanced_factors: [] } },
+          },
+        }),
+      }))
+    );
+    await wrapper.find('input[aria-label="策略名称"]').setValue('本地输入');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+    expect(wrapper.find('[data-testid="conflict-banner"]').text()).toContain('已被其他页面更新');
   });
 });

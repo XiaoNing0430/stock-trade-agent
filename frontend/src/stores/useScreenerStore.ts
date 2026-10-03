@@ -285,6 +285,61 @@ export const useScreenerStore = defineStore('screener', () => {
       .map(([name, f]: any) => `${name} ${String(f.value)}`);
   }
 
+  // ---- 自定义策略（P3 编辑器）----
+
+  const customStrategies = ref<any[]>([]);
+  const strategyEditorOpen = ref(false);
+  const strategyEditorId = ref<string | null>(null); // null=新建
+
+  async function loadCustomStrategies() {
+    try {
+      const payload = await workspace.requestJson('/api/screener/custom-strategies');
+      customStrategies.value = payload.strategies || [];
+    } catch {
+      customStrategies.value = [];
+    }
+  }
+
+  function openStrategyEditor(id: string | null) {
+    strategyEditorId.value = id;
+    strategyEditorOpen.value = true;
+  }
+
+  function closeStrategyEditor() {
+    strategyEditorOpen.value = false;
+    strategyEditorId.value = null;
+  }
+
+  async function loadCustomStrategyForEdit(id: string) {
+    // 单条含完整 config 与 scanReferences（乐观锁 version 亦在响应中）
+    return workspace.requestJson(`/api/screener/custom-strategies/${encodeURIComponent(id)}`);
+  }
+
+  async function saveCustomStrategy(payload: any) {
+    const id = strategyEditorId.value;
+    const url = id ? `/api/screener/custom-strategies/${encodeURIComponent(id)}` : '/api/screener/custom-strategies';
+    const saved = await workspace.requestJson(url, {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    closeStrategyEditor();
+    await Promise.all([loadCustomStrategies(), loadStrategies()]);
+    workspace.showToast(id ? '自定义策略已更新' : '自定义策略已创建');
+    return saved;
+  }
+
+  async function removeCustomStrategy(id: string) {
+    const result = await workspace.requestJson(`/api/screener/custom-strategies/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    await Promise.all([loadCustomStrategies(), loadStrategies()]);
+    if (strategyName.value === id) {
+      strategyName.value = strategies.value[0]?.id || 'oversold_bounce';
+    }
+    workspace.showToast('自定义策略已删除');
+    return result;
+  }
+
   return {
     screenRows,
     screenTotal,
@@ -328,5 +383,14 @@ export const useScreenerStore = defineStore('screener', () => {
     runStrategy,
     switchStrategyMode,
     strategyFactorTags,
+    customStrategies,
+    strategyEditorOpen,
+    strategyEditorId,
+    loadCustomStrategies,
+    openStrategyEditor,
+    closeStrategyEditor,
+    loadCustomStrategyForEdit,
+    saveCustomStrategy,
+    removeCustomStrategy,
   };
 });

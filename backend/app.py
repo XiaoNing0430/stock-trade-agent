@@ -581,6 +581,9 @@ def create_app() -> FastAPI:
                 "topN": c.top_n,
                 "deepCap": c.deep_cap,
                 "factorCount": len(c.advanced_factors),
+                # fork 预填所需完整配置（加性字段，兼容既有消费）
+                "quickFilters": {k: list(v) for k, v in c.quick_filters.items()},
+                "advancedFactors": [f.model_dump() for f in c.advanced_factors],
             }
             for c in list_builtin_strategies()
         ]
@@ -598,6 +601,8 @@ def create_app() -> FastAPI:
                 "topN": int(r["config"].get("top_n") or 10),
                 "deepCap": int(r["config"].get("deep_cap") or 200),
                 "factorCount": len(r["config"].get("advanced_factors") or []),
+                "quickFilters": {k: list(v) for k, v in (r["config"].get("quick_filters") or {}).items()},
+                "advancedFactors": r["config"].get("advanced_factors") or [],
                 "custom": True,
                 "version": r["version"],
             }
