@@ -100,9 +100,14 @@ def list_strategies() -> list[ScreenerStrategyConfig]:
 
 
 def load_strategy(strategy_id: str) -> ScreenerStrategyConfig:
-    """加载单个策略；未知 id 抛 ValueError。"""
+    """加载策略：内置文件优先（防碰撞安全网）→ 自定义 DB；未知 id 抛 ValueError。"""
     path = resources.files(__package__).joinpath(_CONFIGS_DIR).joinpath(f"{strategy_id}.json")
-    if not path.is_file():
-        raise ValueError(f"unknown strategy: {strategy_id}")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return ScreenerStrategyConfig.model_validate(data)
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return ScreenerStrategyConfig.model_validate(data)
+    from backend import storage
+
+    row = storage.get_custom_strategy(strategy_id)
+    if row is not None:
+        return ScreenerStrategyConfig.model_validate(row["config"])
+    raise ValueError(f"unknown strategy: {strategy_id}")

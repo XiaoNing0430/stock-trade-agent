@@ -126,3 +126,35 @@ def test_factor_and_quick_filter_whitelists_and_bounds():
     with pytest.raises(ValueError, match="not allowed"):
         build([], filters={"marketCap": [0, 1]})  # 未知 quick_filter 字段
     assert len(list_strategies()) >= 2  # 内置配置在加严后仍全部合法
+
+
+def test_load_strategy_resolves_custom_and_builtin(factory):
+    from backend.screener.loader import load_strategy
+
+    assert load_strategy("oversold_bounce").name == "超跌反弹"  # 内置优先不受自定义影响
+    created = storage.upsert_custom_strategy(
+        {"name": "自定策略", **VALID_CONFIG}, strategy_id=None, expected_version=None
+    )
+    cfg = load_strategy(created["id"])
+    assert cfg.id == created["id"] and cfg.name == "自定策略"
+    with pytest.raises(ValueError, match="unknown strategy"):
+        load_strategy("custom_doesnotexist")
+
+
+def test_pipeline_invalidate_strategy_drops_cache_keys():
+    import threading
+
+    from backend.screener.pipeline import ScreenerPipeline
+
+    pipeline = ScreenerPipeline.__new__(ScreenerPipeline)  # 仅验证 _cache 前缀失效，不构造依赖
+    pipeline._cache = {
+        "screener:custom_x:quick:CN": ({"rows": []}, 1.0),
+        "screener:custom_x:deep:CN": ({"rows": []}, 1.0),
+        "screener:other:quick:CN": ({"rows": []}, 1.0),
+    }
+    pipeline._locks = {}
+    pipeline._rate_lock = threading.Lock()
+
+    assert pipeline.invalidate_strategy("custom_x") == 2
+    assert set(pipeline._cache) == {"screener:other:quick:CN"}
+    assert pipeline.invalidate_strategy("custom_x") == 0  # 幂等
