@@ -37,7 +37,8 @@
 
 ## API（camelCase；保留既有字段名；错误走既有 api_error 契约 detail.error + detail.code）
 
-- `GET /api/screener/custom-strategies?search=&limit=&offset=` → 名称子串搜索 + 分页（默认 limit 200，updated_at desc；本地单用户量级上限足够）；每项含 `version` 与 `scanReferences`（引用它的扫描配置列表，供删除确认）
+- `GET /api/screener/custom-strategies?search=&limit=&offset=` → 名称子串搜索 + 分页（默认 limit 200，updated_at desc；本地单用户量级上限足够）；每项含 `version`；**不含** `scanReferences`（列表瘦身，2026-10-03 计划钉子 #5）
+- `GET /api/screener/custom-strategies/{id}` → 单条含完整 `config` 与 `scanReferences`（编辑/删除对话框打开时按需取）
 - `POST /api/screener/custom-strategies` → 创建（服务端生成 id 与 version=1；校验失败 422 中文 detail + 机器可读 code）
 - `PUT /api/screener/custom-strategies/{id}` → 携带 `version`；成功返回新 version；不匹配 409（新增错误码 `SCREENER_STRATEGY_CONFLICT`，detail 含服务器最新行）
 - `DELETE /api/screener/custom-strategies/{id}` → 事务内复查引用并删除；响应含删除时点 `scanReferences` 快照；★删除写结构化日志（含完整 config 快照，硬删除后可凭日志手工重建）
@@ -48,7 +49,7 @@
 ## 前端（ViewScreener 策略标签页）
 
 - 自定义条目（`custom` 角标 + 编辑/删除）；运行入口与内置一致。
-- `CustomStrategyDialog.vue`：名称/描述；quick_filters 固定 5 字段行（min/max 可空）；因子动态行（7 因子下拉 + period 2-250 + operator 4 选 + threshold + weight 0.01-100，≤20 行，可增删）；sort_by + top_n(1-100) + deep_cap(1-1000)；「从内置复制」预填；422 中文 detail + code 原样展示；409 冲突提示"策略已被其他页面更新"并重载服务器版本（不自动覆盖本地编辑）。
+- `CustomStrategyDialog.vue`：名称/描述；quick_filters 固定 5 字段行（min/max 可空）；因子动态行（7 因子下拉 + period 2-250 + operator 4 选 + threshold + weight 0.01-100，≤20 行，可增删）；sort_by + top_n(1-100) + deep_cap(1-1000)；「从内置复制」预填；422 中文 detail + code 原样展示；409 冲突提示"策略已被其他页面更新"，**保留本地编辑**，仅以服务器行刷新 `version`（否则重试必然再 409）并在横幅展示服务器最新版本与名称——绝不整体覆盖表单（2026-10-03 硬化）。
 - ★XSS 纪律：名称/描述一律 Vue 文本插值（框架自动转义），**禁止 v-html**；与既有 showToast textContent / chartSvg escapeHtml 纪律并列执行。
 - `useScreenerStore` 增加 customStrategies 状态与 CRUD 方法；api/client.ts 增对应请求。
 
@@ -65,3 +66,15 @@
 - 列表：search/limit/offset 生效；合并列表形状内置行零变化；
 - `load_strategy` 解析顺序（内置优先、custom_ 走 DB、未知 ValueError）；管道跑自定义 id 与内置等价（离线）；
 - 前端：表单提交 payload、fork 预填、422/409 展示、名称描述文本插值（无 v-html）。
+
+## 审计硬化记录（2026-10-03，feature/custom-strategy-hardening）
+
+对已合入 `develop` 的实现逐条复核本 spec 后发现并修复（计划：`docs/superpowers/plans/2026-10-03-custom-strategy-hardening.md`）：
+
+1. **空数值输入**：Vue `v-model.number` 清空数字框会写回 `''`（不是 `null`），此前原样提交 → `float_parsing` 英文 422，quick_filters / topN / deepCap / 因子全中。现规定 `''` = 未填：前端归一为 `null`（区间）或省略键（有服务端默认值的字段回落默认）；因子 `threshold` 无默认值 → 前端中文内联拦截（不提交）+ 后端中文 422。后端 `ScreenerStrategyConfig` 亦做同样归一，挡住直接 API 调用。
+2. **409 语义**：原实现 `applyRow(server)` 整体覆盖用户本地编辑，且代码注释与行为相反。现只刷新 `form.version` 并保留本地输入。
+3. **文本上界**：`name ≤ 64` / `description ≤ 256`（对齐 DB 列宽）。此前越界在真库 PG 会 DataError → 被兜成 502，现为 422。
+4. **422 文案**：loader 校验器消息改中文 + storage 把 pydantic 首条错误映射为中文（形如 `因子 #1 阈值：…`），`detail.code` 保持 `VALIDATION_ERROR`，不再回显 pydantic 英文样板与 errors.pydantic.dev 链接。
+5. **补齐测试**：PUT/DELETE 缓存失效接线、删除日志含 config 快照、管道跑自定义 id 与内置策略等价（含缓存键隔离）、前端 422 展示与文本插值（无 v-html）。
+
+**未纳入本批**（记入 ROADMAP backlog）：`sort_by` 白名单、列表 `custom` 角标、`customStrategies` 冗余状态、`sourceBuiltin` 由 UI 提交、合并列表静默吞 DB 故障时缺日志、FastAPI 请求模型校验错误的响应契约形状。
