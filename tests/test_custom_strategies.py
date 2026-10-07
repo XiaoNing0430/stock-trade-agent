@@ -113,7 +113,7 @@ def test_factor_and_quick_filter_whitelists_and_bounds():
             {"id": "t", "name": "t", "quick_filters": filters or {}, "advanced_factors": factors}
         )
 
-    with pytest.raises(ValueError, match="factor name must be one of"):
+    with pytest.raises(ValueError, match="未知因子"):
         build([{"name": "made_up", "operator": ">", "threshold": 1}])
     with pytest.raises(ValueError):
         build([{"name": "rsi", "operator": ">", "threshold": 1, "weight": 101}])  # weight 上界
@@ -123,7 +123,7 @@ def test_factor_and_quick_filter_whitelists_and_bounds():
         build([{"name": "rsi", "operator": ">", "threshold": float("inf")}])  # 非有限值
     with pytest.raises(ValueError):
         build([{"name": "rsi", "operator": ">", "threshold": 1} for _ in range(21)])  # 因子条数上限
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="不支持的粗筛字段"):
         build([], filters={"marketCap": [0, 1]})  # 未知 quick_filter 字段
     assert len(list_strategies()) >= 2  # 内置配置在加严后仍全部合法
 
@@ -259,3 +259,194 @@ def test_scan_config_accepts_custom_strategy_and_isolates_after_delete(factory, 
         configs_after = client.get("/api/screener/scan/configs").json()["configs"]
         mine_after = next(c for c in configs_after if c["strategyId"] == created["id"])
         assert mine_after["strategyName"] == "（策略已不存在）"
+
+
+# ---------- 硬化：2026-10-03 审计发现的缺口 ----------
+
+
+def test_custom_strategy_api_write_paths_invalidate_cache(monkeypatch):
+    """POST/PUT/DELETE 写路径须主动失效该策略的进程内管道缓存。"""
+    import backend.screener.pipeline as pipeline_module
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+
+    class FakePipeline:
+        instances: list[FakePipeline] = []
+
+        def __init__(self, router, settings_getter=None, **kwargs):
+            self.invalidated: list[str] = []
+            FakePipeline.instances.append(self)
+
+        def run(self, strategy_id, mode="quick", refresh=False, reference_date=None):
+            return {
+                "strategy": strategy_id,
+                "name": "假策略",
+                "mode": mode,
+                "referenceDate": reference_date or "2026-10-02",
+                "provider": "fake",
+                "rows": [],
+            }
+
+        def invalidate_strategy(self, strategy_id: str) -> int:
+            self.invalidated.append(strategy_id)
+            return 0
+
+    monkeypatch.setattr(pipeline_module, "ScreenerPipeline", FakePipeline)
+    monkeypatch.setattr("backend.sources.build_router", lambda: object())
+
+    with TestClient(app_module.create_app()) as client:
+        # 先触发管道惰性建立，否则无缓存可失效（_invalidate_custom_strategy_cache 直接返回）
+        assert client.post("/api/screener/strategy", json={"strategy": "oversold_bounce"}).status_code == 200
+        pipeline = FakePipeline.instances[-1]
+
+        created = client.post("/api/screener/custom-strategies", json={"name": "接线"}).json()
+        cid = created["id"]
+        assert pipeline.invalidated == [cid]
+        assert (
+            client.put(f"/api/screener/custom-strategies/{cid}", json={"name": "接线2", "version": 1}).status_code
+            == 200
+        )
+        assert client.delete(f"/api/screener/custom-strategies/{cid}").status_code == 200
+        assert pipeline.invalidated == [cid, cid, cid]
+
+
+def test_custom_strategy_delete_logs_config_snapshot(monkeypatch, caplog):
+    """删除写结构化日志，含完整 config 快照（硬删除后可凭日志手工重建）。"""
+    import logging
+
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with caplog.at_level(logging.INFO, logger="atlas.screener"):
+        with TestClient(app_module.create_app()) as client:
+            created = client.post("/api/screener/custom-strategies", json={"name": "留痕", "topN": 7}).json()
+            assert client.delete(f"/api/screener/custom-strategies/{created['id']}").status_code == 200
+
+    records = [
+        r for r in caplog.records if r.name == "atlas.screener" and r.getMessage() == "screener.custom_strategy_deleted"
+    ]
+    assert len(records) == 1
+    assert getattr(records[0], "strategyId") == created["id"]
+    snapshot = getattr(records[0], "snapshot")
+    assert snapshot["id"] == created["id"]
+    assert snapshot["config"]["top_n"] == 7
+
+
+def test_pipeline_custom_strategy_equals_builtin(factory):
+    """管道跑自定义 id 与内置等价（同 config），且缓存键按策略 id 互不串。"""
+    from backend.screener.loader import load_strategy
+
+    from test_screener_pipeline import _bars, _make_pipeline, _row
+
+    builtin = load_strategy("oversold_bounce")
+    created = storage.upsert_custom_strategy(
+        {"description": "副本", **builtin.model_dump()}, strategy_id=None, expected_version=None
+    )
+    rows = [_row("600001", "超卖A"), _row("600002", "横盘B")]
+    bars = {"600001": _bars([100.0 - i for i in range(30)]), "600002": _bars([100.0] * 30)}
+    pipeline, _scr, _hist = _make_pipeline(rows, bars)
+
+    builtin_result = pipeline.run("oversold_bounce", mode="deep")
+    custom_result = pipeline.run(created["id"], mode="deep")
+
+    assert [r["code"] for r in builtin_result["rows"]] == [r["code"] for r in custom_result["rows"]]
+    assert [r["score"] for r in builtin_result["rows"]] == [r["score"] for r in custom_result["rows"]]
+    assert custom_result["cached"] is False
+    # 缓存键含策略 id：各自命中各自缓存
+    assert pipeline.run("oversold_bounce", mode="deep")["cached"] is True
+    assert pipeline.run(created["id"], mode="deep")["cached"] is True
+    assert pipeline.invalidate_strategy(created["id"]) == 1  # 仅 deep 一份
+
+
+def test_custom_strategy_api_normalizes_empty_numeric_strings(monkeypatch):
+    """空数值输入（Vue v-model.number 清空 → ''）视为未填，绝不猜数、绝不 422。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        response = client.post(
+            "/api/screener/custom-strategies",
+            json={
+                "name": "空值归一",
+                "quickFilters": {"pe": ["", None], "pb": [None, ""], "amount": ["", ""]},
+                "advancedFactors": [{"name": "rsi", "period": "", "operator": "<", "threshold": 30, "weight": ""}],
+                "topN": "",
+                "deepCap": "",
+            },
+        )
+        assert response.status_code == 200, response.text
+        config = response.json()["config"]
+        # 两侧皆空的区间整键丢弃（等价于「不设限」）
+        assert config["quick_filters"] == {}
+        # 有服务端默认值的字段：省略键 → 默认生效（未填语义）
+        assert config["top_n"] == 10
+        assert config["deep_cap"] == 200
+        factor = config["advanced_factors"][0]
+        assert factor["period"] == 14 and factor["weight"] == 1.0
+        assert factor["threshold"] == 30.0
+
+
+def test_custom_strategy_api_rejects_empty_threshold_with_chinese_detail(monkeypatch):
+    """因子阈值必填且无默认值：留空 → 422 中文提示（不得静默取默认或回 pydantic 英文）。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        response = client.post(
+            "/api/screener/custom-strategies",
+            json={"name": "空阈值", "advancedFactors": [{"name": "rsi", "operator": "<", "threshold": ""}]},
+        )
+        assert response.status_code == 422, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "VALIDATION_ERROR"
+        assert "阈值" in detail["error"]
+        assert "errors.pydantic.dev" not in detail["error"]
+
+
+def test_custom_strategy_api_rejects_overlong_name_and_description(monkeypatch):
+    """name ≤ 64 / description ≤ 256（对齐 DB 列宽）：越界 422，而非真库 DataError → 502。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        assert client.post("/api/screener/custom-strategies", json={"name": "x" * 64}).status_code == 200
+        too_long_name = client.post("/api/screener/custom-strategies", json={"name": "x" * 65})
+        assert too_long_name.status_code == 422, too_long_name.text
+        assert "名称" in too_long_name.json()["detail"]["error"]
+
+        assert (
+            client.post("/api/screener/custom-strategies", json={"name": "ok", "description": "d" * 256}).status_code
+            == 200
+        )
+        too_long_desc = client.post("/api/screener/custom-strategies", json={"name": "ok", "description": "d" * 257})
+        assert too_long_desc.status_code == 422, too_long_desc.text
+        assert "描述" in too_long_desc.json()["detail"]["error"]
+
+
+def test_custom_strategy_api_422_detail_is_chinese(monkeypatch):
+    """422 detail.error 面向用户：中文可读、无 pydantic 英文样板与文档链接。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        response = client.post(
+            "/api/screener/custom-strategies",
+            json={
+                "name": "坏因子",
+                "advancedFactors": [{"name": "made_up", "operator": ">", "threshold": 1}],
+            },
+        )
+        assert response.status_code == 422, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "VALIDATION_ERROR"
+        assert "因子" in detail["error"]
+        assert "errors.pydantic.dev" not in detail["error"]
+        assert "validation error for" not in detail["error"]
+        assert any("\u4e00" <= ch <= "\u9fff" for ch in detail["error"])

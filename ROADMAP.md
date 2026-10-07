@@ -93,6 +93,16 @@
   - 完成（2026-10-03）：screener_custom_strategies 表 + CRUD API（version 乐观锁 409/事务删除引用快照/
     因子与 quick_filters 白名单 + 资源上界）+ CustomStrategyDialog（空白新建/从内置复制）+ 扫描联动；
     设计：`docs/superpowers/specs/2026-10-03-custom-strategy-editor-design.md`
+  - 审计硬化（2026-10-03）：逐条复核 spec 后修复 4 项——空数值输入（`''`）不再产生英文 422、409 保留
+    本地编辑并只刷新 version、name/description 长度上界（真库 502 → 422）、422 文案中文化；补齐缓存失效
+    接线/删除日志快照/管道自定义 id 等价/前端 422 与插值 5 类测试；
+    计划：`docs/superpowers/plans/2026-10-03-custom-strategy-hardening.md`
+- [ ] P3 自定义策略编辑器剩余打磨项（2026-10-03 审计留档，低优先）：
+  `sort_by` 加白名单（未知值 `_sort_key` 返回 -inf，排序静默退化为上游原序）；策略下拉加 `custom` 角标
+  （当前仅选中后出现编辑/删除）；清理 `useScreenerStore.customStrategies` 冗余状态（合并列表已覆盖）；
+  fork 来源 `sourceBuiltin` 由 UI 提交（当前前端从不发，列恒空）；合并列表 `except Exception` 吞 DB 故障时
+  补日志（否则故障表现为「没有自定义策略」）；FastAPI 请求模型校验错误（如 advancedFactors 非数组）
+  仍返回默认 list 形状，未走既有 api_error 契约
 - [ ] P3 多策略回测对比 + CSV 导出
 - [ ] P3 多语言（英文 UI）/ 自定义主题配色
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class WorkspacePut(BaseModel):
@@ -309,6 +309,17 @@ class CustomStrategyIn(BaseModel):
     deepCap: int | None = None
     sourceBuiltin: str | None = None
     version: int | None = None  # PUT 必携（乐观锁）；POST 忽略
+
+    @field_validator("topN", "deepCap", "version", mode="before")
+    @classmethod
+    def _blank_numeric_to_none(cls, v: Any) -> Any:
+        """前端清空数字框（Vue v-model.number）送 `''`：视为未填，回落服务端默认而非 422。"""
+        return None if v == "" else v
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def _none_text_to_empty(cls, v: Any) -> Any:
+        return "" if v is None else v
 
 
 class ScreenerStrategyOut(BaseModel):

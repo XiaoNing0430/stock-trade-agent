@@ -64,7 +64,7 @@ frontend/
     styles.css            全部样式（CSS 变量，单文件）
     components/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
-      CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；乐观锁 409 回显）
+      CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；409 保留本地编辑仅刷新 version）
     api/
       client.ts           类似 Axios 的 fetch 封装
     stores/               12 个 Pinia 状态仓库
@@ -101,10 +101,12 @@ tests/
   test_cached_facade.py   cached()×门面接线：L2 回填/写穿/降级真实 age/screener 零触达/quotes 键归一
   test_minute_path.py     受保护分钟线：令牌桶/熔断半开/ETL 互斥/L1 逐出/降级态矩阵
   test_p3_snapshots.py    P3 PIT 快照：状态映射/停牌无前收/审计幂等与哈希/回填冲突/asOfDate 接入
-  test_custom_strategies.py 自定义选股策略：CRUD/原子乐观锁/事务删除引用快照/白名单与资源上界/扫描联动
+  test_custom_strategies.py 自定义选股策略：CRUD/原子乐观锁/事务删除引用快照/白名单与资源上界/扫描联动/
+                          空值归一与中文 422/缓存失效接线/管道自定义 id 等价/删除日志快照
+  test_screener_loader.py 声明式策略配置加载：内置 config 合法性 + 算子/因子/上界拒收
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
-  frontend/               21 个 vitest 测试文件（共 220 项测试）
+  frontend/               21 个 vitest 测试文件（共 232 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -143,8 +145,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（220 项，21 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（604 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
+npx vitest run                        # 前端单元测试（232 项，21 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（634 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -153,7 +155,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 
 注意：
 
-- 后端 pytest 运行覆盖率（≥80% 门禁，当前 92.9%）。
+- 后端 pytest 运行覆盖率（≥80% 门禁，当前 93.0%）。
 - `test_bars_etl.py` / `test_bars_etl_run.py` 设计为直连真实 PG（自造数据须 teardown 自清；`test_bars_etl_run.py` 的 autouse 夹具已哑化 run_full 的快照归档路径——**勿移除**，否则每次跑测试都会向真库写假水位快照）。
 - Pre-commit 钩子（`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`）在 `git commit` 时自动执行；mypy/eslint/prettier/vue-tsc 为仓库级全量钩子，任一历史文件不达标都会阻塞所有提交。
 - `npm run build` 也会在 Vite 打包前执行 `vue-tsc --noEmit` 作为类型检查门禁。
@@ -172,6 +174,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 - **前端轮询** 由 `armRefreshTimer()` 驱动，遵循 `settingsDraft.refreshInterval`；`refreshAll()` 通过 `refreshInFlight` 防止并发运行。
 - **工作区同步修订锁定：** `GET /api/workspace` 返回 `revision`；`PUT /api/workspace` 接受 `baseRevision`（冲突 → 409，`detail.workspace` 包含服务器快照）和 `force=true` 覆盖。前端在 `workspaceRevision` 中维护最新已知修订，通过 `settingsDraft.conflictPolicy` 解决 409：`server`（默认）自动采用服务器快照，`local` 自动强制保存本地版本，`ask` 显示冲突横幅"采用服务器版本" / "用本地覆盖"——绝不自动重试 409。
 - **网格回测日线分类：** 停牌 = `volume <= 0`。一字板（`high == low`, volume > 0）在涨停时仅可卖出，跌停时仅可买入。计数器：`onePriceLimitUpDays` / `onePriceLimitDownDays`（新增指标字段，累加性）。
+- **自定义选股策略输入语义（2026-10-03 硬化）：** 数字输入留空（Vue `v-model.number` 回写 `''`）= **未填**，绝不猜数：区间两侧皆空即「不设限」整键不发；`topN`/`deepCap`/因子 `period`/`weight` 省略键回落服务端既有默认；因子 `threshold` 无默认值 → 前端中文内联拦截不提交、后端中文 422。后端 `ScreenerStrategyConfig` 对 `''` 做同样归一，挡住直接 API 调用。422 `detail.error` 面向用户须为中文（`detail.code` 保持机器码 `VALIDATION_ERROR`）。
 - **`asOfDate` 历史口径（P3 PIT）：** 复盘/组合风险接受 `asOfDate`（"历史今天"，须为不晚于今天的交易日）：行情/行业走 PIT 快照路径，**严格不跨日回退**，缺失按 complete/degraded/no-run/failed 如实披露，绝不向前回补造数；行业快照最多回溯 20 个交易日，`pit_quality` 优先于距离，`inferred` 永远是 historical_fallback 且不可覆盖 `exact`；历史缺口只能显式回填（写审计）。
 - **分钟线受保护语义：** 分钟线仅自选/详情单码、用户手动触发；不落库、不进 ETL、不自动轮询全自选。独立令牌桶 1rps/burst 3（与日线节流隔离）、上游 3 败熔断 900s、501 单次即熔断、5xx 零重试、短 TTL（L1 15s / L2 120s）**无陈旧降级读**。降级态文案见 spec §6（`etl_busy`/`circuit_open`/`unavailable` 灰条、429 toast）。
 

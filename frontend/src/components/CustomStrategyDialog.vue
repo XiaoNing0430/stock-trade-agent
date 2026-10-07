@@ -125,6 +125,13 @@ const QUICK_FIELDS = [
 
 const screener = useScreenerStore();
 
+/** 数字输入归一：清空（`''` / null / undefined）或非有限值 → null（视为未填，绝不猜数）。 */
+function toNumberOrNull(value: unknown): number | null {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 const loading = ref(false);
 const saving = ref(false);
 const errorText = ref('');
@@ -239,25 +246,50 @@ async function save() {
     const quickFilters: Record<string, [number | null, number | null]> = {};
     for (const { key } of QUICK_FIELDS) {
       const { lo, hi } = form.quickFilters[key]!;
-      if (lo !== null || hi !== null) quickFilters[key] = [lo, hi];
+      const loNum = toNumberOrNull(lo);
+      const hiNum = toNumberOrNull(hi);
+      // 「留空 = 不设限」：清空数字框时 Vue .number 写回 ''，必须归一为 null，绝不提交 ''
+      if (loNum !== null || hiNum !== null) quickFilters[key] = [loNum, hiNum];
     }
+
+    const advancedFactors: Record<string, unknown>[] = [];
+    for (const [index, factor] of form.factors.entries()) {
+      const threshold = toNumberOrNull(factor.threshold);
+      if (threshold === null) {
+        // 阈值无服务端默认值：不猜数、不静默取默认，就地拦截并给中文提示
+        errorText.value = `第 ${index + 1} 条因子的阈值不能为空（必填）`;
+        return;
+      }
+      const row: Record<string, unknown> = { name: factor.name, operator: factor.operator, threshold };
+      const period = toNumberOrNull(factor.period);
+      if (period !== null) row.period = period; // 留空 → 省略键 → 服务端默认 14
+      const weight = toNumberOrNull(factor.weight);
+      if (weight !== null) row.weight = weight; // 留空 → 省略键 → 服务端默认 1
+      advancedFactors.push(row);
+    }
+
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
       description: form.description.trim(),
       quickFilters,
-      advancedFactors: form.factors.map((f) => ({ ...f })),
+      advancedFactors,
       sortBy: form.sortBy,
-      topN: form.topN,
-      deepCap: form.deepCap,
     };
+    const topN = toNumberOrNull(form.topN);
+    if (topN !== null) payload.topN = topN; // 留空 → 省略键 → 服务端默认 10
+    const deepCap = toNumberOrNull(form.deepCap);
+    if (deepCap !== null) payload.deepCap = deepCap; // 留空 → 省略键 → 服务端默认 200
     if (screener.strategyEditorId) payload.version = form.version;
     await screener.saveCustomStrategy(payload);
   } catch (error: any) {
     if (error?.status === 409) {
-      // 乐观锁冲突：不覆盖本地输入，加载服务器最新版本供参考后重试
+      // 乐观锁冲突：只刷新版本号（否则重试必然再 409），绝不自动覆盖本地编辑
       const server = error?.payload?.detail?.server || error?.detail?.server;
-      conflictText.value = '策略已被其他页面更新，已加载服务器最新版本；如需保留请重新调整后再保存';
-      if (server) applyRow(server);
+      const serverVersion = server?.version ?? null;
+      if (serverVersion !== null) form.version = serverVersion;
+      conflictText.value = server
+        ? `策略已被其他页面更新（服务器最新版本 v${server.version}：${server.name || '未命名'}）。你的本地修改已保留，确认后请再次保存。`
+        : '策略已被其他页面更新，请刷新后重试；你的本地修改已保留。';
     } else {
       errorText.value = error?.message || '保存失败';
     }
