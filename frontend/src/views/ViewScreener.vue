@@ -52,7 +52,9 @@
           <label class="field">
             <span>策略</span>
             <select v-model="strategyName" class="input">
-              <option v-for="s in strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
+              <option v-for="s in strategies" :key="s.id" :value="s.id">
+                {{ s.custom ? '自定义 · ' : '' }}{{ s.name }}
+              </option>
             </select>
           </label>
           <div class="field">

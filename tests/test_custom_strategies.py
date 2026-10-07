@@ -450,3 +450,69 @@ def test_custom_strategy_api_422_detail_is_chinese(monkeypatch):
         assert "errors.pydantic.dev" not in detail["error"]
         assert "validation error for" not in detail["error"]
         assert any("\u4e00" <= ch <= "\u9fff" for ch in detail["error"])
+
+
+# ---------- 打磨批：sort_by 白名单 / 合并列表日志 / 请求校验契约 ----------
+
+
+def test_custom_strategy_api_rejects_unknown_sort_by(monkeypatch):
+    """未知 sort_by 会在管道里静默退化为上游原序 → 挡在保存前，中文 422。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        response = client.post("/api/screener/custom-strategies", json={"name": "坏排序", "sortBy": "not_a_field"})
+        assert response.status_code == 422, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "VALIDATION_ERROR"
+        assert "排序字段" in detail["error"]
+
+
+def test_merged_strategy_list_logs_db_failure(monkeypatch, caplog):
+    """自定义策略读取失败时合并列表仍返回内置行，但必须留日志（否则 UI 只表现为「没有自定义策略」）。"""
+    import logging
+
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+
+    def boom(**kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(app_module, "list_custom_strategies", boom)
+    with caplog.at_level(logging.WARNING, logger="atlas.screener"):
+        with TestClient(app_module.create_app()) as client:
+            response = client.get("/api/screener/strategies")
+
+    assert response.status_code == 200
+    rows = response.json()["strategies"]
+    assert rows and all(row.get("custom") is not True for row in rows)  # 内置行照常返回
+    assert any(
+        record.name == "atlas.screener" and record.getMessage() == "screener.custom_strategies_list_failed"
+        for record in caplog.records
+    )
+
+
+def test_request_model_validation_follows_api_error_contract(monkeypatch):
+    """请求模型校验失败也走 api_error 契约（`detail.error` 字符串 + `detail.code`），不是 FastAPI 默认 list 形状。"""
+    from backend import app as app_module
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(storage, "SessionLocal", _session_factory())
+    with TestClient(app_module.create_app()) as client:
+        bad_body = client.post("/api/screener/custom-strategies", json={"name": "x", "advancedFactors": "notalist"})
+        assert bad_body.status_code == 422, bad_body.text
+        detail = bad_body.json()["detail"]
+        assert isinstance(detail, dict), detail
+        assert detail["code"] == "VALIDATION_ERROR"
+        assert "advancedFactors" in detail["error"]
+
+        # handler 是 app 级的：另一个端点同样适用
+        wrong_type = client.put("/api/workspace", json={"watchlist": "600519"})
+        assert wrong_type.status_code == 422
+        other_detail = wrong_type.json()["detail"]
+        assert isinstance(other_detail, dict), other_detail
+        assert other_detail["code"] == "VALIDATION_ERROR"
+        assert "watchlist" in other_detail["error"]
