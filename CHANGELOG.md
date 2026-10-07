@@ -2,6 +2,39 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.7.0] - 2026-10-03
+
+### 设置页 Tushare Token 与跨源交叉校验开关
+
+- 工作区设置新增 `tushareToken` 与三态 `crossCheckEnabled`（未设 = 跟随 env / 开 / 关）；**DB 显式值优先于 env**，页面开关即时生效（注册期 env 门改为运行时判定）。
+- 设置 API 掩码透传 token（明文永不回显；缺省不覆盖既有值）；设置页新增 Tushare 行与「T0 对拍前启用有偏差」警告。
+- `cross_check` 调度常驻注册，启用/停用不依赖进程重启。
+
+### 自定义策略编辑器（研究体验 P3）
+
+- 新表 `screener_custom_strategies`（Alembic 前向迁移）：服务端生成 `custom_<12hex>` id、`version` 乐观锁、`source_builtin` fork 来源。
+- CRUD 四端点 + 合并策略列表（内置行字段零变化，自定义行加 `custom` / `version`）：单条 `UPDATE ... WHERE id AND version` 原子乐观锁 → 409 携带服务器最新行；DELETE 在单事务内复查扫描引用 + 返回引用快照 + 结构化日志（含完整 config 快照，硬删后可凭日志重建）；列表名称搜索 + 分页；单条 GET 按需返回 `scanReferences`。
+- 校验加严：因子名 ∈ 7 因子白名单、`quick_filters` 字段白名单、因子 ≤ 20 条、`weight ∈ [0.01, 100]`、`threshold` 必须有限值且 |·| ≤ 1e6。
+- `load_strategy` 内置优先 → 自定义 DB 兜底（管道/扫描零改动）；PUT/DELETE 后按 `screener:{id}:` 前缀主动失效进程内管道缓存（含 stale 副本）。
+- 前端 `CustomStrategyDialog`：空白新建 / 「从内置复制」预填、粗筛 5 字段区间（留空 = 不设限）、≤20 因子行、名称描述文本插值（无 v-html）。
+
+### 自定义策略编辑器审计硬化
+
+- **空数值输入 = 未填**：`v-model.number` 清空数字框会回写 `''`，此前原样提交 → pydantic 英文 422。现区间两侧皆空则整键不发、有服务端默认值的字段省略键回落默认、因子 `threshold` 无默认值则前端中文内联拦截 + 后端中文 422；后端请求模型与配置模型同步归一，挡住直接 API 调用。
+- **409 冲突保留本地编辑**：只刷新 `version` 并可重试（此前整体覆盖用户输入，且注释与行为相反）。
+- **文本上界**：`name ≤ 64` / `description ≤ 256`（对齐 DB 列宽）→ 422；此前越界在真库 PG 会 DataError 被兜成 502。
+- **422 文案中文化**：loader 校验器消息 + pydantic 首条错误映射为中文（形如「因子 #1 阈值：…」），`detail.code` 保持机器码，不再回显 pydantic 英文样板与文档链接。
+- 补齐测试缺口：PUT/DELETE 缓存失效接线、删除日志含 config 快照、管道跑自定义 id 与内置等价（含缓存键隔离）、前端 422 展示与文本插值。
+
+### 修复
+
+- **部分构建产物不再让服务崩启动**：`frontend/dist` 存在但 `dist/assets` 缺失时（构建中断、或 Vite `emptyOutDir` 的建中窗口与运行中的服务/测试重叠），`create_app()` 会挂载不存在的目录而抛 `RuntimeError: Directory ... does not exist`，整个应用创建失败。现按 `dist/assets` 是否真实存在判定，缺失即回退源目录（与「无 dist」路径语义一致）。
+- 该缺陷由并发 `npm run build` + pytest 暴露（测试套件在构建删目录的窗口内建 app 即整批失败），**不是仓库既有 flake**：`npm run verify` 本身不含 build，连续 3 次全绿。
+
+### 工具链
+
+- **行尾纪律**：新增 `.gitattributes`（`* text=auto eol=lf`）+ `.prettierrc.json` 显式 `endOfLine: lf`。修复「pre-commit 仓库级 prettier 钩子把 CRLF 工作区文件改写成 LF → git status 记为已修改而 git diff 为空（索引未变）→ 每次提交留脏文件、阻塞 `git flow feature finish`」。索引与工作区统一 LF，与 CI（ubuntu）及 prettier/ruff/eslint 输出一致。
+
 ## [v0.6.0] - 2026-10-03
 
 ### 交易辅助决策闭环（P0/P1 主线）

@@ -114,6 +114,33 @@
           <i data-lucide="play" aria-hidden="true"></i>
           {{ strategyLoading ? '计算中…' : '运行策略' }}
         </button>
+        <button
+          class="button button-secondary"
+          type="button"
+          data-testid="new-custom-strategy"
+          @click="openStrategyEditor(null)"
+        >
+          <i data-lucide="pen-line" aria-hidden="true"></i>
+          自定义策略
+        </button>
+        <template v-if="selectedIsCustom">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-testid="edit-custom-strategy"
+            @click="openStrategyEditor(strategyName)"
+          >
+            编辑
+          </button>
+          <button
+            class="button button-secondary"
+            type="button"
+            data-testid="delete-custom-strategy"
+            @click="removeSelectedCustom"
+          >
+            删除
+          </button>
+        </template>
       </section>
 
       <div class="results-panel surface">
@@ -506,6 +533,7 @@
         </button>
       </div>
     </div>
+    <CustomStrategyDialog />
   </section>
 </template>
 
@@ -516,6 +544,7 @@ import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/m
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useScreenerStore } from '@/stores/useScreenerStore';
+import CustomStrategyDialog from '@/components/CustomStrategyDialog.vue';
 import { usePlansStore } from '@/stores/usePlansStore';
 import { useAssistStore } from '@/stores/useAssistStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
@@ -568,6 +597,8 @@ const {
   switchStrategyMode,
   strategyFactorTags,
   loadStrategies,
+  openStrategyEditor,
+  removeCustomStrategy,
 } = screener;
 const { selectStock, isWatched, toggleWatch } = quotes;
 const { renderIcons } = workspace;
@@ -575,6 +606,28 @@ const { renderIcons } = workspace;
 const strategyDescription = computed(
   () => strategies.value.find((s: any) => s.id === strategyName.value)?.description || ''
 );
+
+const selectedIsCustom = computed(
+  () => strategies.value.find((s: any) => s.id === strategyName.value)?.custom === true
+);
+
+/** 删除当前选中的自定义策略：先拉引用快照展示确认（spec r2 删除语义）。 */
+async function removeSelectedCustom() {
+  const id = strategyName.value;
+  let refs: string[] = [];
+  try {
+    const row = await screener.loadCustomStrategyForEdit(id);
+    refs = row.scanReferences || [];
+  } catch {
+    /* 引用读取失败不阻断删除确认 */
+  }
+  const note = refs.length
+    ? `该策略被 ${refs.length} 个扫描配置引用；删除后这些扫描将按未知策略降级。`
+    : '该策略未被扫描引用。';
+  if (window.confirm(`${note}确认删除「${strategies.value.find((s: any) => s.id === id)?.name || id}」？`)) {
+    await removeCustomStrategy(id);
+  }
+}
 
 /** 切到策略 tab：加载策略列表（幂等），首次进入自动空态提示。 */
 function openStrategyTab() {

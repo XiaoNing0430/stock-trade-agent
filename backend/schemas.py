@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class WorkspacePut(BaseModel):
@@ -46,6 +46,9 @@ class SettingsPut(BaseModel):
     rrRatio: float = 2.0
     stopMode: str = "atr"
     positionCapPct: float = 25
+    # 跨源校验（P2.5）：token（GET 永不回显；PUT 缺省=不修改、""=清除）与三态启用（None=跟随环境）
+    tushareToken: str = ""
+    crossCheckEnabled: bool | None = None
 
 
 class GridPreviewIn(BaseModel):
@@ -290,6 +293,33 @@ class ScreenerStrategyRunIn(BaseModel):
     mode: str = "quick"  # quick（纯粗筛）/ deep（API 粗筛 + 本地因子精筛）
     refresh: bool = False  # 强制重算（绕过缓存）
     referenceDate: str | None = None  # YYYY-MM-DD；默认上一交易日
+
+
+class CustomStrategyIn(BaseModel):
+    """POST/PUT 自定义选股策略请求体（camelCase；形状/上界校验在存储层 ScreenerStrategyConfig）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    description: str = ""
+    quickFilters: dict[str, Any] = Field(default_factory=dict)
+    advancedFactors: list[dict[str, Any]] = Field(default_factory=list)
+    sortBy: str = "changePct"
+    topN: int | None = None
+    deepCap: int | None = None
+    sourceBuiltin: str | None = None
+    version: int | None = None  # PUT 必携（乐观锁）；POST 忽略
+
+    @field_validator("topN", "deepCap", "version", mode="before")
+    @classmethod
+    def _blank_numeric_to_none(cls, v: Any) -> Any:
+        """前端清空数字框（Vue v-model.number）送 `''`：视为未填，回落服务端默认而非 422。"""
+        return None if v == "" else v
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def _none_text_to_empty(cls, v: Any) -> Any:
+        return "" if v is None else v
 
 
 class ScreenerStrategyOut(BaseModel):

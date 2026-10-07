@@ -418,26 +418,24 @@ def register_jobs(scheduler: Any) -> list[dict]:
         {**base, "id": "bars-etl-weekly", "trigger": "cron", "day_of_week": "sat", "hour": 10, "minute": 30},
     ]
     try:
-        from backend.settings import get_settings
+        from backend import cross_check
 
-        if get_settings().cross_check_enabled:
-            from backend import cross_check
-
-            specs.append(
-                {
-                    "func": cross_check.run,
-                    "kwargs": {"provider": "eastmoney"},
-                    "id": "bars-crosscheck",
-                    "trigger": "cron",
-                    "day_of_week": "mon-fri",
-                    "hour": 15,
-                    "minute": 35,
-                    "max_instances": 1,
-                    "coalesce": True,
-                    "misfire_grace_time": 300,
-                    "replace_existing": True,
-                }
-            )
+        # 常驻注册：启用判定在 run() 运行时做（设置页三态开关/env）——页面开关即时生效
+        specs.append(
+            {
+                "func": cross_check.run,
+                "kwargs": {},
+                "id": "bars-crosscheck",
+                "trigger": "cron",
+                "day_of_week": "mon-fri",
+                "hour": 15,
+                "minute": 35,
+                "max_instances": 1,
+                "coalesce": True,
+                "misfire_grace_time": 300,
+                "replace_existing": True,
+            }
+        )
     except Exception:
         logger.warning("cross_check 任务注册探测失败，跳过", exc_info=True)
     for spec in specs:

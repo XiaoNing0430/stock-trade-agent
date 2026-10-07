@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
@@ -334,5 +334,286 @@ describe('ViewScreener', () => {
 
     expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
     expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
+  });
+});
+
+describe('ViewScreener 自定义策略编辑器', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+  });
+
+  function builtinRow() {
+    return {
+      id: 'oversold_bounce',
+      name: '超跌反弹',
+      description: '内置',
+      sortBy: 'changePct',
+      topN: 10,
+      deepCap: 200,
+      factorCount: 1,
+      quickFilters: { pe: [0, 25] },
+      advancedFactors: [{ name: 'rsi', period: 14, operator: '<', threshold: 30, weight: 2 }],
+    };
+  }
+
+  async function openEditor() {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategies = [builtinRow()];
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('[data-testid="new-custom-strategy"]').trigger('click');
+    await flushPromises();
+    return { screener, wrapper };
+  }
+
+  it('新建模式渲染编辑器表单与 fork 下拉', async () => {
+    const { wrapper } = await openEditor();
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(true);
+    expect(wrapper.find('input[aria-label="策略名称"]').exists()).toBe(true);
+    expect(wrapper.find('select[aria-label="从内置策略复制"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('粗筛区间');
+  });
+
+  it('从内置策略复制预填表单（名称加副本后缀）', async () => {
+    const { wrapper } = await openEditor();
+    await wrapper.find('select[aria-label="从内置策略复制"]').setValue('oversold_bounce');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '预填')!
+      .trigger('click');
+    const nameInput = wrapper.find('input[aria-label="策略名称"]');
+    expect((nameInput.element as HTMLInputElement).value).toBe('超跌反弹（副本）');
+    expect(wrapper.findAll('.factor-row').length).toBe(1);
+  });
+
+  it('保存组装 POST payload（空粗筛区间被过滤）', async () => {
+    const { wrapper } = await openEditor();
+    // workspace.requestJson 走原生 fetch——这里 stub 全局 fetch（响应形状 = workspace 契约）
+    const fetchMock = vi.fn(async (_url: string | URL, _options?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ strategies: [], total: 0 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await wrapper.find('input[aria-label="策略名称"]').setValue('我的动量');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '添加因子')!
+      .trigger('click');
+    await wrapper.find('select[aria-label="因子1"]').setValue('momentum');
+    await wrapper.find('input[aria-label="权重"]').setValue('1.5');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+    const post = fetchMock.mock.calls.find(
+      (c) => String(c[0]) === '/api/screener/custom-strategies' && c[1]?.method === 'POST'
+    );
+    expect(post).toBeTruthy();
+    const body = JSON.parse(post![1]!.body as string);
+    expect(body.name).toBe('我的动量');
+    expect(body.quickFilters).toEqual({});
+    expect(body.advancedFactors).toEqual([{ name: 'momentum', period: 14, operator: '<', threshold: 30, weight: 1.5 }]);
+  });
+
+  it('乐观锁 409：显示冲突横幅并回显服务器版本', async () => {
+    const { wrapper } = await openEditor();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        headers: { get: () => null },
+        json: async () => ({
+          detail: {
+            error: '策略已被其他页面更新，请刷新后重试',
+            code: 'SCREENER_STRATEGY_CONFLICT',
+            server: { version: 7, name: '服务器名', config: { quick_filters: {}, advanced_factors: [] } },
+          },
+        }),
+      }))
+    );
+    await wrapper.find('input[aria-label="策略名称"]').setValue('本地输入');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+    expect(wrapper.find('[data-testid="conflict-banner"]').text()).toContain('已被其他页面更新');
+  });
+
+  // ---- 硬化：2026-10-03 审计发现的缺口 ----
+
+  it('清空数字输入框不再提交空字符串（回落未填语义）', async () => {
+    const { wrapper } = await openEditor();
+    const fetchMock = vi.fn(async (_url: string | URL, _options?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ strategies: [], total: 0 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await wrapper.find('input[aria-label="策略名称"]').setValue('归一');
+    const peMin = wrapper.find('input[aria-label="市盈率最小值"]');
+    await peMin.setValue('10');
+    await peMin.setValue(''); // 清空 → Vue .number 会写回 ''
+    await wrapper.find('input[aria-label="Top N"]').setValue('');
+    await wrapper.find('input[aria-label="精筛上限"]').setValue('');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+
+    const post = fetchMock.mock.calls.find(
+      (c) => String(c[0]) === '/api/screener/custom-strategies' && (c[1] as RequestInit)?.method === 'POST'
+    );
+    expect(post).toBeTruthy();
+    const body = JSON.parse((post![1] as RequestInit).body as string);
+    expect(body.quickFilters).toEqual({});
+    expect('topN' in body).toBe(false);
+    expect('deepCap' in body).toBe(false);
+  });
+
+  it('因子阈值留空：中文内联提示且不提交', async () => {
+    const { wrapper } = await openEditor();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ strategies: [], total: 0 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await wrapper.find('input[aria-label="策略名称"]').setValue('阈值空');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '添加因子')!
+      .trigger('click');
+    await wrapper.find('input[aria-label="阈值"]').setValue('');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const error = wrapper.find('.custom-strategy-error');
+    expect(error.exists()).toBe(true);
+    expect(error.text()).toContain('阈值');
+    expect(error.text()).toContain('第 1 条');
+  });
+
+  it('409 冲突：保留本地编辑，仅刷新版本以便重试', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategies = [{ ...builtinRow(), id: 'custom_abc', custom: true, version: 7 }];
+    screener.strategyName = 'custom_abc';
+
+    const row = (overrides: Record<string, unknown> = {}) => ({
+      id: 'custom_abc',
+      name: '服务器名',
+      description: '',
+      version: 7,
+      sourceBuiltin: null,
+      config: { quick_filters: {}, advanced_factors: [], sort_by: 'changePct', top_n: 10, deep_cap: 200 },
+      scanReferences: [],
+      strategies: [],
+      total: 0,
+      ...overrides,
+    });
+    let putCount = 0;
+    const fetchMock = vi.fn(async (_url: string | URL, options?: RequestInit) => {
+      if ((options?.method || 'GET') === 'GET') {
+        return { ok: true, status: 200, headers: { get: () => null }, json: async () => row() };
+      }
+      putCount += 1;
+      if (putCount === 1) {
+        return {
+          ok: false,
+          status: 409,
+          headers: { get: () => null },
+          json: async () => ({
+            detail: {
+              error: '策略已被其他页面更新，请刷新后重试',
+              code: 'SCREENER_STRATEGY_CONFLICT',
+              server: row({ name: '服务器名2', version: 8 }),
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, headers: { get: () => null }, json: async () => row({ version: 9 }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('[data-testid="edit-custom-strategy"]').trigger('click');
+    await flushPromises();
+
+    await wrapper.find('input[aria-label="策略名称"]').setValue('本地输入');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+
+    // 本地输入不得被服务器行覆盖
+    expect((wrapper.find('input[aria-label="策略名称"]').element as HTMLInputElement).value).toBe('本地输入');
+    expect(wrapper.find('[data-testid="conflict-banner"]').text()).toContain('已被其他页面更新');
+
+    // 版本已刷新 → 再次保存携带服务器最新 version
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+
+    const puts = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit)?.method === 'PUT');
+    expect(puts.length).toBe(2);
+    expect(JSON.parse((puts[1]![1] as RequestInit).body as string).version).toBe(8);
+  });
+
+  it('422 原样展示后端中文 detail', async () => {
+    const { wrapper } = await openEditor();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 422,
+        headers: { get: () => null },
+        json: async () => ({ detail: { error: '名称：长度不能超过 64 个字符', code: 'VALIDATION_ERROR' } }),
+      }))
+    );
+    await wrapper.find('input[aria-label="策略名称"]').setValue('超长');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+
+    const error = wrapper.find('.custom-strategy-error');
+    expect(error.exists()).toBe(true);
+    expect(error.text()).toContain('名称：长度不能超过 64 个字符');
+  });
+
+  it('自定义策略名以文本插值渲染（无 v-html 注入）', () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategies = [{ ...builtinRow(), id: 'custom_x', name: '<img src=x onerror=alert(1)>', custom: true }];
+    const wrapper = mount(ViewScreener);
+
+    expect(wrapper.find('img').exists()).toBe(false);
+    expect(wrapper.find('select option[value="custom_x"]').text()).toBe('<img src=x onerror=alert(1)>');
   });
 });

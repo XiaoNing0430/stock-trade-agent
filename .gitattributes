@@ -1,0 +1,10 @@
+# 行尾纪律（2026-10-03 修复 git flow 阻塞）
+#
+# 背景：本机 core.autocrlf=true 且仓库无 .gitattributes 时，git 认为工作区「应为 CRLF」，
+# 而 pre-commit 的仓库级 prettier 钩子（默认 endOfLine=lf）每次提交都会把命中的文件改写成 LF。
+# 后果：git status 把「待行尾转换」记为已修改、但 git diff 为空（索引内容其实未变），
+# 每次提交后都留下脏文件，阻塞 git flow feature finish（要求干净工作树）。
+#
+# 修复：钉死仓库内一律 LF —— 索引与工作区同形，prettier / ruff / eslint 输出与 CI（ubuntu-latest）
+# 一致，Windows 与类 Unix 行为一致。二进制文件由 text=auto 自动识别，不参与转换。
+* text=auto eol=lf
