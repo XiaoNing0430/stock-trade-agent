@@ -51,7 +51,7 @@
 - 自定义条目（`custom` 角标 + 编辑/删除）；运行入口与内置一致。
 - `CustomStrategyDialog.vue`：名称/描述；quick_filters 固定 5 字段行（min/max 可空）；因子动态行（7 因子下拉 + period 2-250 + operator 4 选 + threshold + weight 0.01-100，≤20 行，可增删）；sort_by + top_n(1-100) + deep_cap(1-1000)；「从内置复制」预填；422 中文 detail + code 原样展示；409 冲突提示"策略已被其他页面更新"，**保留本地编辑**，仅以服务器行刷新 `version`（否则重试必然再 409）并在横幅展示服务器最新版本与名称——绝不整体覆盖表单（2026-10-03 硬化）。
 - ★XSS 纪律：名称/描述一律 Vue 文本插值（框架自动转义），**禁止 v-html**；与既有 showToast textContent / chartSvg escapeHtml 纪律并列执行。
-- `useScreenerStore` 增加 customStrategies 状态与 CRUD 方法；api/client.ts 增对应请求。
+- `useScreenerStore` 提供 CRUD 方法（走 `workspace.requestJson`）；**不做独立的自定义策略列表状态**——合并列表 `strategies`（含 `custom` / `version`）是唯一数据源（2026-10-03 打磨批）。
 
 ## 非目标（防蔓延）
 
@@ -78,3 +78,14 @@
 5. **补齐测试**：PUT/DELETE 缓存失效接线、删除日志含 config 快照、管道跑自定义 id 与内置策略等价（含缓存键隔离）、前端 422 展示与文本插值（无 v-html）。
 
 **未纳入本批**（记入 ROADMAP backlog）：`sort_by` 白名单、列表 `custom` 角标、`customStrategies` 冗余状态、`sourceBuiltin` 由 UI 提交、合并列表静默吞 DB 故障时缺日志、FastAPI 请求模型校验错误的响应契约形状。
+
+## 打磨批记录（2026-10-03，feature/screener-polish-6）
+
+上面「未纳入本批」的 6 项已全部收口：
+
+1. **`sort_by` 白名单**：`ALLOWED_SORT_FIELDS = {changePct, amount, turnoverRate, pe, pb}`（与编辑器表单一致）。未知字段此前会让 `pipeline._sort_key` 返回 `-inf`，排序静默退化为上游原序——现在存前 422 中文拦截。仅作用于策略配置，`/api/screener/v2` 的市场排序字段映射不受影响。
+2. **列表 `custom` 角标**：策略下拉自定义行渲染为 `自定义 · {name}`，内置行不变。
+3. **删除 `customStrategies` 冗余状态**：合并列表已是唯一数据源，保存/删除后只刷新 `loadStrategies()`。
+4. **`sourceBuiltin` 由 UI 提交**：「从内置复制」预填时写入来源内置 id；编辑既有 fork 策略时从单条 GET 回填并原样提交（此前 PUT 会把该列清空）。
+5. **合并列表读库失败补日志**：`screener_logger.warning("screener.custom_strategies_list_failed")`；列表仍照常返回内置行（绝不因自定义策略读失败而整体失败），但不再静默表现为「没有自定义策略」。
+6. **请求模型校验错误走统一契约**：新增 app 级 `RequestValidationError` handler，返回 `{"detail": {"error": 中文短句, "code": "VALIDATION_ERROR"}}`（此前是 FastAPI 默认的 `detail` 列表 + pydantic 英文样板，前端拿不到 `code`）。
