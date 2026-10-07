@@ -2,6 +2,21 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.7.1] - 2026-10-03
+
+### 修复
+
+- **定时任务不再静默失效**：`grid_scheduler.scheduler` 是模块级单例，而 APScheduler 3.x 的 executor 是一次性的——`shutdown()` 关闭底层线程池后不会再重建，同一进程内 `stop→start` 之后所有到期任务都会抛 `RuntimeError: cannot schedule new futures after shutdown`，且只落 ERROR 日志、任务静默不执行（扫描 / 日线 ETL / 行业预热 / 网格回测等于全灭）。现 `start_scheduler()` 在启动前摘掉旧 executor（`remove_executor("default", shutdown=False)`，并容忍首次启动的懒创建），由 `start()` 按原配置创建全新的默认 executor。生产单次启动行为不变。
+
+### 自定义策略编辑器打磨（6 项）
+
+- **`sort_by` 白名单**：`changePct` / `amount` / `turnoverRate` / `pe` / `pb`。未知字段此前会让 `pipeline._sort_key` 返回 `-inf`，排序静默退化为上游原序（不报错、结果不对）→ 现在存前中文 422 拦截。仅作用于策略配置，`/api/screener/v2` 的市场排序字段映射不受影响。
+- **策略下拉 `custom` 角标**：自定义行渲染为 `自定义 · {名称}`，内置行不变。
+- **删除 `useScreenerStore.customStrategies` 冗余状态**：合并列表（含 `custom` / `version`）是唯一数据源，保存/删除后只刷新 `loadStrategies()`。
+- **fork 来源 `sourceBuiltin` 由 UI 提交**：「从内置复制」预填时记录来源内置 id；编辑既有 fork 策略时从单条 GET 回填并原样提交（此前 PUT 会把该列清空）。
+- **合并列表读库失败补日志**：`screener_logger.warning("screener.custom_strategies_list_failed")`；列表仍照常返回内置行（绝不整体失败），但不再静默表现为「没有自定义策略」。
+- **请求校验错误统一契约**：新增 app 级 `RequestValidationError` handler，请求模型/查询参数校验失败返回 `{"detail": {"error": 中文短句, "code": "VALIDATION_ERROR"}}`（此前是 FastAPI 默认的 `detail` 列表 + pydantic 英文样板，前端拿不到 `code`）。
+
 ## [v0.7.0] - 2026-10-03
 
 ### 设置页 Tushare Token 与跨源交叉校验开关

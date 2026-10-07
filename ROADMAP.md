@@ -2,6 +2,7 @@
 
 ## 已发布版本
 
+- **v0.7.1** — 定时任务修复（APScheduler 单例 shutdown 后 executor 一次性导致到期任务静默全灭）+ 自定义策略编辑器打磨 6 项（`sort_by` 白名单、`custom` 角标、删 `customStrategies` 冗余状态、`sourceBuiltin` 由 UI 提交、列表读库失败补日志、请求校验错误统一 `{detail:{error,code}}` 契约）
 - **v0.7.0** — 设置页 Tushare Token 与跨源校验三态开关（DB 显式值 > env、掩码不回显、调度常驻）+ 自定义策略编辑器（存 DB `screener_custom_strategies`、CRUD + 乐观锁 409、白名单/资源上界、管道与扫描零改动联动）+ 编辑器审计硬化（空值归一、中文 422、409 保留本地编辑、文本上界）+ 行尾纪律工具链修复（`.gitattributes` eol=lf）
 - **v0.6.0** — 交易辅助决策闭环（P0 草案/仓位/回测联动 + P1 定时扫描/绩效复盘/组合风险视图）+ 策略引擎泛化（统一基类 + 六策略 + 多因子）+ 数据中台（全市场日线 ETL、Redis CacheFacade、DQ 守护）+ P2.5 受保护分钟线与跨源交叉校验 + P3 PIT 日快照归档与 `asOfDate` 历史口径
 - **v0.5.0** — 多数据源架构（DataSource ABC + 能力位 + Router，腾讯/东财/MockUS）+ 全市场选股器双源接入 + 策略选股管道（混合管道、声明式配置、无未来函数、缓存击穿防护、stale 降级、限频、可观测）
@@ -98,12 +99,12 @@
     本地编辑并只刷新 version、name/description 长度上界（真库 502 → 422）、422 文案中文化；补齐缓存失效
     接线/删除日志快照/管道自定义 id 等价/前端 422 与插值 5 类测试；
     计划：`docs/superpowers/plans/2026-10-03-custom-strategy-hardening.md`
-- [ ] P3 自定义策略编辑器剩余打磨项（2026-10-03 审计留档，低优先）：
-  `sort_by` 加白名单（未知值 `_sort_key` 返回 -inf，排序静默退化为上游原序）；策略下拉加 `custom` 角标
-  （当前仅选中后出现编辑/删除）；清理 `useScreenerStore.customStrategies` 冗余状态（合并列表已覆盖）；
-  fork 来源 `sourceBuiltin` 由 UI 提交（当前前端从不发，列恒空）；合并列表 `except Exception` 吞 DB 故障时
-  补日志（否则故障表现为「没有自定义策略」）；FastAPI 请求模型校验错误（如 advancedFactors 非数组）
-  仍返回默认 list 形状，未走既有 api_error 契约
+- [x] P3 自定义策略编辑器剩余打磨项（2026-10-03 审计留档 → 当日 `feature/screener-polish-6` 收口）：
+  `sort_by` 白名单（未知值存前 422 中文拦截，不再让 `_sort_key` 静默退化为上游原序）；策略下拉 `custom`
+  角标（`自定义 · 名称`）；删除 `useScreenerStore.customStrategies` 冗余状态（合并列表为唯一数据源）；
+  fork 来源 `sourceBuiltin` 由 UI 提交且编辑时保留（此前 PUT 会清空该列）；合并列表读库失败补 warning 日志
+  （列表仍返回内置行，不再静默表现为「没有自定义策略」）；新增 app 级 `RequestValidationError` handler →
+  请求模型校验错误也走 `{detail:{error,code}}` 统一契约
 - [ ] P3 多策略回测对比 + CSV 导出
 - [ ] P3 多语言（英文 UI）/ 自定义主题配色
 

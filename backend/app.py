@@ -12,7 +12,8 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
@@ -130,6 +131,39 @@ screener_logger = logging.getLogger("atlas.screener")  # 自定义选股策略�
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
     """统一错误构造：detail = {"error": message, "code": code, **extras}。"""
     return HTTPException(status_code=status_code, detail={"error": message, "code": code, **extras})
+
+
+# 请求模型校验失败的中文短句（FastAPI 默认回 detail 列表 + pydantic 英文样板，破坏统一契约）
+_VALIDATION_TYPE_LABELS = {
+    "missing": "必填项缺失",
+    "string_type": "必须是字符串",
+    "int_parsing": "必须是整数",
+    "int_type": "必须是整数",
+    "float_parsing": "必须是数字",
+    "float_type": "必须是数字",
+    "bool_parsing": "必须是布尔值",
+    "bool_type": "必须是布尔值",
+    "list_type": "必须是数组",
+    "dict_type": "必须是对象",
+    "string_too_long": "长度超出上限",
+    "literal_error": "取值不在允许范围内",
+    "enum": "取值不在允许范围内",
+    "extra_forbidden": "不支持的字段",
+}
+
+
+def _validation_error_message(exc: RequestValidationError) -> str:
+    """首个校验错误 → 中文短句（带字段路径，不外泄 pydantic 英文样板与文档链接）。"""
+    errors = exc.errors()
+    if not errors:
+        return "请求参数不合法"
+    first = errors[0]
+    loc = [str(part) for part in first.get("loc", ()) if part != "body"]
+    field = ".".join(loc) or "请求体"
+    label = _VALIDATION_TYPE_LABELS.get(str(first.get("type") or ""))
+    if label is None:
+        label = str(first.get("msg") or "").removeprefix("Value error, ") or "参数不合法"
+    return f"{field}：{label}"
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -356,6 +390,18 @@ def create_app() -> FastAPI:
     # 的建中窗口）时，挂载不存在的目录会让 StaticFiles 抛 RuntimeError 直接崩掉 create_app。
     assets_dir = DIST_DIR / "assets" if (DIST_DIR / "assets").is_dir() else FRONTEND_DIR
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.exception_handler(RequestValidationError)
+    async def _request_validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        """请求体/查询参数校验失败也返回统一 api_error 形状。
+
+        FastAPI 默认回 `{"detail": [ ... pydantic 英文样板 ... ]}`：形状与既有契约不同，
+        前端拿不到 `detail.code`。这里统一成 `{"detail": {"error": 中文, "code": VALIDATION_ERROR}}`。
+        """
+        return JSONResponse(
+            status_code=422,
+            content={"detail": {"error": _validation_error_message(exc), "code": ERR_VALIDATION_ERROR}},
+        )
 
     @app.middleware("http")
     async def stale_header_middleware(request: Request, call_next):
@@ -593,6 +639,9 @@ def create_app() -> FastAPI:
         try:
             custom_rows, _total = list_custom_strategies(limit=500)
         except Exception:
+            # 读库故障绝不拖垮合并列表（内置策略照常可用），但必须留日志——
+            # 否则「读库失败」在 UI 上只表现为「没有自定义策略」，无从察觉
+            screener_logger.warning("screener.custom_strategies_list_failed", exc_info=True)
             custom_rows = []
         strategies.extend(
             {

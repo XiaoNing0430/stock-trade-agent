@@ -149,6 +149,7 @@ const form = reactive({
   topN: 10,
   deepCap: 200,
   version: null as number | null,
+  sourceBuiltin: null as string | null, // fork 来源（编辑时保留，供溯源）
 });
 
 const builtinRows = ref<any[]>([]);
@@ -164,6 +165,7 @@ function resetForm() {
   form.topN = 10;
   form.deepCap = 200;
   form.version = null;
+  form.sourceBuiltin = null;
   errorText.value = '';
   conflictText.value = '';
   forkId.value = '';
@@ -188,6 +190,7 @@ function applyRow(row: any) {
   form.topN = config.top_n ?? 10;
   form.deepCap = config.deep_cap ?? 200;
   form.version = row.version ?? null;
+  form.sourceBuiltin = row.sourceBuiltin ?? null; // 编辑既有 fork 策略时保留来源
 }
 
 function applyFork() {
@@ -209,6 +212,7 @@ function applyFork() {
   form.sortBy = source.sortBy || 'changePct';
   form.topN = source.topN ?? 10;
   form.deepCap = source.deepCap ?? 200;
+  form.sourceBuiltin = String(source.id); // fork 溯源：记录来源内置策略
 }
 
 function addFactor() {
@@ -279,6 +283,7 @@ async function save() {
     if (topN !== null) payload.topN = topN; // 留空 → 省略键 → 服务端默认 10
     const deepCap = toNumberOrNull(form.deepCap);
     if (deepCap !== null) payload.deepCap = deepCap; // 留空 → 省略键 → 服务端默认 200
+    if (form.sourceBuiltin) payload.sourceBuiltin = form.sourceBuiltin;
     if (screener.strategyEditorId) payload.version = form.version;
     await screener.saveCustomStrategy(payload);
   } catch (error: any) {

@@ -1,5 +1,6 @@
 """Task 5.2 覆盖率门禁：grid_scheduler.py 调度逻辑补全覆盖（真实 APScheduler，无网络依赖）。"""
 
+import time
 from datetime import datetime
 
 from backend import grid_scheduler
@@ -172,3 +173,39 @@ def test_start_scheduler_schedules_existing(monkeypatch):
 
     assert "grid-backtest:cov-g-2" in added
     assert "strategy-backtest:cov-s-2" in added
+
+
+def test_scheduler_restart_executes_due_jobs_after_shutdown(monkeypatch):
+    """stop→start 后到期任务必须真的执行。
+
+    回归缺陷：APScheduler 3.x 的 executor 是一次性的（shutdown 关闭底层线程池后不会再重建）。
+    同一单例实例重启后，每个到期任务都会 `RuntimeError: cannot schedule new futures after
+    shutdown`——只落 ERROR 日志、任务静默不执行，功能上等于定时任务全灭。
+    """
+    executed: list[str] = []
+    scheduler = grid_scheduler.scheduler
+    # 只验调度器生命周期：策略列表走假数据，避免依赖真实库
+    monkeypatch.setattr(grid_scheduler, "list_scheduled_grid_strategies", lambda: [])
+    monkeypatch.setattr(grid_scheduler, "list_scheduled_strategies", lambda: [])
+    try:
+        if scheduler.running:
+            grid_scheduler.stop_scheduler()
+        grid_scheduler.start_scheduler()
+        grid_scheduler.stop_scheduler()  # 关闭底层线程池
+        grid_scheduler.start_scheduler()  # 重启：必须换到可用的池
+        scheduler.add_job(
+            lambda: executed.append("ran"),
+            "date",
+            run_date=datetime.now(grid_scheduler.TIMEZONE),
+            id="restart-probe",
+            replace_existing=True,
+        )
+        deadline = time.monotonic() + 5.0
+        while not executed and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        if scheduler.get_job("restart-probe"):
+            scheduler.remove_job("restart-probe")
+        grid_scheduler.stop_scheduler()
+
+    assert executed == ["ran"]

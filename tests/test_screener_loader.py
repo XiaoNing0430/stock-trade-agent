@@ -56,3 +56,13 @@ def test_config_rejects_zero_top_n() -> None:
 
     with pytest.raises(ValidationError):
         ScreenerStrategyConfig(id="x", name="X", top_n=0)
+
+
+def test_config_rejects_unknown_sort_by() -> None:
+    """sort_by 走白名单：未知字段此前会让 `_sort_key` 返回 -inf，排序静默退化为上游原序。"""
+    from backend.screener.loader import ScreenerStrategyConfig, list_strategies
+
+    with pytest.raises(ValidationError, match="排序字段"):
+        ScreenerStrategyConfig(id="x", name="X", sort_by="not_a_field")
+    # 内置声明式配置必须全部在白名单内，否则 list_strategies 会整体失败
+    assert {c.sort_by for c in list_strategies()} <= {"changePct", "amount", "turnoverRate", "pe", "pb"}

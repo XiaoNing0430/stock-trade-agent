@@ -103,6 +103,16 @@ def unschedule_strategy(strategy_id: str) -> None:
 
 def start_scheduler() -> None:
     if not scheduler.running:
+        # APScheduler 3.x 的 executor 是一次性的：shutdown() 关闭底层线程池后不会再重建，
+        # 同一实例重启会让所有到期任务抛 `RuntimeError: cannot schedule new futures after
+        # shutdown`——只落 ERROR 日志、任务静默不执行（定时任务等于全灭）。
+        # 启动前摘掉旧 executor，start() 会按原配置自动创建一个全新的默认 executor。
+        # 首次启动时默认 executor 尚未创建（懒创建）→ 无旧池可摘，交给 start() 创建。
+        # shutdown=False：旧池已被 stop_scheduler 的 shutdown() 关闭，无需再阻塞等一次。
+        try:
+            scheduler.remove_executor("default", shutdown=False)
+        except KeyError:
+            pass
         scheduler.start()
     for strategy in list_scheduled_grid_strategies():
         schedule_strategy(strategy)
