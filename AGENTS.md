@@ -191,6 +191,13 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
   - `git flow release start v0.x.y` / `git flow release finish v0.x.y`（合并到 `main` + 打标签 + 同步 `develop`）
 - `git flow init` 需要**干净的工作树**——先暂存未提交的更改。
 - 本工具链无法直接执行 git 命令——请自行运行 git 命令并在报告时粘贴输出。
+- **行尾纪律（2026-10-03 修复）：** 仓库以 `.gitattributes` 钉死 `* text=auto eol=lf`（`.prettierrc.json` 亦显式
+  `endOfLine: "lf"`）。背景：本机 `core.autocrlf=true` 且无 `.gitattributes` 时，pre-commit 的**仓库级** prettier
+  钩子（默认 `endOfLine=lf`）每次提交都会把 CRLF 工作区文件改写成 LF；git 随后把「待行尾转换」记为已修改但
+  `git diff` 为空（索引内容未变、`git update-index --refresh` 报 `needs update`），于是每次提交后都留下脏文件，
+  阻塞 `git flow feature finish`。修复后索引与工作区同为 LF，prettier/ruff/eslint 输出与 CI（ubuntu）一致。
+  新克隆无需额外配置；若某个历史工作区仍有 CRLF 文件想一次性转 LF：
+  `git ls-files | % { Remove-Item -LiteralPath $_ -Force }; git checkout -- .gitattributes; git checkout -- .`
 
 ### 提交信息约定
 
