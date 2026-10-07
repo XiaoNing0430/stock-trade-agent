@@ -352,7 +352,9 @@ def create_app() -> FastAPI:
     app.state.portfolio_limiter = SlidingWindowLimiter(max_events=20, window_seconds=60.0)
     # 双轨托管：优先服务构建产物 frontend/dist（Vite），无 dist 时回退源码目录。
     # Vite 产物把静态资源放在 dist/assets/ 下，挂载目录按实际布局选择。
-    assets_dir = DIST_DIR / "assets" if DIST_DIR.exists() else FRONTEND_DIR
+    # 判定必须落到 assets 子目录本身：dist 存在但 assets 缺失（构建中断、或 Vite emptyOutDir
+    # 的建中窗口）时，挂载不存在的目录会让 StaticFiles 抛 RuntimeError 直接崩掉 create_app。
+    assets_dir = DIST_DIR / "assets" if (DIST_DIR / "assets").is_dir() else FRONTEND_DIR
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
     @app.middleware("http")
