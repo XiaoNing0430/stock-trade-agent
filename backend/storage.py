@@ -6,6 +6,7 @@ import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
+from pydantic import ValidationError
 from redis import Redis
 from sqlalchemy import (
     JSON,
@@ -830,6 +831,65 @@ class CustomStrategyConflict(Exception):
         self.server_row = server_row
 
 
+# 自定义策略校验错误的中文字段名（422 detail.error 面向用户，绝不回显 pydantic 英文样板）
+_CUSTOM_FIELD_LABELS: dict[str, str] = {
+    "id": "策略 ID",
+    "name": "名称",
+    "description": "描述",
+    "quick_filters": "粗筛条件",
+    "pe": "市盈率",
+    "pb": "市净率",
+    "turnoverRate": "换手率",
+    "changePct": "涨跌幅",
+    "amount": "成交额",
+    "advanced_factors": "因子",
+    "period": "周期",
+    "operator": "算子",
+    "threshold": "阈值",
+    "weight": "权重",
+    "sort_by": "排序字段",
+    "top_n": "Top N",
+    "deep_cap": "精筛上限",
+    "history_deadline_s": "精筛时限",
+}
+
+
+def _custom_field_path_label(loc: tuple[Any, ...]) -> str:
+    """`advanced_factors.0.threshold` → `因子 #1 阈值`。"""
+    parts: list[str] = []
+    for segment in loc:
+        if isinstance(segment, int):
+            parts[-1] = f"{parts[-1]} #{segment + 1}" if parts else f"#{segment + 1}"
+        else:
+            parts.append(_CUSTOM_FIELD_LABELS.get(str(segment), str(segment)))
+    return " ".join(parts)
+
+
+def _chinese_validation_error(exc: ValidationError) -> str:
+    """把 pydantic 首条校验错误翻成中文可读文案（保留 detail.code=VALIDATION_ERROR 契约）。"""
+    first = exc.errors()[0]
+    label = _custom_field_path_label(tuple(first.get("loc") or ()))
+    etype = str(first.get("type") or "")
+    ctx: dict[str, Any] = first.get("ctx") or {}
+    if etype == "value_error":
+        message = str(first.get("msg") or "").removeprefix("Value error, ")
+    elif etype == "missing":
+        message = "必填项缺失"
+    elif etype in {"float_parsing", "float_type", "int_parsing", "int_type"}:
+        message = "必须是数字（留空表示不设限）"
+    elif etype == "string_too_long":
+        message = f"长度不能超过 {ctx.get('max_length')} 个字符"
+    elif etype in {"greater_than_equal", "greater_than"}:
+        message = f"不得小于 {ctx.get('ge', ctx.get('gt'))}"
+    elif etype in {"less_than_equal", "less_than"}:
+        message = f"不得大于 {ctx.get('le', ctx.get('lt'))}"
+    elif etype in {"list_type", "dict_type", "tuple_type", "tuple_length", "string_type"}:
+        message = "格式不正确"
+    else:
+        message = str(first.get("msg") or "参数不合法")
+    return f"{label}：{message}" if label else message
+
+
 def _custom_strategy_row_to_dict(row: ScreenerCustomStrategy) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -844,24 +904,27 @@ def _custom_strategy_row_to_dict(row: ScreenerCustomStrategy) -> dict[str, Any]:
 
 
 def _custom_strategy_config(data: dict[str, Any], strategy_id: str) -> dict[str, Any]:
-    """camel/snake 入参归一并经 ScreenerStrategyConfig 校验（存前校验，失败 ValueError）。"""
+    """camel/snake 入参归一并经 ScreenerStrategyConfig 校验（存前校验，失败 ValueError 中文文案）。"""
     from backend.screener.loader import ScreenerStrategyConfig
 
     name = str(data.get("name") or "").strip()
     if not name:
-        raise ValueError("name 不能为空")
-    validated = ScreenerStrategyConfig.model_validate(
-        {
-            "id": strategy_id,
-            "name": name,
-            "description": str(data.get("description") or "").strip(),
-            "quick_filters": data.get("quick_filters") or {},
-            "advanced_factors": data.get("advanced_factors") or [],
-            "sort_by": str(data.get("sort_by") or "changePct"),
-            "top_n": data.get("top_n") if data.get("top_n") is not None else 10,
-            "deep_cap": data.get("deep_cap") if data.get("deep_cap") is not None else 200,
-        }
-    )
+        raise ValueError("名称不能为空")
+    try:
+        validated = ScreenerStrategyConfig.model_validate(
+            {
+                "id": strategy_id,
+                "name": name,
+                "description": str(data.get("description") or "").strip(),
+                "quick_filters": data.get("quick_filters") or {},
+                "advanced_factors": data.get("advanced_factors") or [],
+                "sort_by": str(data.get("sort_by") or "changePct"),
+                "top_n": data.get("top_n") if data.get("top_n") is not None else 10,
+                "deep_cap": data.get("deep_cap") if data.get("deep_cap") is not None else 200,
+            }
+        )
+    except ValidationError as exc:
+        raise ValueError(_chinese_validation_error(exc)) from exc
     return validated.model_dump()
 
 
