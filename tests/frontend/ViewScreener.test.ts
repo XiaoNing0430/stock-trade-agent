@@ -614,6 +614,93 @@ describe('ViewScreener 自定义策略编辑器', () => {
     const wrapper = mount(ViewScreener);
 
     expect(wrapper.find('img').exists()).toBe(false);
-    expect(wrapper.find('select option[value="custom_x"]').text()).toBe('<img src=x onerror=alert(1)>');
+    // 自定义行带角标前缀，名称本体仍是原样文本（Vue 文本插值自动转义）
+    expect(wrapper.find('select option[value="custom_x"]').text()).toBe('自定义 · <img src=x onerror=alert(1)>');
+  });
+
+  it('策略下拉：自定义行带「自定义」角标，内置行不变', () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategies = [
+      builtinRow(),
+      { ...builtinRow(), id: 'custom_y', name: '我的动量', custom: true, version: 2 },
+    ];
+    const wrapper = mount(ViewScreener);
+
+    const customOption = wrapper.find('select option[value="custom_y"]');
+    expect(customOption.text()).toContain('自定义');
+    expect(customOption.text()).toContain('我的动量');
+    expect(wrapper.find('select option[value="oversold_bounce"]').text()).not.toContain('自定义');
+  });
+
+  it('从内置复制：提交 sourceBuiltin 来源', async () => {
+    const { wrapper } = await openEditor();
+    const fetchMock = vi.fn(async (_url: string | URL, _options?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ strategies: [], total: 0 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await wrapper.find('select[aria-label="从内置策略复制"]').setValue('oversold_bounce');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '预填')!
+      .trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+
+    const post = fetchMock.mock.calls.find(
+      (c) => String(c[0]) === '/api/screener/custom-strategies' && (c[1] as RequestInit)?.method === 'POST'
+    );
+    expect(post).toBeTruthy();
+    expect(JSON.parse((post![1] as RequestInit).body as string).sourceBuiltin).toBe('oversold_bounce');
+  });
+
+  it('编辑自定义策略：保留 fork 来源 sourceBuiltin', async () => {
+    const screener = useScreenerStore();
+    screener.screenerMode = 'strategy';
+    screener.strategies = [{ ...builtinRow(), id: 'custom_abc', custom: true, version: 3 }];
+    screener.strategyName = 'custom_abc';
+
+    const row = {
+      id: 'custom_abc',
+      name: '趋势副本',
+      description: '',
+      version: 3,
+      sourceBuiltin: 'trend_breakout',
+      config: { quick_filters: {}, advanced_factors: [], sort_by: 'changePct', top_n: 10, deep_cap: 200 },
+      scanReferences: [],
+      strategies: [],
+      total: 0,
+    };
+    const fetchMock = vi.fn(async (_url: string | URL, options?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => (options?.method === 'PUT' ? { ...row, version: 4 } : row),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(ViewScreener);
+    await wrapper.find('[data-testid="edit-custom-strategy"]').trigger('click');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    vi.unstubAllGlobals();
+
+    const put = fetchMock.mock.calls.find((c) => (c[1] as RequestInit)?.method === 'PUT');
+    expect(put).toBeTruthy();
+    const body = JSON.parse((put![1] as RequestInit).body as string);
+    expect(body.version).toBe(3);
+    expect(body.sourceBuiltin).toBe('trend_breakout');
   });
 });

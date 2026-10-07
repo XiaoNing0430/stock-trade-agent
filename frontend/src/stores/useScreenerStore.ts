@@ -286,19 +286,10 @@ export const useScreenerStore = defineStore('screener', () => {
   }
 
   // ---- 自定义策略（P3 编辑器）----
+  // 无独立的自定义策略列表状态：合并列表（loadStrategies）已含 custom 行与 version，是唯一数据源。
 
-  const customStrategies = ref<any[]>([]);
   const strategyEditorOpen = ref(false);
   const strategyEditorId = ref<string | null>(null); // null=新建
-
-  async function loadCustomStrategies() {
-    try {
-      const payload = await workspace.requestJson('/api/screener/custom-strategies');
-      customStrategies.value = payload.strategies || [];
-    } catch {
-      customStrategies.value = [];
-    }
-  }
 
   function openStrategyEditor(id: string | null) {
     strategyEditorId.value = id;
@@ -323,7 +314,7 @@ export const useScreenerStore = defineStore('screener', () => {
       body: JSON.stringify(payload),
     });
     closeStrategyEditor();
-    await Promise.all([loadCustomStrategies(), loadStrategies()]);
+    await loadStrategies();
     workspace.showToast(id ? '自定义策略已更新' : '自定义策略已创建');
     return saved;
   }
@@ -332,7 +323,7 @@ export const useScreenerStore = defineStore('screener', () => {
     const result = await workspace.requestJson(`/api/screener/custom-strategies/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
-    await Promise.all([loadCustomStrategies(), loadStrategies()]);
+    await loadStrategies();
     if (strategyName.value === id) {
       strategyName.value = strategies.value[0]?.id || 'oversold_bounce';
     }
@@ -383,10 +374,8 @@ export const useScreenerStore = defineStore('screener', () => {
     runStrategy,
     switchStrategyMode,
     strategyFactorTags,
-    customStrategies,
     strategyEditorOpen,
     strategyEditorId,
-    loadCustomStrategies,
     openStrategyEditor,
     closeStrategyEditor,
     loadCustomStrategyForEdit,

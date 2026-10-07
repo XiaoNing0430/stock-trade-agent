@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # quick_filters 字段白名单：管道行数值字段——未知字段会因行值缺失静默全滤，挡在保存前
 ALLOWED_QUICK_FILTER_FIELDS = {"pe", "pb", "turnoverRate", "changePct", "amount"}
+# 排序字段白名单：与策略编辑器表单一致。未知字段会让 pipeline._sort_key 返回 -inf，
+# 排序静默退化为上游原序（不报错、结果却不对），因此同样挡在保存前。
+ALLOWED_SORT_FIELDS = {"changePct", "amount", "turnoverRate", "pe", "pb"}
 # 因子条数上限（执行资源上界，spec r2：1000 码 × ≤20 因子有界）
 MAX_ADVANCED_FACTORS = 20
 # 文本上界：对齐 DB 列宽（screener_custom_strategies.name String(64) / description String(256)），
@@ -131,6 +134,14 @@ class ScreenerStrategyConfig(BaseModel):
     def _check_factor_count(cls, v: list[ScreenerFactorSpec]) -> list[ScreenerFactorSpec]:
         if len(v) > MAX_ADVANCED_FACTORS:
             raise ValueError(f"因子最多 {MAX_ADVANCED_FACTORS} 条，当前 {len(v)} 条")
+        return v
+
+    @field_validator("sort_by")
+    @classmethod
+    def _check_sort_by(cls, v: str) -> str:
+        if v not in ALLOWED_SORT_FIELDS:
+            allowed = "、".join(sorted(ALLOWED_SORT_FIELDS))
+            raise ValueError(f"不支持的排序字段 {v!r}；允许的字段：{allowed}")
         return v
 
 
