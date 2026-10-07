@@ -1,4 +1,5 @@
 from datetime import UTC
+from pathlib import Path
 
 from backend import app as app_module
 from backend import data_source
@@ -244,6 +245,43 @@ def test_root_serves_vue_frontend():
     # 双轨托管：dist 存在时服务 Vite 产物（引用 /assets/...），否则源码入口（引用 /src/main.ts）；
     # 两种模式都包含 Vue 挂载点 <div id="app">。
     assert '<div id="app">' in response.text
+
+
+def _assets_mount_dir(app):
+    mount = next(route for route in app.routes if getattr(route, "name", None) == "assets")
+    return Path(mount.app.directory)
+
+
+def test_create_app_mounts_dist_assets_when_present(monkeypatch, tmp_path):
+    """完整构建产物存在 → 仍挂载 dist/assets（既有行为钉子）。"""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    source = tmp_path / "frontend"
+    source.mkdir()
+    monkeypatch.setattr(app_module, "DIST_DIR", dist)
+    monkeypatch.setattr(app_module, "FRONTEND_DIR", source)
+
+    app = app_module.create_app()
+
+    assert _assets_mount_dir(app) == dist / "assets"
+
+
+def test_create_app_falls_back_when_dist_assets_missing(monkeypatch, tmp_path):
+    """dist 存在但 assets 缺失（构建中断 / Vite emptyOutDir 窗口）→ 回退源目录，绝不挂载崩启动。
+
+    此前只判断 `DIST_DIR.exists()`，此时 assets_dir 指向不存在的 dist/assets，
+    StaticFiles 直接抛 `RuntimeError: Directory ... does not exist`，create_app 整体失败。
+    """
+    dist = tmp_path / "dist"
+    dist.mkdir()  # dist 存在，但 dist/assets 尚未生成
+    source = tmp_path / "frontend"
+    source.mkdir()
+    monkeypatch.setattr(app_module, "DIST_DIR", dist)
+    monkeypatch.setattr(app_module, "FRONTEND_DIR", source)
+
+    app = app_module.create_app()
+
+    assert _assets_mount_dir(app) == source
 
 
 def test_apply_runtime_config_feeds_timeout_into_fetch(monkeypatch):
