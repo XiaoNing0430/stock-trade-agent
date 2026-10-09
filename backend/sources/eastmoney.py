@@ -8,6 +8,7 @@ import requests
 from backend.data_source import classify_code, numeric
 from backend.sources.base import Capability, DataSource
 from backend.sources.cn_impl import CNAssetMetadata, CNDataNormalizer, CNMarketCalendar
+from backend.sources.guard import SourceGuard
 
 # 报价字段：f2=price f3=changePct f4=changeAmount f5=volume f6=amount f8=turnoverRate
 #           f9=pe f10=pb f12=code f14=name f15=high f16=low f17=open f18=prevClose
@@ -28,6 +29,16 @@ _STOCK_FIELDS = "f43,f44,f45,f46,f47,f57,f58,f162,f164,f167,f168,f169,f170,f171,
 # 连接级失败的有界重试退避（秒）：len = 每 URL 最大重试次数。仅行业映射长跑路径启用
 # （逐页 10rps、最多 100 页，偶发 RemoteDisconnected 概率高；一次抖动不该让整轮刷新作废）。
 _CLIST_RETRY_BACKOFF_S = (0.5, 2.0)
+
+# 上游护栏（进程级、跨请求共享）：push2 域被持续请求会进入惩罚窗（RemoteDisconnected），
+# 故加最小请求间隔 + 连接级连败熔断；熔断期间快速失败，交由路由层降级链/后台补跑接管。
+_GUARD = SourceGuard(min_interval_s=0.12, failure_threshold=3, open_seconds=300.0)
+
+
+def breaker_state() -> str:
+    """东财上游护栏状态（health / 设置页观测位）：closed | open | half-open。"""
+    return _GUARD.state()
+
 
 # 东财 secid 前缀：1. = 上交所, 0. = 深交所/北交所
 _SECID_MAP = {"上交所": "1.", "深交所": "0.", "北交所": "0."}
@@ -80,10 +91,31 @@ class EastMoneySource(DataSource):
         return self._metadata
 
     def _http_get(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
-        """内部 HTTP 请求封装：调用东财接口并解析 JSON。"""
-        resp = requests.get(url, params=params, headers=self.REQUEST_HEADERS, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
+        """内部 HTTP 请求封装：过护栏（节流 + 熔断）后调用东财接口并解析 JSON。
+
+        连接级错误计入熔断；HTTP 状态错误只说明"链路通、业务失败"，如实上抛但不触发熔断。
+        """
+        _GUARD.acquire()
+        _GUARD.before_call()
+        try:
+            resp = requests.get(url, params=params, headers=self.REQUEST_HEADERS, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.HTTPError:
+            _GUARD.record_success()  # 拿到 HTTP 状态 = 链路正常
+            raise
+        except (requests.ConnectionError, requests.Timeout):
+            _GUARD.record_connection_failure()
+            raise
+        except Exception:
+            _GUARD.record_success()  # 解析类异常：链路正常，仅复位半开探测位
+            raise
+        _GUARD.record_success()
+        return data
+
+    def circuit_state(self) -> str:
+        """该源运行时护栏状态（`/api/settings` 与 health 观测用）。"""
+        return _GUARD.state()
 
     def _parse_quote(self, raw: dict[str, Any]) -> dict[str, Any] | None:
         """把东财 diff 条目标准化为前端 quote dict；缺失字段一律 None，绝不模拟。"""

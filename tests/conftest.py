@@ -34,3 +34,13 @@ def _isolate_l2_facade():
     data_source.set_facade(None)
     yield
     data_source.set_facade(None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_source_guard():
+    """上游护栏是进程级单例：逐用例复位，避免熔断/节流状态跨用例渗漏。"""
+    from backend.sources import eastmoney
+
+    eastmoney._GUARD.reset()
+    yield
+    eastmoney._GUARD.reset()

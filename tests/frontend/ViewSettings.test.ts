@@ -265,4 +265,41 @@ describe('ViewSettings', () => {
     expect(select.exists()).toBe(true);
     expect(wrapper.text()).toContain('对账偏差告警');
   });
+
+  it('数据源状态措辞如实：已注册·未探测连通性 / 上游熔断中', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'connection';
+    settings.dataSources = [
+      {
+        id: 'eastmoney',
+        name: '东方财富行情',
+        available: true,
+        circuit: 'closed',
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
+      {
+        id: 'tencent',
+        name: '腾讯公开行情',
+        available: true,
+        circuit: 'open',
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: false,
+      },
+    ];
+    const wrapper = mount(ViewSettings);
+    const text = wrapper.text();
+
+    // `available` 只是声明位 → 不再宣称「连接可用」
+    expect(text).not.toContain('连接可用');
+    expect(text).toContain('已注册 · 未探测连通性');
+    // 运行时熔断状态如实展示
+    expect(text).toContain('上游熔断中');
+  });
 });

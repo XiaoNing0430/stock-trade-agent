@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from importlib.util import find_spec
@@ -74,6 +75,7 @@ from backend.schemas import (
 )
 from backend.settings import get_settings
 from backend.sources import build_router, get_all_sources_info
+from backend.sources.base import Capability
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     CustomStrategyConflict,
@@ -169,6 +171,39 @@ def _validation_error_message(exc: RequestValidationError) -> str:
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
+
+
+def _call_with_source_fallback(
+    capability: Capability,
+    preferred_id: str,
+    fallback_enabled: bool,
+    call: Callable[[Any], Any],
+) -> tuple[Any, str, list[str]]:
+    """按降级链逐个源调用 `call(source)`，返回 (payload, provider, failed_source_ids)。
+
+    首选源**运行时**失败（连接被重置 / 上游异常）时，依 `fallbackEnabled` 继续尝试链上的下一个
+    **真实源**；全部失败则抛最后一次异常（路由层 502）。失败源逐个落 warning，绝不静默。
+    """
+    from backend.sources import build_router
+
+    chain = build_router().source_chain(preferred_id, capability, fallback_enabled)
+    failed: list[str] = []
+    last_exc: Exception | None = None
+    for source in chain:
+        try:
+            payload = call(source)
+        except Exception as exc:
+            failed.append(source.id)
+            last_exc = exc
+            logger.warning(
+                "source.runtime_fallback",
+                extra={"capability": capability, "source": source.id, "error": str(exc)[:200]},
+            )
+            continue
+        return payload, str(source.provider_label), failed
+    if last_exc is None:  # pragma: no cover - source_chain 保证非空
+        raise ValueError(f"No available source for capability {capability}")
+    raise last_exc
 
 
 def _load_history_with_fallback(
@@ -440,6 +475,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> HealthOut:
+        from backend.sources import source_circuits
+
         return HealthOut(
             ok=True,
             provider="Tencent public quote API",
@@ -452,6 +489,7 @@ def create_app() -> FastAPI:
             minuteCache=facade_state(),
             minuteCircuit=minute_path.breaker_state(),
             industry=industry_health(),
+            sourceCircuits=source_circuits(),
         )
 
     @app.get("/api/minute", response_model=MinuteOut)
@@ -573,14 +611,17 @@ def create_app() -> FastAPI:
     @app.get("/api/market")
     def market(codes: str = Query(default="")) -> MarketOut:
         try:
-            from backend.sources import build_router
-
             settings = get_workspace_settings("default")
-            source = build_router().route_with_fallback(
-                settings.get("realtimeSource", "tencent"), "realtime", settings.get("fallbackEnabled", True)
+            payload, provider, failed = _call_with_source_fallback(
+                "realtime",
+                str(settings.get("realtimeSource", "tencent")),
+                bool(settings.get("fallbackEnabled", True)),
+                lambda source: source.load_market(codes.split(",") if codes else []),
             )
-            payload = source.load_market(codes.split(",") if codes else [])
-            payload["provider"] = source.provider_label
+            payload["provider"] = provider
+            if failed:
+                payload["fallbackUsed"] = True
+                payload["failedSources"] = failed
             return MarketOut.model_validate(payload)
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
@@ -607,15 +648,18 @@ def create_app() -> FastAPI:
         market: str = Query(default="全部"), pageSize: int = Query(default=300, alias="pageSize")
     ) -> ScreenerOut:
         try:
-            from backend.sources import build_router
-
             settings = get_workspace_settings("default")
-            source = build_router().route_with_fallback(
-                settings.get("screenerSource", "tencent"), "screener", settings.get("fallbackEnabled", True)
+            payload, provider, failed = _call_with_source_fallback(
+                "screener",
+                str(settings.get("screenerSource", "tencent")),
+                bool(settings.get("fallbackEnabled", True)),
+                lambda source: source.load_screener(market, pageSize),
             )
-            payload = source.load_screener(market, pageSize)
-            payload["provider"] = source.provider_label
+            payload["provider"] = provider
             payload["fetchedAt"] = int(time.time() * 1000)
+            if failed:
+                payload["fallbackUsed"] = True
+                payload["failedSources"] = failed
             return ScreenerOut.model_validate(payload)
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
@@ -628,14 +672,22 @@ def create_app() -> FastAPI:
         sortDir: str = Query(default="desc", alias="sortDir"),
     ):
         try:
-            from backend.sources import build_router
-
             settings = get_workspace_settings("default")
-            source = build_router().route_with_fallback(
-                settings.get("screenerSource", "tencent"), "paged_screener", settings.get("fallbackEnabled", True)
+            payload, provider, failed = _call_with_source_fallback(
+                "paged_screener",
+                str(settings.get("screenerSource", "tencent")),
+                bool(settings.get("fallbackEnabled", True)),
+                lambda source: source.load_screener_paged(
+                    page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir
+                ),
             )
-            payload = source.load_screener_paged(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
             payload["fetchedAt"] = int(time.time() * 1000)
+            # v2 既有契约：provider 由适配器 payload 自带（如 "Tencent rank API"）；仅在缺失时兜底，
+            # 不覆写既有值（AGENTS：保留现有 API 字段值）
+            payload.setdefault("provider", provider)
+            if failed:
+                payload["fallbackUsed"] = True
+                payload["failedSources"] = failed
             return payload
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")

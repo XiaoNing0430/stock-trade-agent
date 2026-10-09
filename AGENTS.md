@@ -51,7 +51,7 @@ backend/
   multi_factor.py         多因子策略（ADX 状态过滤 + 动态切换 + 僵局保护）
   screener/               策略选股管道：pipeline/factors/scan/loader + configs/*.json 声明式策略
   assist/                 交易辅助：build_plan_draft 草案服务 / 单笔风险 calculator / 滑窗限频 limiter
-  sources/                数据源适配器（tencent/eastmoney/mock_us + base/router/cn_impl 日历与归一化）
+  sources/                数据源适配器（tencent/eastmoney/mock_us + base/router/cn_impl 日历与归一化 + guard 节流/熔断护栏）
   schemas.py              30 个 Pydantic 请求/响应模型
   storage.py              SQLAlchemy 模型 + 持久化助手（18 张表，含 4 张 PIT 快照表与 screener_custom_strategies）
   settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN, MOCK_US_ENABLED, CROSS_CHECK_ENABLED）
@@ -106,9 +106,10 @@ tests/
   test_custom_strategies.py 自定义选股策略：CRUD/原子乐观锁/事务删除引用快照/白名单与资源上界/扫描联动/
                           空值归一与中文 422/缓存失效接线/管道自定义 id 等价/删除日志快照
   test_screener_loader.py 声明式策略配置加载：内置 config 合法性 + 算子/因子/上界拒收
+  test_source_guard.py    上游护栏与运行时降级：节流/连败熔断/半开单探测 + 降级链有序 + 东财快速失败
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
-  frontend/               21 个 vitest 测试文件（共 235 项测试）
+  frontend/               21 个 vitest 测试文件（共 236 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -147,8 +148,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（235 项，21 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（652 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
+npx vitest run                        # 前端单元测试（236 项，21 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（665 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -179,6 +180,8 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 - **自定义选股策略输入语义（2026-10-03 硬化）：** 数字输入留空（Vue `v-model.number` 回写 `''`）= **未填**，绝不猜数：区间两侧皆空即「不设限」整键不发；`topN`/`deepCap`/因子 `period`/`weight` 省略键回落服务端既有默认；因子 `threshold` 无默认值 → 前端中文内联拦截不提交、后端中文 422。后端 `ScreenerStrategyConfig` 对 `''` 做同样归一，挡住直接 API 调用。422 `detail.error` 面向用户须为中文（`detail.code` 保持机器码 `VALIDATION_ERROR`）。
 - **API 错误契约统一（2026-10-03 打磨批）：** 所有错误响应（含 FastAPI 请求模型/查询参数校验失败）一律 `{"detail": {"error": 中文短句, "code": 机器码}}`；请求校验失败由 app 级 `RequestValidationError` handler 转换，`detail` 不再是对 pydantic 错误列表。新增端点请沿用 `api_error(...)`，不要自己拼错误形状。
 - **策略配置白名单（挡在保存前）：** 因子 `name`（7 因子）、`quick_filters` 字段（5 个）、`sort_by`（`changePct`/`amount`/`turnoverRate`/`pe`/`pb`）均为白名单，未知值存前 422——这些字段写错时管道会因行值缺失或 `_sort_key` 返回 `-inf` 而**静默失效**（不报错、结果不对）。
+- **运行时降级与上游护栏（2026-10-03）：** `fallbackEnabled` 是**请求期**真实降级——`/api/market`、`/api/screener`、`/api/screener/v2` 走 `_call_with_source_fallback`：首选源运行时失败即按 `source_chain()` 依次换**真实源**，响应以 `fallbackUsed` + `failedSources` 如实披露（`provider` 为实际应答源）；关掉开关则只试首选、失败如实 502。**别把「选源期可用」当请求期降级**（旧实现只在选源时换源，东财被 reset 就整体 502）。东财 `push2` 域另有护栏：12ms 级最小间隔 + 连接级连败 3 次熔断 300s（半开单探测），熔断期快速失败（`SourceCircuitOpen`，不打上游）；`HTTPError` 说明链路正常，不计入熔断。
+- **`available` 是声明位、不是连通性：** `DataSource.available` 只表示"已注册且 token/依赖满足"（东财/腾讯硬编码 `True`）。设置页必须显示为「已注册 · 未探测连通性」+ 运行时 `circuit`（closed/open/half-open），**禁止**再写成"连接可用"；`/api/health.sourceCircuits` 暴露各源熔断态。
 - **`asOfDate` 历史口径（P3 PIT）：** 复盘/组合风险接受 `asOfDate`（"历史今天"，须为不晚于今天的交易日）：行情/行业走 PIT 快照路径，**严格不跨日回退**，缺失按 complete/degraded/no-run/failed 如实披露，绝不向前回补造数；行业快照最多回溯 20 个交易日，`pit_quality` 优先于距离，`inferred` 永远是 historical_fallback 且不可覆盖 `exact`；历史缺口只能显式回填（写审计）。
 - **分钟线受保护语义：** 分钟线仅自选/详情单码、用户手动触发；不落库、不进 ETL、不自动轮询全自选。独立令牌桶 1rps/burst 3（与日线节流隔离）、上游 3 败熔断 900s、501 单次即熔断、5xx 零重试、短 TTL（L1 15s / L2 120s）**无陈旧降级读**。降级态文案见 spec §6（`etl_busy`/`circuit_open`/`unavailable` 灰条、429 toast）。
 

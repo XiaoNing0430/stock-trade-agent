@@ -286,12 +286,21 @@
           ><section v-for="source in dataSources" :key="source.id" class="settings-row">
             <div>
               <strong>{{ source.name }}</strong
-              ><span>{{ source.available ? '连接可用' : source.reason || '暂不可用' }}</span>
+              ><span>{{
+                source.circuit === 'open'
+                  ? '上游熔断中（自动降级到备选源，稍后自动重试）'
+                  : source.available
+                    ? '已注册 · 未探测连通性'
+                    : source.reason || '暂不可用'
+              }}</span>
             </div>
             <div>
-              <span :class="['setting-status', { 'setting-status-muted': !source.available }]">{{
-                source.available ? '可用' : '不可用'
-              }}</span
+              <span
+                :class="[
+                  'setting-status',
+                  { 'setting-status-muted': !source.available || source.circuit === 'open' },
+                ]"
+                >{{ source.circuit === 'open' ? '熔断' : source.available ? '已注册' : '不可用' }}</span
               ><span v-if="source.realtime" class="badge badge-blue">实时</span
               ><span v-if="source.history" class="badge badge-green">日线</span
               ><span v-if="source.screener" class="badge badge-orange">选股</span
