@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend import storage
 from backend.storage import IndustryMap
@@ -30,9 +30,29 @@ _FRESH_WINDOW = 86400.0
 _PAGE_SIZE = 200
 _MIN_INTERVAL = 0.11
 _MAX_PAGES = 100
+# 单页连接级错误的有界重试次数（主站/镜像各自）：抵御偶发 RemoteDisconnected，
+# 避免一次抖动让整轮刷新作废、行业映射陈旧到下一个 24h 周期
+_PAGE_RETRIES = 2
 
 # 进程缓存：(填充时刻 time.monotonic, code→行业 映射)；None 表示无缓存
 _cache: tuple[float, dict[str, str]] | None = None
+
+# 最近一轮 refresh 是否完整跑完（None=本进程内尚未跑过）：后台 job 据此决定是否提前重排
+_last_refresh_complete: bool | None = None
+
+# 连接级故障的异常类名（按 MRO 判定；避免为此 import requests）：
+# requests.ConnectionError / requests.Timeout / urllib3 ProtocolError / http.client.RemoteDisconnected
+_CONNECTION_ERROR_NAMES = frozenset({"ConnectionError", "Timeout", "RemoteDisconnected", "ProtocolError"})
+
+
+def _is_connection_error(exc: BaseException) -> bool:
+    return any(cls.__name__ in _CONNECTION_ERROR_NAMES for cls in type(exc).__mro__)
+
+
+def last_refresh_complete() -> bool | None:
+    """最近一轮 refresh 是否完整跑完（None=进程内尚未跑过）。"""
+    return _last_refresh_complete
+
 
 # 真东财适配器惰性单例（避免每页重复构造日历/归一器）
 _source: Any | None = None
@@ -54,8 +74,29 @@ def _get_source() -> Any:
 
 
 def _default_fetch_page(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
-    """默认取页：真东财 clist 全市场分页，复用既有请求构造。"""
-    return _get_source()._clist_page(page, size)
+    """默认取页：真东财 clist 全市场分页，复用既有请求构造（连接级错误退避重试）。"""
+    return _get_source()._clist_page(page, size, retries=_PAGE_RETRIES)
+
+
+def industry_health() -> dict[str, Any]:
+    """health 观测面：行业映射行数/最旧行时龄/三态。
+
+    只做聚合查询（不拉全表映射、绝不触发网络）；查询失败如实返回 unavailable（不造假）。
+    """
+    try:
+        with storage.SessionLocal() as session:
+            rows, oldest = session.execute(select(func.count(), func.min(IndustryMap.updated_at))).one()
+    except Exception:
+        logger.warning("行业映射 health 查询失败", exc_info=True)
+        return {"status": "unavailable", "rows": 0, "oldestAgeSeconds": None}
+    if not rows:
+        return {"status": "empty", "rows": 0, "oldestAgeSeconds": None}
+    age_seconds = (datetime.now(UTC) - oldest).total_seconds()
+    return {
+        "status": "fresh" if age_seconds <= _FRESH_WINDOW else "stale",
+        "rows": int(rows),
+        "oldestAgeSeconds": int(max(age_seconds, 0)),
+    }
 
 
 def get_industry_map() -> tuple[dict[str, str], str]:
@@ -117,7 +158,7 @@ def refresh_industry_map(
     fetch_page(page, size) → (归一 rows, total)；None 用真东财。任一页抛错即中断，保留
     已 upsert 行（每页独立提交）并返回已累计计数；不完整结果不写进程缓存。
     """
-    global _cache
+    global _cache, _last_refresh_complete
     page_fn = fetch_page or _default_fetch_page
     upserted = 0
     seen = 0  # 已消费的上游行数（含被跳过的空行业行），用于按 total 判终止
@@ -127,8 +168,13 @@ def refresh_industry_map(
     while page <= _MAX_PAGES:
         try:
             rows, total = page_fn(page, _PAGE_SIZE)
-        except Exception:
-            logger.warning("行业映射刷新第 %d 页失败，保留已写入 %d 行", page, upserted, exc_info=True)
+        except Exception as exc:
+            if _is_connection_error(exc):
+                # 连接级抖动是可降级的已知故障：一行说清（页码/已保留行数/上游异常），
+                # 不打 urllib3 内部长栈；非预期异常才保留完整 traceback。
+                logger.warning("行业映射刷新第 %d 页上游连接失败（已保留 %d 行）: %s", page, upserted, exc)
+            else:
+                logger.warning("行业映射刷新第 %d 页失败，保留已写入 %d 行", page, upserted, exc_info=True)
             break
         fetched = len(rows)
         seen += fetched
@@ -156,4 +202,5 @@ def refresh_industry_map(
 
     if completed and collected:
         _cache = (time.monotonic(), dict(collected))
+    _last_refresh_complete = completed
     return upserted

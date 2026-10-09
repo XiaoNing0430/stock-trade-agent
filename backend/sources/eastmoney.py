@@ -25,6 +25,9 @@ _EM_SORT_MAP = {
 }
 # 财务字段（fundamental，stock/get 实测返回字段）
 _STOCK_FIELDS = "f43,f44,f45,f46,f47,f57,f58,f162,f164,f167,f168,f169,f170,f171,f173,f177,f178"
+# 连接级失败的有界重试退避（秒）：len = 每 URL 最大重试次数。仅行业映射长跑路径启用
+# （逐页 10rps、最多 100 页，偶发 RemoteDisconnected 概率高；一次抖动不该让整轮刷新作废）。
+_CLIST_RETRY_BACKOFF_S = (0.5, 2.0)
 
 # 东财 secid 前缀：1. = 上交所, 0. = 深交所/北交所
 _SECID_MAP = {"上交所": "1.", "深交所": "0.", "北交所": "0."}
@@ -264,10 +267,12 @@ class EastMoneySource(DataSource):
             "provider": self.provider_label,
         }
 
-    def _clist_page(self, page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+    def _clist_page(self, page: int, size: int, *, retries: int = 0) -> tuple[list[dict[str, Any]], int]:
         """行业映射用全市场分页：复用 clist 请求构造（同 load_screener_paged 的 URL/参数/解析）。
 
         返回 (归一 rows, total)；每行由 _parse_quote 归一并带出 industry（f100 原始串）。
+        `retries`：**连接级**错误的有界重试次数（含镜像）。交互式 API 路径默认 0（单次尝试、
+        延迟不变）；行业映射长跑（≤100 页、逐页 10rps）传 2，抵御偶发连接重置。
         """
         params: dict[str, Any] = {
             "fltt": 2,
@@ -280,15 +285,33 @@ class EastMoneySource(DataSource):
             "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
             "fields": _CLIST_FIELDS,
         }
-        try:
-            data = self._http_get(self.CLIST_URL, params)
-        except (requests.HTTPError, requests.ConnectionError):
-            # 主站被网络重置/502 时走延时镜像：行业映射只用 f12/f14/f100（分类字段），
-            # 对价格鲜度无要求；同函数内 f2 等价格字段在 f100-only 流中本就丢弃。
-            data = self._http_get(self.CLIST_MIRROR_URL, params)
+        data = self._clist_fetch(params, retries=retries)
         payload = data.get("data") or {}
         rows = [q for q in (self._parse_quote(raw) for raw in payload.get("diff", [])) if q is not None]
         return rows, int(payload.get("total", 0))
+
+    def _clist_fetch(self, params: dict[str, Any], *, retries: int) -> dict[str, Any]:
+        """主站 → 延时镜像：各自对连接级错误按退避重试至多 `retries` 次。
+
+        语义（与既有行为兼容）：HTTP 错误（4xx/5xx）不是瞬时故障 → 不重试、立即换下一个 URL；
+        连接级错误（RemoteDisconnected 等）→ 退避重试；两个 URL 都失败 → 抛最后一次的异常，
+        由调用方记日志并保留已写入行（绝不静默返回残缺数据）。
+        """
+        last_error: Exception | None = None
+        for url in (self.CLIST_URL, self.CLIST_MIRROR_URL):
+            for attempt in range(retries + 1):
+                try:
+                    return self._http_get(url, params)
+                except requests.HTTPError as exc:
+                    last_error = exc
+                    break  # HTTP 状态错误：立即换 URL（旧语义）
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    last_error = exc
+                    if attempt < retries:
+                        time.sleep(_CLIST_RETRY_BACKOFF_S[min(attempt, len(_CLIST_RETRY_BACKOFF_S) - 1)])
+        if last_error is None:  # pragma: no cover - 循环至少执行一次；防御分支
+            raise RuntimeError("clist 请求未执行")
+        raise last_error
 
     def load_fundamentals(self, code: str) -> dict[str, Any]:
         """拉取个股财务字段（唯一 fundamental 提供方）。"""

@@ -1836,3 +1836,72 @@ def test_http_get_retry_http_error_false_single_hit(monkeypatch):
     with pytest.raises(requests.HTTPError):
         data_source._http_get("u", {})
     assert len(hits) == 1 + 1 + 2
+
+
+# ---------- 行业映射韧性（2026-10-03）：完成标记驱动的提前重排 + health 观测面 ----------
+
+
+def test_industry_warmup_job_reschedules_when_incomplete(monkeypatch):
+    """整轮刷新不完整（页失败中断）→ 提前重排一次（30 分钟），不必等 24h 周期。"""
+    from datetime import datetime as dt
+    from datetime import timedelta as td
+
+    tz = app_module.scheduler.timezone
+    scheduled: list[dict] = []
+
+    class FakeScheduler:
+        timezone = tz
+
+        def get_job(self, job_id):
+            return None
+
+        def add_job(self, func, trigger, **kwargs):
+            scheduled.append({"func": func, "trigger": trigger, **kwargs})
+
+    monkeypatch.setattr(app_module, "scheduler", FakeScheduler())
+    monkeypatch.setattr(app_module, "refresh_industry_map", lambda: 0)
+    monkeypatch.setattr(app_module, "last_refresh_complete", lambda: False)
+
+    app_module._industry_warmup_job()
+
+    retry = next(job for job in scheduled if job.get("id") == "industry-warmup-retry")
+    assert retry["trigger"] == "date" and retry["replace_existing"] is True
+    delta = retry["run_date"] - dt.now(tz)
+    assert td(minutes=25) < delta <= td(minutes=30)
+
+
+def test_industry_warmup_job_clears_retry_when_complete(monkeypatch):
+    """整轮跑完 → 移除可能残留的提前重排 job（避免冗余刷新），且不再新排。"""
+    tz = app_module.scheduler.timezone
+    removed: list[str] = []
+
+    class FakeScheduler:
+        timezone = tz
+
+        def get_job(self, job_id):
+            return object() if job_id == "industry-warmup-retry" else None
+
+        def remove_job(self, job_id):
+            removed.append(job_id)
+
+        def add_job(self, *args, **kwargs):  # pragma: no cover - 断言分支
+            raise AssertionError("完整刷新不应再排重试")
+
+    monkeypatch.setattr(app_module, "scheduler", FakeScheduler())
+    monkeypatch.setattr(app_module, "refresh_industry_map", lambda: 0)
+    monkeypatch.setattr(app_module, "last_refresh_complete", lambda: True)
+
+    app_module._industry_warmup_job()
+
+    assert removed == ["industry-warmup-retry"]
+
+
+def test_health_exposes_industry_status():
+    """health 观测面补齐行业映射状态/行数：陈旧可被看见，不再只靠后台日志。"""
+    with TestClient(app_module.create_app()) as client:
+        body = client.get("/api/health").json()
+
+    assert "industry" in body
+    industry = body["industry"]
+    assert industry["status"] in {"empty", "fresh", "stale", "unavailable"}
+    assert isinstance(industry["rows"], int) and industry["rows"] >= 0
