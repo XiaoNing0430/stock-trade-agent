@@ -146,6 +146,9 @@ class HealthOut(BaseModel):
     redisCache: str | None = None
     minuteCache: str = "down"
     minuteCircuit: str = "closed"
+    # 行业映射观测位（2026-10-03 韧性批）：{status, rows, oldestAgeSeconds}；
+    # 只读聚合、不触网；查询不可用 → status="unavailable"（不造假）
+    industry: dict[str, Any] | None = None
 
 
 class MinuteOut(BaseModel):

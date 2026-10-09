@@ -42,7 +42,8 @@ backend/
   grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）
   plan_review.py          计划绩效复盘：设计口径日线回放引擎（窗口/微结构/聚合，只读，零写 plans；支持 asOfDate）
   portfolio_risk.py       组合风险引擎：交易对 build_links、名义额静态分配回放、四档 exitMode、NAV 双线、聚合（纯函数，只读）
-  industry_map.py         行业映射双层缓存（进程 TTL + industry_map 表；API 只读缓存，预热走后台 job）
+  industry_map.py         行业映射双层缓存（进程 TTL + industry_map 表；API 只读缓存，预热走后台 job；
+                          连接级有界重试 + 整轮不完整时 30 分钟提前补跑 + `/api/health.industry` 观测位）
   indicators.py           技术指标库（MA/EMA/BOLL/ATR/Donchian/Momentum/RSI/ADX + closed_bars 反前视截断）
   strategy_base.py        策略基类：signal_at 钩子 + 统一整手/手续费/T+1/权益曲线/基准指标
   strategy_engines.py     策略注册表（按 id 登记，供 API 与调度器调用）
@@ -94,7 +95,8 @@ tests/
   test_portfolio_engine.py   组合回放引擎：core 状态机 + 闭环 exitMode 矩阵 + 复盘微结构等价（equiv 场景）
   test_portfolio_aggregate.py 聚合层：KPI/敞口/行业集中度/信号看板/自选观察指数/假想线
   test_portfolio_api.py   存储校验（交易对五规则/exitMode 白名单）+ /api/portfolio/risk 端点
-  test_industry_map.py    行业映射双层缓存：fresh/stale/empty 判定 + 整表 min() 时龄
+  test_industry_map.py    行业映射双层缓存：fresh/stale/empty 判定 + 整表 min() 时龄 +
+                          连接级有界重试/完成标记/日志降噪/health 聚合
   test_bars_etl.py        全市场日线 ETL 核心：水位时刻粒度/universe 并集/缺口四档/调度注册/health 位
   test_bars_etl_run.py    ETL 执行流：空判失败熔断/DQ 拒收矩阵/SAVEPOINT 隔离/no_new_bar/自愈队列/护栏/互斥/公平序
   test_redis_cache.py     CacheFacade（fake redis+假时钟全离线）：白名单/PX 随动/严格序列化/熔断仅计客户端
@@ -146,7 +148,7 @@ python server.py    # 或 python -m backend.main
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
 npx vitest run                        # 前端单元测试（235 项，21 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（641 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
+python -m pytest tests/ -v            # 后端测试（652 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend

@@ -37,7 +37,7 @@ from backend.grid_scheduler import (
     unschedule_strategy,
 )
 from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
-from backend.industry_map import get_industry_map, refresh_industry_map
+from backend.industry_map import get_industry_map, industry_health, last_refresh_complete, refresh_industry_map
 from backend.schemas import (
     CustomStrategyIn,
     DeleteOut,
@@ -313,12 +313,38 @@ def _snapshot_loader(as_of_date: str):
     return load, state
 
 
+# 行业映射整轮刷新不完整时的提前补跑间隔（分钟）：不完整 ≠ 无数据，但绝不该陈旧到 24h 后
+_INDUSTRY_RETRY_MINUTES = 30
+
+
 def _industry_warmup_job() -> None:
-    """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。"""
+    """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。
+
+    整轮刷新不完整（如上游连接被重置、中途页失败）时**提前重排一次**，避免行业映射
+    一直陈旧到下一个 24h 周期才被发现。
+    """
     try:
         refresh_industry_map()
     except Exception:
         industry_logger.warning("行业映射全市场刷新失败（已跳过，不影响 API）", exc_info=True)
+    _reschedule_industry_on_incomplete()
+
+
+def _reschedule_industry_on_incomplete() -> None:
+    """不完整 → `_INDUSTRY_RETRY_MINUTES` 分钟后补跑一次；完整 → 清掉可能残留的补跑 job。"""
+    try:
+        if last_refresh_complete() is False:
+            scheduler.add_job(
+                _industry_warmup_job,
+                "date",
+                run_date=datetime.now(scheduler.timezone) + timedelta(minutes=_INDUSTRY_RETRY_MINUTES),
+                id="industry-warmup-retry",
+                replace_existing=True,
+            )
+        elif scheduler.get_job("industry-warmup-retry") is not None:
+            scheduler.remove_job("industry-warmup-retry")
+    except Exception:
+        industry_logger.warning("行业映射补跑任务调度失败（已跳过，不影响 API）", exc_info=True)
 
 
 def create_app() -> FastAPI:
@@ -425,6 +451,7 @@ def create_app() -> FastAPI:
             redisCache=facade_state(),
             minuteCache=facade_state(),
             minuteCircuit=minute_path.breaker_state(),
+            industry=industry_health(),
         )
 
     @app.get("/api/minute", response_model=MinuteOut)
