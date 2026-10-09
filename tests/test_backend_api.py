@@ -1905,3 +1905,110 @@ def test_health_exposes_industry_status():
     industry = body["industry"]
     assert industry["status"] in {"empty", "fresh", "stale", "unavailable"}
     assert isinstance(industry["rows"], int) and industry["rows"] >= 0
+
+
+# ---------- 运行时降级 + 上游护栏（2026-10-03） ----------
+
+
+def test_market_runtime_fallback_switches_source_and_discloses(monkeypatch):
+    """首选源运行时被上游 reset → 依 fallbackEnabled 换**真实**源并如实披露（不再直接 502）。"""
+    import requests
+    from backend.sources import eastmoney as em_cls
+    from backend.sources import tencent as tx_cls
+
+    monkeypatch.setattr(
+        em_cls.EastMoneySource,
+        "load_market",
+        lambda self, codes: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")),
+    )
+    monkeypatch.setattr(
+        tx_cls.TencentSource,
+        "load_market",
+        lambda self, codes: {
+            "quotes": [{"code": "600519", "name": "贵州茅台", "price": 1263.0}],
+            "indices": [],
+            "fetchedAt": 0,
+            "errors": [],
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"realtimeSource": "eastmoney", "fallbackEnabled": True},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/market?codes=600519")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "Tencent public quote API"
+    assert body["fallbackUsed"] is True
+    assert body["failedSources"] == ["eastmoney"]
+
+
+def test_market_runtime_failure_with_fallback_disabled_returns_502(monkeypatch):
+    """fallbackEnabled=False：尊重用户选择，不换源，如实 502。"""
+    import requests
+    from backend.sources import eastmoney as em_cls
+
+    monkeypatch.setattr(
+        em_cls.EastMoneySource,
+        "load_market",
+        lambda self, codes: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"realtimeSource": "eastmoney", "fallbackEnabled": False},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/market?codes=600519")
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_screener_v2_runtime_fallback(monkeypatch):
+    """全市场分页同样接运行时降级（此前只换源不换请求，东财被 reset 即 502）。"""
+    import requests
+    from backend.sources import eastmoney as em_cls
+    from backend.sources import tencent as tx_cls
+
+    monkeypatch.setattr(
+        em_cls.EastMoneySource,
+        "load_screener_paged",
+        lambda self, **kwargs: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")),
+    )
+    monkeypatch.setattr(
+        tx_cls.TencentSource,
+        "load_screener_paged",
+        lambda self, **kwargs: {
+            "total": 1,
+            "page": 1,
+            "pageSize": 50,
+            "rows": [{"code": "600519", "name": "贵州茅台"}],
+            "provider": "Tencent rank API",
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "eastmoney", "fallbackEnabled": True},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2?page=1&pageSize=50")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "Tencent rank API"
+    assert body["fallbackUsed"] is True
+    assert body["failedSources"] == ["eastmoney"]
+
+
+def test_health_exposes_source_circuits():
+    """上游熔断/降级要可观测：health 暴露各源护栏状态。"""
+    with TestClient(app_module.create_app()) as client:
+        body = client.get("/api/health").json()
+
+    assert "sourceCircuits" in body
+    assert body["sourceCircuits"].get("eastmoney") in {"closed", "open", "half-open"}

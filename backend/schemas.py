@@ -149,6 +149,8 @@ class HealthOut(BaseModel):
     # 行业映射观测位（2026-10-03 韧性批）：{status, rows, oldestAgeSeconds}；
     # 只读聚合、不触网；查询不可用 → status="unavailable"（不造假）
     industry: dict[str, Any] | None = None
+    # 各源运行时熔断护栏状态（2026-10-03）：{sourceId: closed|open|half-open}
+    sourceCircuits: dict[str, str] | None = None
 
 
 class MinuteOut(BaseModel):
@@ -193,6 +195,9 @@ class MarketOut(BaseModel):
     fetchedAt: int = 0
     provider: str = ""
     errors: list[dict[str, Any]] = Field(default_factory=list)
+    # 运行时降级披露（2026-10-03）：首选源请求期失败而换源成功时如实标注
+    fallbackUsed: bool = False
+    failedSources: list[str] = Field(default_factory=list)
 
 
 class HistoryOut(BaseModel):
@@ -214,6 +219,9 @@ class ScreenerOut(BaseModel):
     universeSize: int = 0
     provider: str = ""
     fetchedAt: int = 0
+    # 运行时降级披露（2026-10-03）：与 MarketOut 同口径
+    fallbackUsed: bool = False
+    failedSources: list[str] = Field(default_factory=list)
 
 
 class GridPreviewOut(BaseModel):

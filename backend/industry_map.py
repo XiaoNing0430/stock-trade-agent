@@ -26,9 +26,11 @@ logger = logging.getLogger("atlas.industry")
 # 进程缓存 TTL（秒）与"DB 数据新鲜"窗口：均 24h。DB 新鲜以**最旧行** updated_at 计（见 get_industry_map）
 _PROCESS_TTL = 86400.0
 _FRESH_WINDOW = 86400.0
-# 分页拉取：每页 size、页间最小间隔（≤10 req/s）、最大页数护栏
+# 分页拉取：每页 size、页间最小间隔（≤3 req/s）、最大页数护栏。
+# 2026-10-03 降速：原先 0.11s（≈9 req/s）× 最多 100 页是把本机 IP 打进东财 push2 惩罚窗的
+# 主要嫌疑（惩罚窗内所有 push2 调用 RemoteDisconnected）。后台预热不赶时间——宁慢勿封。
 _PAGE_SIZE = 200
-_MIN_INTERVAL = 0.11
+_MIN_INTERVAL = 0.4
 _MAX_PAGES = 100
 # 单页连接级错误的有界重试次数（主站/镜像各自）：抵御偶发 RemoteDisconnected，
 # 避免一次抖动让整轮刷新作废、行业映射陈旧到下一个 24h 周期
