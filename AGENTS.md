@@ -52,7 +52,7 @@ backend/
   screener/               策略选股管道：pipeline/factors/scan/loader + configs/*.json 声明式策略
   assist/                 交易辅助：build_plan_draft 草案服务 / 单笔风险 calculator / 滑窗限频 limiter
   sources/                数据源适配器（tencent/eastmoney/mock_us + base/router/cn_impl 日历与归一化 + guard 节流/熔断护栏）
-  schemas.py              30 个 Pydantic 请求/响应模型
+  schemas.py              37 个 Pydantic 请求/响应模型
   storage.py              SQLAlchemy 模型 + 持久化助手（18 张表，含 4 张 PIT 快照表与 screener_custom_strategies）
   settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN, MOCK_US_ENABLED, CROSS_CHECK_ENABLED）
   migrations/             Alembic 迁移脚本（基线 + 前向迁移，最新 p3pit20260918 PIT 快照四表）
@@ -68,15 +68,16 @@ frontend/
       CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；409 保留本地编辑仅刷新 version）
     api/
       client.ts           类似 Axios 的 fetch 封装
-    stores/               12 个 Pinia 状态仓库
+    stores/               13 个 Pinia 状态仓库
       useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
       useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
       useAlertsStore.ts / useSettingsStore.ts / useAssistStore.ts
       useScanStore.ts / useReviewStore.ts / usePortfolioStore.ts
+      useCompareStore.ts    多策略回测对比（同标的横向对比 + 已保存策略快照/现跑）
     modules/              纯逻辑模块
       constants.ts / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
-      assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表）
+      assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表） / csv.ts（对比 CSV 组装与公式注入防护）
     views/                8 个 SFC 视图
       ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
       ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
@@ -107,9 +108,10 @@ tests/
                           空值归一与中文 422/缓存失效接线/管道自定义 id 等价/删除日志快照
   test_screener_loader.py 声明式策略配置加载：内置 config 合法性 + 算子/因子/上界拒收
   test_source_guard.py    上游护栏与运行时降级：节流/连败熔断/半开单探测 + 降级链有序 + 东财快速失败
+  test_strategy_compare.py  多策略对比：同 bars 重放/白名单上界/部分失败隔离/trades 不截断/快照与现跑零写库
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
-  frontend/               21 个 vitest 测试文件（共 236 项测试）
+  frontend/               24 个 vitest 测试文件（共 262 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -148,8 +150,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（236 项，21 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（665 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
+npx vitest run                        # 前端单元测试（262 项，24 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（673 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
