@@ -4367,3 +4367,38 @@ textarea:focus-visible {
 .pf-disclaimer {
   margin-bottom: 4px;
 }
+
+.compare-type-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.compare-type-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.compare-saved-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.compare-error-cell {
+  color: var(--danger, #dc2626);
+}
+
+.is-best {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.compare-exports {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
