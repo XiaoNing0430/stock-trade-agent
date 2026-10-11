@@ -395,3 +395,40 @@ class PlanDraftResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     data: PlanDraftOut
+
+
+class CompareResultItem(BaseModel):
+    """单策略对比项；error 行仅有 strategyType/label/error。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    strategyType: str
+    label: str = ""
+    config: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None
+    equityCurve: list[dict[str, Any]] | None = None
+    trades: list[dict[str, Any]] | None = None
+    assumptions: str | None = None
+    error: str | None = None
+
+
+class CompareRunIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    lookback: int = 120
+    capital: float = Field(default=100000, gt=0)
+    feeBps: float = Field(default=3, ge=0)
+    strategyTypes: list[str] = Field(default_factory=list)
+
+
+class CompareRunOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    profile: dict[str, Any] = Field(default_factory=dict)
+    dataSource: str
+    dataAsOf: str | None = None
+    barCount: int = 0
+    benchmarkCurve: list[dict[str, Any]] = Field(default_factory=list)
+    results: list[CompareResultItem] = Field(default_factory=list)

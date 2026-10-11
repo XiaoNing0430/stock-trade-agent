@@ -37,9 +37,11 @@ from backend.grid_scheduler import (
     stop_scheduler,
     unschedule_strategy,
 )
-from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
+from backend.grid_strategy import backtest_grid, buy_and_hold_benchmark, optimize_grid, suggest_grid
 from backend.industry_map import get_industry_map, industry_health, last_refresh_complete, refresh_industry_map
 from backend.schemas import (
+    CompareRunIn,
+    CompareRunOut,
     CustomStrategyIn,
     DeleteOut,
     GridBacktestIn,
@@ -128,6 +130,18 @@ logger = logging.getLogger("atlas.assist")
 review_logger = logging.getLogger("atlas.review")  # 计划复盘独立通道：上游失败 codes 落日志（r3.1）
 industry_logger = logging.getLogger("atlas.industry")  # 行业映射后台预热独立通道（Task 2）
 screener_logger = logging.getLogger("atlas.screener")  # 自定义选股策略写路径与删除快照通道
+
+compare_logger = logging.getLogger("atlas.compare")  # 多策略对比端点结构化日志（2026-10-11 spec §3.7）
+_COMPARE_ALLOWED_TYPES = {"grid", *STRATEGY_ENGINES.keys()}
+
+
+def _compare_label(strategy_type: str) -> str:
+    return "网格" if strategy_type == "grid" else str(STRATEGY_ENGINES[strategy_type]["label"])
+
+
+def _engine_default_config(engine: dict[str, Any]) -> dict[str, Any]:
+    """按 configSchema 的 default 生成引擎默认参数（与 /api/strategy/preview 补齐逻辑一致）。"""
+    return {field["key"]: field.get("default") for field in engine["configSchema"]}
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -1502,6 +1516,124 @@ def create_app() -> FastAPI:
                 schedule_strategy(strategy)
                 response["strategy"] = get_strategy(strategy["id"])
             return StrategyBacktestOut.model_validate(response)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+
+    @app.post("/api/strategy/compare")
+    def strategy_compare(payload: CompareRunIn) -> CompareRunOut:
+        """同标的横向对比：一次取数，同一份 bars 重放全部勾选策略（只读，零写库）。"""
+        started = time.monotonic()
+        try:
+            code = payload.code
+            profile = classify_code(code)
+            lookback = max(20, min(payload.lookback, 240))
+            # 白名单 + 去重保序（≤8 由白名单与去重结构性保证，无需独立检查）
+            seen: list[str] = []
+            for strategy_type in payload.strategyTypes:
+                if strategy_type not in _COMPARE_ALLOWED_TYPES:
+                    raise api_error(422, ERR_VALIDATION_ERROR, f"未知策略类型：{strategy_type}")
+                if strategy_type not in seen:
+                    seen.append(strategy_type)
+            if not seen:
+                raise api_error(422, ERR_VALIDATION_ERROR, "至少勾选一个策略类型")
+            history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+            limit_pct = price_limit_ratio(code)
+            benchmark_curve = buy_and_hold_benchmark(
+                history, payload.capital, payload.feeBps, profile["securityType"], profile["exchange"]
+            )["curve"]
+            results: list[dict[str, Any]] = []
+            failed_types: list[str] = []
+            for strategy_type in seen:
+                try:
+                    if strategy_type == "grid":
+                        suggestion = suggest_grid(history, 8, payload.capital, "classic")
+                        result = backtest_grid(
+                            history,
+                            suggestion["lower"],
+                            suggestion["upper"],
+                            8,
+                            payload.capital,
+                            payload.feeBps,
+                            "classic",
+                            profile["securityType"],
+                            profile["exchange"],
+                            1,
+                            5,
+                            limit_pct,
+                        )
+                        config = {
+                            "lower": suggestion["lower"],
+                            "upper": suggestion["upper"],
+                            "gridCount": 8,
+                            "mode": "classic",
+                            "capital": payload.capital,
+                            "feeBps": payload.feeBps,
+                            "lookback": lookback,
+                            "settlementDays": 1,
+                            "slippageBps": 5,
+                            "priceLimitPct": limit_pct * 100,
+                            "rangeMode": "auto",
+                        }
+                    else:
+                        engine = STRATEGY_ENGINES[strategy_type]
+                        config = _engine_default_config(engine)
+                        config.update(
+                            {
+                                "capital": payload.capital,
+                                "feeBps": payload.feeBps,
+                                "securityType": profile["securityType"],
+                                "exchange": profile["exchange"],
+                                "lookback": lookback,
+                                "capitalAllocation": 1.0,
+                            }
+                        )
+                        result = engine["backtest"](history, config)
+                    result.pop("benchmarkCurve", None)  # 基准曲线顶层仅一份
+                    results.append(
+                        {
+                            "strategyType": strategy_type,
+                            "label": _compare_label(strategy_type),
+                            "config": config,
+                            **result,
+                            "error": None,
+                        }
+                    )
+                except Exception as exc:  # 单策略失败不拖垮整单（spec §3.1）
+                    failed_types.append(strategy_type)
+                    results.append(
+                        {
+                            "strategyType": strategy_type,
+                            "label": _compare_label(strategy_type),
+                            "error": f"回测失败：{exc}",
+                        }
+                    )
+            compare_logger.info(
+                "strategy.compare",
+                extra={
+                    "code": code,
+                    "strategyTypes": seen,
+                    "lookback": lookback,
+                    "capital": payload.capital,
+                    "feeBps": payload.feeBps,
+                    "elapsedMs": int((time.monotonic() - started) * 1000),
+                    "resultStatus": "partial_failure" if failed_types else "success",
+                    "dataSource": data_source_flag,
+                    "failedTypes": failed_types,
+                },
+            )
+            return CompareRunOut.model_validate(
+                {
+                    "code": code,
+                    "profile": profile,
+                    "dataSource": data_source_flag,
+                    "dataAsOf": data_as_of,
+                    "barCount": len(history),
+                    "benchmarkCurve": benchmark_curve,
+                    "results": results,
+                }
+            )
         except HTTPException:
             raise
         except Exception as exc:
