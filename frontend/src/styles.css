@@ -24,10 +24,6 @@
   --blue-soft: #edf3fb;
   --gold: #aa7d22;
   --gold-soft: #fff7df;
-  --shadow: 0 14px 34px rgba(21, 32, 51, 0.06);
-  --shadow-small: 0 5px 16px rgba(21, 32, 51, 0.07);
-  --radius: 12px;
-  --radius-small: 8px;
   /* ===== 版式令牌（第②批：字阶/间距/圆角/阴影，主题无关） ===== */
   --fs-xs: 11px;
   --fs-sm: 12px;
@@ -248,7 +244,7 @@ textarea:focus-visible {
   margin: 0 2px var(--space-7);
   padding: var(--space-3);
   border: 1px solid var(--sidebar-line);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--sidebar-hover-soft);
 }
 
@@ -309,7 +305,7 @@ textarea:focus-visible {
   min-height: 42px;
   padding: 0 var(--space-3);
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--sidebar-muted);
   text-align: left;
@@ -347,7 +343,7 @@ textarea:focus-visible {
   height: 20px;
   place-items: center;
   border: 1px solid var(--sidebar-line-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--sidebar-kbd);
   font-family: inherit;
   font-size: var(--fs-xs);
@@ -431,7 +427,7 @@ textarea:focus-visible {
   margin: 0 2px var(--space-4);
   padding: var(--space-3);
   border: 1px solid var(--sidebar-line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--sidebar-soft);
 }
 
@@ -441,7 +437,7 @@ textarea:focus-visible {
   height: 27px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--sidebar-coral-bg);
   color: var(--sidebar-coral-text);
 }
@@ -596,7 +592,7 @@ textarea:focus-visible {
   gap: var(--space-2);
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--muted);
 }
@@ -648,7 +644,7 @@ textarea:focus-visible {
   height: 35px;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--muted-strong);
   transition:
@@ -873,7 +869,7 @@ textarea:focus-visible {
   margin: calc(-1 * var(--space-2)) 0 var(--space-5);
   padding: var(--space-3);
   border: 1px solid var(--gold-line-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--gold-wash);
   color: var(--gold);
   font-size: var(--fs-xs);
@@ -898,7 +894,7 @@ textarea:focus-visible {
   min-height: 150px;
   place-items: center;
   border: 1px dashed var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--muted);
   font-size: var(--fs-xs);
 }
@@ -927,7 +923,7 @@ textarea:focus-visible {
   min-height: 35px;
   padding: 0 var(--space-3);
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   font-size: var(--fs-sm);
   font-weight: 500;
   white-space: nowrap;
@@ -994,9 +990,9 @@ textarea:focus-visible {
 
 .surface {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
 }
 
 .surface-heading {
@@ -1034,7 +1030,7 @@ textarea:focus-visible {
 .index-item {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 
@@ -1197,7 +1193,7 @@ textarea:focus-visible {
   display: flex;
   height: 7px;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 
@@ -1260,7 +1256,7 @@ textarea:focus-visible {
 
 .strategy-label {
   padding: var(--space-1) var(--space-2);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--coral-soft);
   color: var(--coral-dark);
 }
@@ -1340,7 +1336,7 @@ textarea:focus-visible {
   height: 28px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface-tint);
   color: var(--blue);
   font-size: var(--fs-xs);
@@ -1362,7 +1358,7 @@ textarea:focus-visible {
   align-items: center;
   min-height: 22px;
   padding: 0 var(--space-2);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
   white-space: nowrap;
 }
@@ -1477,7 +1473,7 @@ textarea:focus-visible {
   width: 27px;
   height: 27px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-tint);
   color: var(--blue);
 }
@@ -1553,7 +1549,7 @@ textarea:focus-visible {
   min-height: 54px;
   padding: var(--space-2);
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink-soft);
   text-align: left;
@@ -1591,7 +1587,7 @@ textarea:focus-visible {
   height: 30px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .preset-icon svg {
@@ -1667,7 +1663,7 @@ textarea:focus-visible {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--ink-soft);
   font-size: var(--fs-sm);
@@ -1708,7 +1704,7 @@ textarea:focus-visible {
   height: 34px;
   padding: 0 var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--ink-soft);
   font: inherit;
@@ -1842,7 +1838,7 @@ textarea:focus-visible {
   height: 40px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--coral-soft);
   color: var(--coral-dark);
   font-size: var(--fs-md);
@@ -1961,7 +1957,7 @@ textarea:focus-visible {
 .draft-status {
   min-height: 22px;
   padding: var(--space-1) var(--space-2);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--gold-soft);
   color: var(--gold);
   font-size: var(--fs-xs);
@@ -1982,7 +1978,7 @@ textarea:focus-visible {
   height: 34px;
   padding-right: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 
@@ -2011,7 +2007,7 @@ textarea:focus-visible {
   margin-top: var(--space-5);
   padding: var(--space-4) var(--space-4) var(--space-3);
   border: 1px solid var(--gold-line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--gold-wash);
 }
 
@@ -2061,7 +2057,7 @@ textarea:focus-visible {
 .risk-bar {
   height: 5px;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--gold-wash-deep);
 }
 
@@ -2085,7 +2081,7 @@ textarea:focus-visible {
 .plan-card {
   padding: var(--space-4);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 
@@ -2147,7 +2143,7 @@ textarea:focus-visible {
   align-items: center;
   min-height: 22px;
   padding: 0 var(--space-2);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--blue-soft);
   color: var(--blue);
   font-size: var(--fs-xs);
@@ -2282,7 +2278,7 @@ textarea:focus-visible {
   min-height: 74px;
   padding: var(--space-4);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
@@ -2346,7 +2342,7 @@ textarea:focus-visible {
   min-height: 48px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 
@@ -2635,7 +2631,7 @@ textarea:focus-visible {
   width: 29px;
   height: 29px;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--red-soft);
   color: var(--red);
 }
@@ -2727,7 +2723,7 @@ textarea:focus-visible {
 .settings-grid {
   display: grid;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   overflow: hidden;
 }
@@ -2775,7 +2771,7 @@ textarea:focus-visible {
   min-width: 0;
   padding: 0 var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--ink-soft);
   font-size: var(--fs-sm);
@@ -2818,7 +2814,7 @@ textarea:focus-visible {
 
 .setting-status {
   padding: var(--space-1) var(--space-2);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--green-soft);
   color: var(--green) !important;
   white-space: nowrap;
@@ -2854,9 +2850,9 @@ textarea:focus-visible {
   gap: var(--space-2);
   padding: var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: var(--shadow-small);
+  box-shadow: var(--shadow-sm);
   color: var(--ink-soft);
   font-size: var(--fs-sm);
   animation: toast-in 180ms ease both;
@@ -2893,7 +2889,7 @@ textarea:focus-visible {
   width: max-content;
   max-width: 180px;
   padding: var(--space-1) var(--space-2);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--ink);
   color: var(--on-ink);
   content: attr(data-tooltip);
@@ -3339,7 +3335,7 @@ textarea:focus-visible {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--inset-surface);
   border: 1px solid var(--coral);
   color: var(--inset-text);
@@ -3397,9 +3393,9 @@ textarea:focus-visible {
   gap: var(--space-3);
   padding: var(--space-4);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
 }
 
 .notif-head {
@@ -3439,9 +3435,9 @@ textarea:focus-visible {
   gap: var(--space-3);
   padding: var(--space-5);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
 }
 
 .plan-draft-head,
@@ -3477,7 +3473,7 @@ textarea:focus-visible {
 
 .draft-stale-banner {
   padding: var(--space-2) var(--space-3);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--coral);
   background: var(--coral-soft);
   color: var(--coral-dark);
@@ -3496,14 +3492,14 @@ textarea:focus-visible {
 
 .draft-warnings li {
   padding: var(--space-2) var(--space-3);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--warning-bg-soft);
   border: 1px solid var(--warning-line);
 }
 
 .draft-params {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: var(--space-3);
   display: grid;
   gap: var(--space-3);
@@ -3642,7 +3638,7 @@ textarea:focus-visible {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--chip-line);
   background: transparent;
   cursor: pointer;
@@ -3672,7 +3668,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2) var(--space-3);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--chip-hover);
   font-size: var(--fs-sm);
 }
@@ -3684,7 +3680,7 @@ textarea:focus-visible {
 .grid-provenance {
   margin: 0;
   padding: var(--space-3);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--chip-hover);
   color: var(--muted-strong);
   font-size: var(--fs-sm);
@@ -3771,7 +3767,7 @@ textarea:focus-visible {
   .mobile-exec-tab {
     flex: 1 1 0;
     padding: var(--space-3);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--chip-line);
     background: transparent;
     color: var(--muted-strong);
@@ -3799,7 +3795,7 @@ textarea:focus-visible {
   gap: var(--space-1);
   margin-bottom: var(--space-3);
   padding: var(--space-1);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--surface-soft);
   border: 1px solid var(--line);
 }
@@ -3939,7 +3935,7 @@ textarea:focus-visible {
   margin-top: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--muted-strong);
   font-size: var(--fs-sm);
@@ -4015,7 +4011,7 @@ textarea:focus-visible {
   margin-bottom: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--red);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--red-soft);
   color: var(--red);
   font-size: var(--fs-sm);
@@ -4113,7 +4109,7 @@ textarea:focus-visible {
   display: inline-block;
   margin-right: var(--space-1);
   padding: 1px var(--space-2);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
   font-size: var(--fs-xs);
   white-space: nowrap;
@@ -4192,7 +4188,7 @@ textarea:focus-visible {
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 .kpi b {
@@ -4255,7 +4251,7 @@ textarea:focus-visible {
   gap: var(--space-1);
   margin: var(--space-1) 0 var(--space-4);
   padding: var(--space-3);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--muted-strong);
   font-size: var(--fs-sm);
@@ -4331,7 +4327,7 @@ textarea:focus-visible {
   gap: var(--space-5);
   width: 100%;
   padding: var(--space-3);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
 }
 .pf-adv-field {
@@ -4344,7 +4340,7 @@ textarea:focus-visible {
 .pf-adv-field input[type='date'] {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--ink);
   font-size: var(--fs-sm);
@@ -4366,7 +4362,7 @@ textarea:focus-visible {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-4);
   border: 1px solid var(--gold);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--gold-soft);
   color: var(--gold);
   font-size: var(--fs-sm);
@@ -4426,7 +4422,7 @@ textarea:focus-visible {
   margin: var(--space-2) 0 2px;
   padding: var(--space-4);
   border: 1px dashed var(--line-strong);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--muted-strong);
   font-size: var(--fs-sm);
@@ -4587,8 +4583,8 @@ html[data-theme='dark'] {
   --blue-soft: #1f2c40;
   --gold: #d1a54a;
   --gold-soft: #383018;
-  --shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
-  --shadow-small: 0 5px 16px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 14px 34px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 5px 16px rgba(0, 0, 0, 0.4);
   --sidebar-text: #ffffff;
   --sidebar-text-bright: #eef3fb;
   --sidebar-text-soft: #f7faff;
@@ -4675,7 +4671,7 @@ html[data-theme='dark'] {
   margin: 0 var(--space-4) var(--space-3);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--sidebar-line);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--sidebar-muted);
   font-size: var(--fs-sm);
