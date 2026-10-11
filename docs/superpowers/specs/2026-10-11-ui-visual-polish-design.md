@@ -49,7 +49,7 @@
 | `--radius-sm` | 6px | 5px×7（+1px） |
 | `--radius-md` | 8px | 7px×8、8px×17、10px 中控件类 |
 | `--radius-lg` | 12px | 10px 中卡片类、12px×4 |
-| 特例保留 | 999px / 50% | 药丸 chip / 圆点 |
+| 特例保留 | 999px / 50% / 1px / 2px / inherit | 药丸 chip、圆点、微型半径（settings-tab-sub::after 2px、pf-bar .pf-cap 1px）与语义继承（risk-bar span） |
 
 旧 `--radius`(12px)/`--radius-small`(8px) 两令牌在消费迁移完成后**删除**（grep 断言无 `var(--radius)`/`var(--radius-small)` 残留）；新名与旧值兼容：原 `var(--radius-small)` 消费点 → `--radius-md`，原 `var(--radius)` 消费点 → `--radius-lg`。
 
@@ -73,7 +73,7 @@
 ## 7. 机械验收（grep 断言）
 
 - 字号：styles.css 中 `font-size: \d` 像素字面量为 **0**；`var(--fs-*)` 恰 5 种。
-- 圆角：`border-radius` 像素字面量为 0（`999px`/`50%` 除外）；`var(--radius-sm|md|lg)` 三种 + 特例。
+- 圆角：`border-radius` 像素字面量为 0（`999px`/`50%` 及微型语义特例 `1px`/`2px`/`inherit` 除外）；`var(--radius-sm|md|lg)` 三种 + 特例。20px 药丸语义（nav-count/demo-badge/toggle-track）归 999px（这些元素高度 ≤ 半径，视觉逐像素等价）。
 - 阴影：`var(--shadow)`/`var(--shadow-small)` 旧名残留为 0。
 - 间距：padding/margin/gap 像素值全部 ∈ {0,1,2} ∪ {4 的倍数}（含令牌引用；>32px 结构留白允许 4 倍数字面量）∪ {auto,999px,50%}（grep 清单核对，命令在计划给出并预验证）。
 - 深浅同构：字阶/间距/圆角/阴影令牌不进 dark 块（自动同构），dark 块行数不变。
