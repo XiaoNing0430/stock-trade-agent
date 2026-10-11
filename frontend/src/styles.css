@@ -213,7 +213,7 @@ textarea:focus-visible {
   width: 34px;
   height: 34px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   background: var(--coral);
   color: var(--sidebar-text);
   font-size: var(--fs-lg);
@@ -355,7 +355,7 @@ textarea:focus-visible {
   height: 20px;
   padding: 0 var(--space-1);
   place-items: center;
-  border-radius: 20px;
+  border-radius: 999px;
   background: var(--coral);
   color: var(--sidebar-text);
   font-size: var(--fs-xs);
@@ -561,7 +561,7 @@ textarea:focus-visible {
   min-height: 22px;
   padding: 0 var(--space-2);
   border: 1px solid var(--demo-line);
-  border-radius: 20px;
+  border-radius: 999px;
   background: var(--green-soft);
   color: var(--green);
   font-size: var(--fs-xs);
@@ -630,7 +630,7 @@ textarea:focus-visible {
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--kbd-text);
   font-family: inherit;
   font-size: var(--fs-xs);
@@ -640,8 +640,8 @@ textarea:focus-visible {
 .topbar-date {
   position: relative;
   display: inline-grid;
-  width: 35px;
-  height: 35px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -723,7 +723,7 @@ textarea:focus-visible {
 
 .view-panel.is-active::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb-soft);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .view-panel.is-active::-webkit-scrollbar-thumb:hover {
@@ -920,7 +920,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 35px;
+  min-height: 34px;
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -1268,7 +1268,7 @@ textarea:focus-visible {
 }
 
 .data-table th {
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -1278,10 +1278,10 @@ textarea:focus-visible {
 }
 
 .data-table td {
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
   color: var(--ink-soft);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   vertical-align: middle;
 }
 
@@ -1390,7 +1390,7 @@ textarea:focus-visible {
   width: 27px;
   height: 27px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--muted-strong);
 }
@@ -1675,7 +1675,7 @@ textarea:focus-visible {
 .field input[type='search'],
 .field input[type='text'],
 .field input:not([type]) {
-  height: 34px;
+  height: 32px;
   padding: 0 var(--space-2);
 }
 
@@ -1695,13 +1695,13 @@ textarea:focus-visible {
 .global-search:focus-within,
 .number-input:focus-within {
   border-color: var(--blue-line);
-  box-shadow: 0 0 0 3px var(--focus-blue-soft);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* .input 通用控件（自定义策略对话框 / 扫描模式等）：此前无任何样式回落 UA 白底，暗色下成为漏色白块（终审走查发现） */
 .input {
   min-width: 0;
-  height: 34px;
+  height: 32px;
   padding: 0 var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1714,7 +1714,7 @@ textarea:focus-visible {
 
 .input:focus-visible {
   border-color: var(--blue-line);
-  box-shadow: 0 0 0 3px var(--focus-blue-soft);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .field input[type='range'] {
@@ -1777,7 +1777,7 @@ textarea:focus-visible {
   height: 22px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--coral-soft);
   color: var(--coral-dark);
 }
@@ -1975,7 +1975,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 34px;
+  height: 32px;
   padding-right: var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -2239,7 +2239,7 @@ textarea:focus-visible {
   width: 34px;
   height: 19px;
   padding: 2px;
-  border-radius: 20px;
+  border-radius: 999px;
   background: var(--track-idle-soft);
   transition: background 160ms ease;
 }
@@ -2498,7 +2498,7 @@ textarea:focus-visible {
 .grid-levels span {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: var(--ink-soft);
   font-size: var(--fs-xs);
@@ -2784,7 +2784,7 @@ textarea:focus-visible {
 .settings-row input[type='number']:focus,
 .settings-row select:focus {
   border-color: var(--blue-line);
-  box-shadow: 0 0 0 3px var(--focus-blue-soft);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .settings-row .number-input {
@@ -3803,7 +3803,7 @@ textarea:focus-visible {
 .settings-tab-primary {
   padding: var(--space-2) var(--space-5);
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--muted-strong);
   font-size: var(--fs-sm);
@@ -3916,7 +3916,7 @@ textarea:focus-visible {
 .minute-toolbar button {
   padding: var(--space-1) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: var(--ink-soft);
   font-size: var(--fs-xs);
