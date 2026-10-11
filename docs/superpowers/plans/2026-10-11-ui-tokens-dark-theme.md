@@ -367,12 +367,10 @@ git commit -m "feat: styles.css 新增语义令牌浅色值与暗色覆盖块（
 
 Run:
 ```bash
-awk '/:root \{|data-theme=.{1,4}dark.\{/{skip=1} skip{if (/\}/) skip=0; next} /#[0-9a-fA-F]{3,8}\b|rgba?\(/ {print NR": "$0}' frontend/src/styles.css
+awk '/:root \{|data-theme=.*\{/{skip=1} skip{if (/\}/) skip=0; next} /#[0-9a-fA-F]{3,8}([^0-9a-fA-F]|$)|rgba?\(/ {print NR": "$0}' frontend/src/styles.css
 grep -rnE "#[0-9a-fA-F]{6}\b" frontend/src --include="*.vue" --include="*.ts" | grep -v node_modules
 ```
-Expected: 两条命令均**无输出**（styles.css 令牌块外 0 裸值；vue/ts 无 hex——注意此刻 useCompareStore/chart.ts/视图的 hex 还在，**它们归 Task 5**，故本步 vue/ts 检查预期仍有 17 处命中——只验收 styles.css 归零，vue/ts 断言留到 Task 5 收口）。
-
-修正后的本步验收：第一条命令无输出；第二条记录命中清单（应为 Task 5 清单的那 17 处 + `#fff` 三位缩进变体 0 处）。
+Expected: 第一条命令无输出（gawk 不支持 `\b` 词边界，必须用 `([^0-9a-fA-F]|$)`，此命令已实测：当前 HEAD 报 103 行、dark 块内容被正确跳过）；第二条命令记录命中清单——**8 行 / 17 个字面量**（`useCompareStore.ts:20`×8、`:79`×1、`chart.ts:94/95`、`ViewOverview.vue:236`、`ViewPortfolio.vue:480`×3、`ViewStockDetail.vue:78/156`），它们归 Task 5 收口，本步只验收 styles.css 归零。
 
 - [ ] **Step 3: 浅色等价验证**
 
