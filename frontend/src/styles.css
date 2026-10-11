@@ -778,7 +778,7 @@ textarea:focus-visible {
   display: flex;
   gap: 4px;
   margin-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   padding-bottom: 0;
 }
 
@@ -801,12 +801,12 @@ textarea:focus-visible {
 }
 
 .strategy-tab:hover {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .strategy-tab.is-active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--coral);
+  border-bottom-color: var(--coral);
 }
 
 .strategy-tab i {
@@ -3353,7 +3353,7 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
-  box-shadow: var(--shadow-large);
+  box-shadow: var(--shadow);
 }
 
 .notif-head {
@@ -3395,7 +3395,7 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
-  box-shadow: var(--shadow-large);
+  box-shadow: var(--shadow);
 }
 
 .plan-draft-head,
@@ -3987,7 +3987,7 @@ textarea:focus-visible {
 .screener-tab {
   padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
   font-size: 13px;
