@@ -14,6 +14,8 @@ All notable changes to this project. 版本更新清单。
 ### UI 主题基建（第①批）
 
 - `styles.css` 全量令牌化：103 处裸色值收敛为语义令牌（浅色渲染零变化），新增 `html[data-theme='dark']` 覆盖块（B · 中性炭灰基调）。
+- 另修复基线遗留的 7 处未定义令牌引用（--border/--text/--accent/--shadow-large）与图表面积填充的令牌适配——前者的边框/着色/阴影修复前因变量未定义而不渲染，属用户可见变化。
+- 终审修复：图表面积填充改由 `.chart-area` 类规则着色（`var()` 拼 hex alpha 曾致 SVG 黑块）、侧栏主题开关图标随主题翻转；暗色补 `color-scheme: dark` 并为无样式控件（`.field` 文本输入 / `.settings-row` / `.input` / `.minute-toolbar`）接通既有令牌——浅色下这些控件由 UA 白底改为令牌浅灰，属用户可见变化。
 - 新模块 `modules/theme.ts`：浅/深/跟随系统三态，localStorage 持久化（键 `atlas-theme`，异常静默降级），`main.ts` 首帧前应用防闪白，系统偏好变化仅在未显式选择时联动。
 - 入口：侧栏底部快捷开关 + 设置页「外观」三态卡片；图表/组件取色接入 `--chart-N` 令牌，暗色自适应。
 
