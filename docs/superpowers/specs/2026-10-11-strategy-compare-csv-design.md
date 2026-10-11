@@ -106,7 +106,7 @@
 
 - 对每个 id 按其**保存的参数**在其**各自的 code** 上回测：网格用已保存的 `lower/upper/gridCount/mode/capital/feeBps/settlementDays/slippageBps/lookback`（`priceLimitPct` 按 `classify_code(code)` 现算）；引擎策略用保存的 `config`（含 capital/feeBps/lookback）。
 - 历史取数逐个串行走 `_load_history_with_fallback`（天然吃既有 source 节流/熔断/降级链）；live 成功落 `market_bars` 同上。
-- 响应每项：`{id, name, source, strategyType, code, config, metrics, trades(全量), assumptions, error?}`——**不含 `equityCurve`/`benchmarkCurve`**（不同标的日期轴不同，叠加无意义；如需单策略曲线去详情页）。
+- 响应每项：`{id, name, source, strategyType, code, config, metrics, trades(全量), assumptions, dataSource, dataAsOf, error?}`——**不含 `equityCurve`/`benchmarkCurve`**（不同标的日期轴不同，叠加无意义；如需单策略曲线去详情页）。per-item `dataSource`/`dataAsOf` 按降级红线如实披露（rerun 各自取数，live/local 可能混合）。
 - 单策略失败（取数失败/回测异常）逐项披露 `error`，不整单失败。
 - **零副作用**：不写 `strategy_backtests`/`grid_backtests`、不更新 `latest_metrics`、不调度。
 
