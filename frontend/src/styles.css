@@ -81,7 +81,6 @@
   --chip-blue-bg: #d8e4f1;
   --chip-blue-ink: #30547a;
   --focus-ring: rgba(59, 111, 182, 0.28);
-  --focus-blue-soft: rgba(59, 111, 182, 0.09);
   --chart-blue-fill: rgba(59, 111, 182, 0.08);
   /* 金色系 / 警示横幅 */
   --gold-line-soft: #eadfbe;
@@ -2788,7 +2787,7 @@ textarea:focus-visible {
 }
 
 .settings-row .number-input {
-  height: 36px;
+  height: 32px;
   box-sizing: border-box;
 }
 
@@ -4618,7 +4617,6 @@ html[data-theme='dark'] {
   --chip-blue-bg: #22303f;
   --chip-blue-ink: #a9c4e4;
   --focus-ring: rgba(94, 143, 214, 0.45);
-  --focus-blue-soft: rgba(94, 143, 214, 0.16);
   --chart-blue-fill: rgba(94, 143, 214, 0.14);
   --gold-line-soft: #453c22;
   --gold-line: #4a4128;
