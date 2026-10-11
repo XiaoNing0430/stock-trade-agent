@@ -1,6 +1,14 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { PRESETS, NAV_ITEMS, VIEW_META, SETTINGS_TABS, STRATEGY_TYPES, STRATEGY_SCHEMAS } from '@/modules/constants';
+import {
+  PRESETS,
+  NAV_ITEMS,
+  VIEW_META,
+  SETTINGS_TABS,
+  STRATEGY_TYPES,
+  COMPARE_STRATEGY_TYPES,
+  STRATEGY_SCHEMAS,
+} from '@/modules/constants';
 
 test('PRESETS 结构完整且 id 唯一', () => {
   assert.equal(PRESETS.length, 3);
@@ -45,13 +53,29 @@ test('SETTINGS_TABS 结构完整', () => {
   }
 });
 
-test('STRATEGY_TYPES 包含八种策略', () => {
+test('STRATEGY_TYPES 包含八种回测策略与 compare tab', () => {
   const ids = STRATEGY_TYPES.map((item) => item.id);
-  assert.deepEqual(ids, ['grid', 'ma_cross', 'dca', 'macd', 'bollinger', 'donchian', 'momentum', 'multi_factor']);
+  assert.deepEqual(ids, [
+    'grid',
+    'ma_cross',
+    'dca',
+    'macd',
+    'bollinger',
+    'donchian',
+    'momentum',
+    'multi_factor',
+    'compare',
+  ]);
   for (const item of STRATEGY_TYPES) {
     assert.equal(typeof item.label, 'string');
     assert.equal(typeof item.description, 'string');
   }
+});
+
+test('COMPARE_STRATEGY_TYPES 为不含 compare 的回测策略类型集', () => {
+  const ids = COMPARE_STRATEGY_TYPES.map((item) => item.id);
+  assert.deepEqual(ids, ['grid', 'ma_cross', 'dca', 'macd', 'bollinger', 'donchian', 'momentum', 'multi_factor']);
+  assert.ok(!ids.includes('compare'));
 });
 
 test('STRATEGY_SCHEMAS 各类型配置字段结构', () => {
