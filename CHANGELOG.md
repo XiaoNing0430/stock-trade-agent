@@ -2,6 +2,15 @@
 
 All notable changes to this project. 版本更新清单。
 
+## [v0.7.2] - 2026-10-11
+
+### 多策略回测对比 + CSV 导出（研究体验 P3）
+
+- **`POST /api/strategy/compare`**：同标的横向对比。一次上游取数，同一份日线重放全部勾选策略（网格自动建议区间 8 格 classic + 7 个策略引擎 schema 默认参数）；单策略失败不拖垮整单（per-item `error`，HTTP 200）；trades 全量不截断（与单策略端点 `-100` 截断的有意差异）；顶层基准曲线仅一份；结构化日志 `strategy.compare`（耗时/状态/失败类型）。
+- **`POST /api/strategy/compare-saved`**：已保存策略对比。snapshot 纯读库 `latestMetrics`（失效 id / 从未回测逐项如实披露）；rerun 按各自保存参数现跑（per-item `dataSource`/`dataAsOf` 降级披露）；**零写库**——不写 backtest 表、不更新 `latest_metrics`、不调度。
+- **前端**：ViewGrid 新增第 9 个「对比」tab（策略类型勾选 + 指标对比表最优高亮 + `multiLineSvg` 归一化净值叠图 + 已保存策略合并勾选 ≤10）；新模块 `modules/csv.ts`（指标/曲线宽表/成交长表三张 CSV 组装，`csvCell` 对 `= + - @ \t \r` 开头字符串加 `'` 前缀防 Excel 公式注入，BOM + Blob 下载）；新 store `useCompareStore`。
+- **测试**：新增 `tests/test_strategy_compare.py`（14 用例，含 rerun 零写库断言与终审收尾回归：保存 0 值参数不被 `or` 兜底改写、`tradesLimit` 穿透隔离、未知策略类型中文报错）+ 前端 3 个测试文件（csv 注入矩阵 + RFC4180 引号包裹 / store 全选清空截断 / ViewGrid 冒烟）。
+
 ## [v0.7.1] - 2026-10-03
 
 ### 修复

@@ -75,7 +75,11 @@ export const STRATEGY_TYPES = [
   { id: 'donchian', label: '唐奇安突破', description: '通道突破入场，反向突破离场（ADX 确认）' },
   { id: 'momentum', label: '动量', description: 'N 日涨跌幅阈值进出，独立资金管理' },
   { id: 'multi_factor', label: '多因子', description: 'ADX 状态过滤器 + 动态模块切换' },
+  { id: 'compare', label: '对比', description: '多策略同标的横向对比' },
 ];
+
+// 对比 tab 的参与策略勾选集（= 全部回测策略类型，不含 compare tab 自身）
+export const COMPARE_STRATEGY_TYPES = STRATEGY_TYPES.filter((item) => item.id !== 'compare');
 
 export const STRATEGY_SCHEMAS: Record<
   string,

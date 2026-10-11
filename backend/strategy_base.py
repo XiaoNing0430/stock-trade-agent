@@ -61,6 +61,7 @@ class BaseStrategy(ABC):
         fee_bps = float(config.get("feeBps", 3))
         security_type = config.get("securityType", "股票")
         exchange = config.get("exchange", "上交所")
+        trades_limit = config.get("tradesLimit", 100)
 
         cash = capital
         shares = 0.0
@@ -142,7 +143,7 @@ class BaseStrategy(ABC):
         benchmark = buy_and_hold_benchmark(bars, capital, fee_bps, security_type, exchange)
         metrics = _compute_metrics(bars, trades, equity_curve, capital, fee_bps, security_type, exchange)
         return {
-            "trades": trades[-100:],
+            "trades": trades if trades_limit is None else trades[-trades_limit:],
             "equityCurve": normalised,
             "benchmarkCurve": benchmark["curve"],
             "metrics": metrics,

@@ -105,7 +105,14 @@
   fork 来源 `sourceBuiltin` 由 UI 提交且编辑时保留（此前 PUT 会清空该列）；合并列表读库失败补 warning 日志
   （列表仍返回内置行，不再静默表现为「没有自定义策略」）；新增 app 级 `RequestValidationError` handler →
   请求模型校验错误也走 `{detail:{error,code}}` 统一契约
-- [ ] P3 多策略回测对比 + CSV 导出
+- [x] P3 多策略回测对比 + CSV 导出
+  - 完成（2026-10-11）：`POST /api/strategy/compare`（同标的横向对比：一次取数、同 bars 重放 8 类策略、
+    网格自动建议区间 + 引擎默认参数、单策略失败逐项披露、trades 全量不截断）+ `POST /api/strategy/compare-saved`
+    （已保存策略对比：latestMetrics 快照为默认 + rerun 现跑，零写库不调度）+ ViewGrid「对比」tab
+    （指标对比表最优高亮 + multiLineSvg 归一化叠图 + 已保存合并勾选）+ 客户端 CSV 三张导出
+    （指标/曲线/成交，csvCell 公式注入防护）。已知限制：网格区间样本内自动建议偏乐观（脚注披露）；
+    对比结果不落库刷新即失；rerun 不更新快照；snapshot 无成交明细可导。
+    设计：`docs/superpowers/specs/2026-10-11-strategy-compare-csv-design.md`
 - [ ] P3 多语言（英文 UI）/ 自定义主题配色
 
 ## 非目标（红线，防范围蔓延）
