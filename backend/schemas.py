@@ -432,3 +432,44 @@ class CompareRunOut(BaseModel):
     barCount: int = 0
     benchmarkCurve: list[dict[str, Any]] = Field(default_factory=list)
     results: list[CompareResultItem] = Field(default_factory=list)
+
+
+class CompareSavedItem(BaseModel):
+    """已保存策略对比项：snapshot / rerun / 缺失三种形状合一，缺省键为 None。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    found: bool = True
+    source: str | None = None  # "grid" | "strategy"
+    name: str | None = None
+    strategyType: str | None = None
+    code: str | None = None
+    status: str | None = None
+    schedule: str | None = None
+    capital: float | None = None
+    feeBps: float | None = None
+    lastBacktestAt: str | None = None
+    latestMetrics: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None
+    trades: list[dict[str, Any]] | None = None
+    assumptions: str | None = None
+    dataSource: str | None = None
+    dataAsOf: str | None = None
+    missingReason: str | None = None
+    error: str | None = None
+
+
+class CompareSavedIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    mode: str = "snapshot"  # snapshot（读库快照）| rerun（现跑回测）
+    ids: list[str] = Field(default_factory=list)
+
+
+class CompareSavedOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    rerun: bool = False
+    results: list[CompareSavedItem] = Field(default_factory=list)

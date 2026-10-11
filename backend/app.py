@@ -42,6 +42,8 @@ from backend.industry_map import get_industry_map, industry_health, last_refresh
 from backend.schemas import (
     CompareRunIn,
     CompareRunOut,
+    CompareSavedIn,
+    CompareSavedOut,
     CustomStrategyIn,
     DeleteOut,
     GridBacktestIn,
@@ -1634,6 +1636,129 @@ def create_app() -> FastAPI:
                     "results": results,
                 }
             )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+
+    @app.post("/api/strategy/compare-saved")
+    def strategy_compare_saved(
+        payload: CompareSavedIn, workspace_id: str = Query(default="default", alias="workspace")
+    ) -> CompareSavedOut:
+        """已保存策略对比：snapshot 纯读库 / rerun 按各自参数现跑（只读，零写库，不调度）。"""
+        started = time.monotonic()
+        try:
+            if payload.mode not in {"snapshot", "rerun"}:
+                raise api_error(422, ERR_VALIDATION_ERROR, "mode 必须为 snapshot 或 rerun")
+            ids: list[str] = []
+            for item in payload.ids:
+                if item and item not in ids:
+                    ids.append(item)
+            if not ids:
+                raise api_error(422, ERR_VALIDATION_ERROR, "至少选择一个已保存策略")
+            if len(ids) > 10:
+                raise api_error(422, ERR_VALIDATION_ERROR, "最多同时对比 10 个已保存策略")
+            results: list[dict[str, Any]] = []
+            failed_ids: list[str] = []
+            missing_count = 0
+            for strategy_id in ids:
+                grid_row = get_grid_strategy(strategy_id)
+                generic_row = None if grid_row else get_strategy(strategy_id)
+                source = "grid" if grid_row else ("strategy" if generic_row else None)
+                row = grid_row or generic_row
+                if row is None or row.get("workspaceId") != workspace_id:
+                    missing_count += 1
+                    results.append({"id": strategy_id, "found": False, "missingReason": "不存在或不属于当前工作区"})
+                    continue
+                base = {
+                    "id": strategy_id,
+                    "found": True,
+                    "source": source,
+                    "name": row.get("name", ""),
+                    "strategyType": "grid" if source == "grid" else str(row.get("strategyType", "")),
+                    "code": row.get("code", ""),
+                }
+                if payload.mode == "snapshot":
+                    latest = row.get("latestMetrics")
+                    results.append(
+                        {
+                            **base,
+                            "status": row.get("status", ""),
+                            "schedule": row.get("schedule", ""),
+                            "capital": row.get("capital"),
+                            "feeBps": row.get("feeBps"),
+                            "lastBacktestAt": row.get("lastBacktestAt"),
+                            "latestMetrics": latest,
+                            "missingReason": None if latest else "从未回测",
+                        }
+                    )
+                    continue
+                # rerun：按各自保存的参数在各自 code 上现跑（不落库不调度）
+                try:
+                    code = str(row["code"])
+                    profile = classify_code(code)
+                    if source == "grid":
+                        lookback = max(20, min(int(row.get("lookback") or 120), 240))
+                        history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+                        limit_pct = price_limit_ratio(code)
+                        result = backtest_grid(
+                            history,
+                            float(row["lower"]),
+                            float(row["upper"]),
+                            int(row["gridCount"]),
+                            float(row["capital"]),
+                            float(row["feeBps"]),
+                            str(row.get("mode") or "classic"),
+                            profile["securityType"],
+                            profile["exchange"],
+                            int(row.get("settlementDays") or 1),
+                            float(row.get("slippageBps") or 5),
+                            limit_pct,
+                        )
+                        config = {
+                            "lower": row["lower"],
+                            "upper": row["upper"],
+                            "gridCount": row["gridCount"],
+                            "mode": row.get("mode"),
+                            "capital": row["capital"],
+                            "feeBps": row["feeBps"],
+                            "lookback": lookback,
+                            "settlementDays": row.get("settlementDays"),
+                            "slippageBps": row.get("slippageBps"),
+                            "priceLimitPct": limit_pct * 100,
+                        }
+                    else:
+                        config = dict(row.get("config") or {})
+                        lookback = max(20, min(int(config.get("lookback") or 120), 240))
+                        history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+                        result = STRATEGY_ENGINES[str(row["strategyType"])]["backtest"](history, config)
+                    results.append(
+                        {
+                            **base,
+                            "config": config,
+                            "metrics": result["metrics"],
+                            "trades": result["trades"],
+                            "assumptions": result["assumptions"],
+                            "dataSource": data_source_flag,
+                            "dataAsOf": data_as_of,
+                            "error": None,
+                        }
+                    )
+                except Exception as exc:  # 单策略失败逐项披露（spec §3.2）
+                    failed_ids.append(strategy_id)
+                    results.append({**base, "error": f"回测失败：{exc}"})
+            compare_logger.info(
+                "strategy.compare_saved",
+                extra={
+                    "mode": payload.mode,
+                    "idCount": len(ids),
+                    "elapsedMs": int((time.monotonic() - started) * 1000),
+                    "resultStatus": "partial_failure" if failed_ids or missing_count else "success",
+                    "failedIds": failed_ids,
+                    "missingCount": missing_count,
+                },
+            )
+            return CompareSavedOut.model_validate({"rerun": payload.mode == "rerun", "results": results})
         except HTTPException:
             raise
         except Exception as exc:
