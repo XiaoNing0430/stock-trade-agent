@@ -183,7 +183,7 @@
 ### 4.3 `frontend/src/modules/csv.ts`（新模块）
 
 - `csvCell(value: unknown): string` — **CSV 公式注入防护**：`null/undefined` → `''`；字符串且匹配 `/^[=+\-@\t\r]/` → 前缀 `'`（Excel 公式注入标准缓解）；数字/布尔 → `String(value)`（数字不防护，负数正常）；其他 → `String(value)` 后同规则。
-- `buildCsv(headers: string[], rows: unknown[][]): string` — 单元格 `csvCell` → `,` join → 行 `\n` join（与选股器导出先例一致）。
+- `buildCsv(headers: string[], rows: unknown[][]): string` — 单元格 `csvCell` → `,` join → 行 `\n` join（与选股器导出先例一致）。（终审增强 2026-10-11：csvCell 另行实现 RFC4180 引号包裹，含逗号/引号/换行的单元格加 `"..."`，偏离选股器先例的裁定见终审记录）
 - `downloadCsv(filename: string, csv: string): void` — `\ufeff` BOM + `Blob`（`text/csv;charset=utf-8;`）+ `a[download]` 点击 + `revokeObjectURL`（照抄 `useScreenerStore.exportCsv` 先例）。
 - 三个组装器：
   - `buildCompareMetricsCsv(rows: CompareCsvRow[])` — 行 = 策略；列 = 策略名 / 来源或类型 / 参数摘要 + **全部 metrics 键**（中文表头映射见 §6）。参数摘要为人类可读关键键值串：grid → `8格 · 0.97-1.13 · classic`；引擎 → `fastPeriod=5, slowPeriod=20`（取 config 全部键按插入序拼接）；
