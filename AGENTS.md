@@ -151,7 +151,7 @@ python server.py    # 或 python -m backend.main
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
 npx vitest run                        # 前端单元测试（262 项，24 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（673 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
+python -m pytest tests/ -v            # 后端测试（676 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -160,7 +160,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 
 注意：
 
-- 后端 pytest 运行覆盖率（≥80% 门禁，当前 93.0%）。
+- 后端 pytest 运行覆盖率（≥80% 门禁，当前 93.2%）。
 - `test_bars_etl.py` / `test_bars_etl_run.py` 设计为直连真实 PG（自造数据须 teardown 自清；`test_bars_etl_run.py` 的 autouse 夹具已哑化 run_full 的快照归档路径——**勿移除**，否则每次跑测试都会向真库写假水位快照）。
 - Pre-commit 钩子（`ruff --fix` / `ruff-format` / `mypy` / `eslint` / `prettier` / `vue-tsc --noEmit`）在 `git commit` 时自动执行；mypy/eslint/prettier/vue-tsc 为仓库级全量钩子，任一历史文件不达标都会阻塞所有提交。
 - `npm run build` 也会在 Vite 打包前执行 `vue-tsc --noEmit` 作为类型检查门禁。
