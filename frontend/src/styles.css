@@ -4387,6 +4387,12 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.compare-saved-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .compare-error-cell {
   color: var(--danger, #dc2626);
 }

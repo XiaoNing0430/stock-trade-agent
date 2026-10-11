@@ -1,13 +1,16 @@
 // CSV 组装与下载（多策略对比导出用）。
 // 纪律：csvCell 对 = + - @ \t \r 开头的字符串加 "'" 前缀（Excel 公式注入标准缓解，spec §4.3）；
 // 数字/布尔豁免（负数如 -12.5 原样输出，不得加前缀）；
+// 含逗号/引号/换行的字符串按 RFC4180 加 "..." 包裹并双写内部引号（终审增强 2026-10-11，
+// 偏离选股器先例的裁定见终审记录：summarizeConfig 输出恒含 ", "，参数列必然含逗号）；
 // downloadCsv 统一 BOM + Blob，与 useScreenerStore.exportCsv 先例一致。
 
 export function csvCell(value: unknown): string {
   if (value === null || value === undefined) return '';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   const text = String(value);
-  const exempt = typeof value === 'number' || typeof value === 'boolean';
-  return !exempt && /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /[,"\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function buildCsv(headers: string[], rows: unknown[][]): string {

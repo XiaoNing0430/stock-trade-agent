@@ -137,6 +137,16 @@ export const useCompareStore = defineStore('compare', () => {
         : [...savedSelection.value, key];
   }
 
+  /** 全选已保存策略（截断到对比上界 10，spec §3.2）。 */
+  function selectAllSaved() {
+    savedSelection.value = savedOptions.value.slice(0, COMPARE_SAVED_LIMIT).map((option) => option.key);
+  }
+
+  /** 清空已保存策略勾选。 */
+  function clearSavedSelection() {
+    savedSelection.value = [];
+  }
+
   async function compareSaved(mode: CompareSavedMode) {
     if (!savedSelection.value.length) {
       workspace.showToast('至少选择一个已保存策略', 'error');
@@ -224,6 +234,8 @@ export const useCompareStore = defineStore('compare', () => {
     toggleType,
     runCompare,
     toggleSaved,
+    selectAllSaved,
+    clearSavedSelection,
     compareSaved,
     isBest,
     exportRunCsv,

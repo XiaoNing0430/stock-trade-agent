@@ -678,7 +678,11 @@
             <span class="section-kicker">SAVED COMPARISON</span>
             <h3>已保存策略对比</h3>
           </div>
-          <span class="draft-status">已选 {{ compare.savedSelection.length }}/10</span>
+          <div class="compare-saved-heading">
+            <span class="draft-status">已选 {{ compare.savedSelection.length }}/10</span>
+            <button class="text-button" type="button" @click="compare.selectAllSaved()">全选</button>
+            <button class="text-button" type="button" @click="compare.clearSavedSelection()">清空</button>
+          </div>
         </div>
         <div v-if="compare.savedOptions.length" class="strategy-list">
           <div v-for="option in compare.savedOptions" :key="option.key" class="strategy-row">
@@ -686,6 +690,7 @@
               <input
                 type="checkbox"
                 :checked="compare.savedSelection.includes(option.key)"
+                :disabled="!compare.savedSelection.includes(option.key) && compare.savedSelection.length >= 10"
                 :aria-label="'选择 ' + option.name"
                 @change="compare.toggleSaved(option.key)"
               />

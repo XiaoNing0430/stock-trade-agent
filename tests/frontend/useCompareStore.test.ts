@@ -209,4 +209,31 @@ describe('useCompareStore', () => {
     expect(store.savedOptions[0].typeLabel).toBe('经典网格');
     expect(store.savedOptions[1].typeLabel).toBe('双均线');
   });
+
+  it('selectAllSaved 全选截断到 10；toggleSaved 满 10 后 no-op；clearSavedSelection 清空', () => {
+    const store = useCompareStore();
+    const grid = useGridStore();
+    grid.gridStrategies = Array.from({ length: 12 }, (_, i) => ({
+      id: `grid-${i}`,
+      name: `网格${i}`,
+      code: '600519',
+      mode: 'classic',
+      status: '启用',
+      lastBacktestAt: null,
+    }));
+    // 全选：12 个 option 截断到前 10
+    store.selectAllSaved();
+    expect(store.savedSelection).toHaveLength(10);
+    expect(store.savedSelection[0]).toBe('grid-0');
+    expect(store.savedSelection[9]).toBe('grid-9');
+    // 满 10 后 toggle 未选项 no-op
+    store.toggleSaved('grid-11');
+    expect(store.savedSelection).toHaveLength(10);
+    expect(store.savedSelection).not.toContain('grid-11');
+    // 清空后可再正常勾选
+    store.clearSavedSelection();
+    expect(store.savedSelection).toHaveLength(0);
+    store.toggleSaved('grid-11');
+    expect(store.savedSelection).toEqual(['grid-11']);
+  });
 });

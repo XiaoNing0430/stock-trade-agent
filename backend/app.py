@@ -1477,6 +1477,8 @@ def create_app() -> FastAPI:
             lookback = max(20, min(payload.lookback, 240))
             history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
             config = payload.config
+            # tradesLimit 属引擎内部键，客户端不得穿透（否则 null 即得全量成交并随保存落库，spec §2 契约不变）
+            config.pop("tradesLimit", None)
             config.update(
                 {
                     "capital": payload.capital,
@@ -1713,8 +1715,9 @@ def create_app() -> FastAPI:
                             str(row.get("mode") or "classic"),
                             profile["securityType"],
                             profile["exchange"],
-                            int(row.get("settlementDays") or 1),
-                            float(row.get("slippageBps") or 5),
+                            # 显式判空：用户合法保存的 0（T+0 / 0 滑点）不得被 or 兜底改写为默认值（spec §3.2）
+                            int(row["settlementDays"]) if row.get("settlementDays") is not None else 1,
+                            float(row["slippageBps"]) if row.get("slippageBps") is not None else 5.0,
                             limit_pct,
                             trades_limit=None,  # rerun 同样取全量成交（spec §3.1）
                         )
@@ -1734,10 +1737,11 @@ def create_app() -> FastAPI:
                         config = dict(row.get("config") or {})
                         lookback = max(20, min(int(config.get("lookback") or 120), 240))
                         history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+                        engine = STRATEGY_ENGINES.get(str(row["strategyType"]))
+                        if engine is None:
+                            raise ValueError(f"未知策略类型：{row['strategyType']}")
                         # tradesLimit 仅经临时 dict 传入引擎，回显 config 保持原样（spec §3.1 全量成交）
-                        result = STRATEGY_ENGINES[str(row["strategyType"])]["backtest"](
-                            history, {**config, "tradesLimit": None}
-                        )
+                        result = engine["backtest"](history, {**config, "tradesLimit": None})
                     results.append(
                         {
                             **base,

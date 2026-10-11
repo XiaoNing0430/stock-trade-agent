@@ -16,9 +16,12 @@ describe('csvCell 公式注入防护', () => {
     ['-1;drop', "'-1;drop"],
     ['@sum', "'@sum"],
     ['\tx', "'\tx"],
-    ['\rx', "'\rx"],
   ])('危险前缀 %s 加撇号', (input, expected) => {
     expect(csvCell(input)).toBe(expected);
+  });
+
+  it('\\r 前缀单元格按 RFC4180 包裹（\\r 属包裹集合，裸 CR 不包裹会裂行），撇号留在包裹内部', () => {
+    expect(csvCell('\rx')).toBe('"\'\rx"');
   });
 
   it('正常文本 / 数字 / 布尔 / null 不加撇号', () => {
@@ -27,6 +30,18 @@ describe('csvCell 公式注入防护', () => {
     expect(csvCell(true)).toBe('true');
     expect(csvCell(null)).toBe('');
     expect(csvCell(undefined)).toBe('');
+  });
+
+  it.each([
+    ['a,b', '"a,b"'],
+    ['say "hi"', '"say ""hi"""'],
+    ['gridCount=8, mode=classic', '"gridCount=8, mode=classic"'],
+  ])('含逗号/引号按 RFC4180 加引号包裹（%s）', (input, expected) => {
+    expect(csvCell(input)).toBe(expected);
+  });
+
+  it('危险前缀撇号在 RFC4180 包裹内部（包裹语义不覆盖注入防护）', () => {
+    expect(csvCell('=a,b')).toBe('"\'=a,b"');
   });
 });
 
@@ -40,7 +55,7 @@ describe('buildCsv', () => {
           [null, 'y,z'],
         ]
       )
-    ).toBe('a,b\n1,x\n,y,z');
+    ).toBe('a,b\n1,x\n,"y,z"');
   });
 });
 

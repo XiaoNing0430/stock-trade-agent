@@ -427,3 +427,69 @@ def test_strategy_base_trades_limit_default_and_full():
     assert default["metrics"]["tradeCount"] > 100
     full = strategy.backtest(bars, {"tradesLimit": None})
     assert len(full["trades"]) == full["metrics"]["tradeCount"]
+
+
+# ===== 终审收尾（2026-10-11）：保存 0 值参数不被 or 兜底改写 / tradesLimit 穿透旁路隔离 =====
+
+
+def test_compare_saved_rerun_preserves_saved_zero_params(monkeypatch):
+    """用户合法保存的 settlementDays=0（T+0）/ slippageBps=0 必须原样现跑，不得被 or 兜底改成默认值。"""
+    bars = _bars()
+    _patch_history(monkeypatch, bars)
+    _patch_saved(monkeypatch, [_grid_row(settlementDays=0, slippageBps=0.0)], [])
+    captured = {}
+
+    def spy(*args, **kwargs):
+        captured["args"] = args
+        return {"metrics": {"tradeCount": 0}, "trades": [], "assumptions": ""}
+
+    monkeypatch.setattr(app_module, "backtest_grid", spy)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/compare-saved", json={"mode": "rerun", "ids": ["grid-1"]})
+    assert resp.status_code == 200
+    item = resp.json()["results"][0]
+    assert item["error"] is None
+    args = captured["args"]
+    assert args[9] == 0  # settlement_days：第 10 个位置参数（含 bars 计数）
+    assert args[10] == 0.0  # slippage_bps：第 11 个位置参数
+    # 响应 config 回显保存值 0（不再被改写为默认 1 / 5）
+    assert item["config"]["settlementDays"] == 0
+    assert item["config"]["slippageBps"] == 0.0
+
+
+def test_strategy_backtest_strips_client_trades_limit(monkeypatch):
+    """既有 /api/strategy/backtest 契约不变：客户端传 tradesLimit 不得穿透引擎、不得随回显落库（spec §2）。"""
+    bars = _bars()
+    _patch_history(monkeypatch, bars)
+    real_backtest = STRATEGY_ENGINES["ma_cross"]["backtest"]
+    received = []
+
+    def spy(bars_, config):
+        received.append(config)
+        return real_backtest(bars_, config)
+
+    monkeypatch.setitem(STRATEGY_ENGINES, "ma_cross", {**STRATEGY_ENGINES["ma_cross"], "backtest": spy})
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post(
+            "/api/strategy/backtest",
+            json={
+                "strategyType": "ma_cross",
+                "code": "600519",
+                "config": {"fastPeriod": 5, "slowPeriod": 20, "tradesLimit": None},
+            },
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "tradesLimit" not in received[0]
+    assert "tradesLimit" not in data["config"]
+
+
+def test_compare_saved_rerun_unknown_strategy_type_chinese_error(monkeypatch):
+    """rerun 引擎查表失败须落 per-item 中文 error 行，不得抛英文 KeyError repr。"""
+    _patch_history(monkeypatch, _bars())
+    _patch_saved(monkeypatch, [], [_strategy_row(strategyType="nope")])
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/compare-saved", json={"mode": "rerun", "ids": ["strategy-1"]})
+    assert resp.status_code == 200
+    item = resp.json()["results"][0]
+    assert "未知策略类型：nope" in item["error"]
