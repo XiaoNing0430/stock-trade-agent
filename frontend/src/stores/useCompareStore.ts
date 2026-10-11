@@ -17,7 +17,16 @@ import { useStrategyStore } from './useStrategyStore';
 export type CompareExportKind = 'metrics' | 'curves' | 'trades';
 export type CompareSavedMode = 'snapshot' | 'rerun';
 
-const COMPARE_COLORS = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#ca8a04', '#e11d48'];
+const COMPARE_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)',
+  'var(--chart-7)',
+  'var(--chart-8)',
+];
 const COMPARE_SAVED_LIMIT = 10;
 
 /**
@@ -76,7 +85,7 @@ export const useCompareStore = defineStore('compare', () => {
         label: '基准',
         points: run.benchmarkCurve.map((point: any) => (typeof point?.equity === 'number' ? point.equity : null)),
         style: 'dash',
-        color: '#6b7280',
+        color: 'var(--chart-baseline)',
       });
     }
     return series;

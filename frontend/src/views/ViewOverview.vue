@@ -233,7 +233,7 @@
           v-html="
             chartSvg(
               indexHistory.map((item: any) => item.close),
-              '#ef6d53',
+              'var(--coral)',
               '上证指数近 40 个交易日走势'
             )
           "

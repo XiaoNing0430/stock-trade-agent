@@ -71,6 +71,8 @@ test('compareChartSvg 正常结果生成双曲线对比图', () => {
   assert.match(svg, /chart-legend/);
   assert.match(svg, /网格策略/);
   assert.match(svg, /持有基准/);
+  assert.match(svg, /stroke:var\(--chart-benchmark\)/);
+  assert.match(svg, /stroke:var\(--coral\)/);
 });
 
 // ── multiLineSvg 三钉：null 断线 / 双系列 / escapeHtml ──

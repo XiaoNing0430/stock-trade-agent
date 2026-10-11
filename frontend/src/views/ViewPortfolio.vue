@@ -477,7 +477,7 @@ const warming = computed(() => {
 });
 
 // —— NAV 曲线：gross 主实线 / net 灰虚线 / watchIndex 灰虚第二线（存在且 dates 与净值轴等长才叠，等权指数按首个非空 gross 折算） ——
-const NAV_COLORS = { gross: '#ef6d53', net: '#7d8798', watch: '#9aa6b8' };
+const NAV_COLORS = { gross: 'var(--coral)', net: 'var(--muted)', watch: 'var(--chart-watch)' };
 const navHasData = computed(() => {
   const nav = payload.value?.nav;
   return Boolean(nav?.dates?.length && (nav.gross?.some((v) => v !== null) || nav.net?.some((v) => v !== null)));
