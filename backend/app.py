@@ -1564,6 +1564,7 @@ def create_app() -> FastAPI:
                             1,
                             5,
                             limit_pct,
+                            trades_limit=None,  # 对比端点取全量成交（spec §3.1）；单策略端点保持 -100 截断
                         )
                         config = {
                             "lower": suggestion["lower"],
@@ -1591,7 +1592,8 @@ def create_app() -> FastAPI:
                                 "capitalAllocation": 1.0,
                             }
                         )
-                        result = engine["backtest"](history, config)
+                        # tradesLimit 仅经临时 dict 传入引擎，回显 config 不含该键（spec §3.1 全量成交）
+                        result = engine["backtest"](history, {**config, "tradesLimit": None})
                     result.pop("benchmarkCurve", None)  # 基准曲线顶层仅一份
                     results.append(
                         {
@@ -1714,6 +1716,7 @@ def create_app() -> FastAPI:
                             int(row.get("settlementDays") or 1),
                             float(row.get("slippageBps") or 5),
                             limit_pct,
+                            trades_limit=None,  # rerun 同样取全量成交（spec §3.1）
                         )
                         config = {
                             "lower": row["lower"],
@@ -1731,7 +1734,10 @@ def create_app() -> FastAPI:
                         config = dict(row.get("config") or {})
                         lookback = max(20, min(int(config.get("lookback") or 120), 240))
                         history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
-                        result = STRATEGY_ENGINES[str(row["strategyType"])]["backtest"](history, config)
+                        # tradesLimit 仅经临时 dict 传入引擎，回显 config 保持原样（spec §3.1 全量成交）
+                        result = STRATEGY_ENGINES[str(row["strategyType"])]["backtest"](
+                            history, {**config, "tradesLimit": None}
+                        )
                     results.append(
                         {
                             **base,

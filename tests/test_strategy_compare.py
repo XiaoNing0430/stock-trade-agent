@@ -1,6 +1,8 @@
 """多策略回测对比端点：同 bars 重放 / 白名单上界 / 部分失败隔离 / trades 不截断 / 一次取数。"""
 
 from backend import app as app_module
+from backend.grid_strategy import backtest_grid
+from backend.strategy_base import BaseStrategy, Signal
 from backend.strategy_engines import STRATEGY_ENGINES
 from fastapi.testclient import TestClient
 
@@ -355,3 +357,73 @@ def test_compare_saved_bounds(monkeypatch):
     assert resp_empty.status_code == 422
     assert resp_too_many.status_code == 422
     assert resp_mode.status_code == 422
+
+
+# ===== trades 全量不截断：真实引擎路径回归（spec §3.1）=====
+
+
+def _oscillating_bars(count=240):
+    """确定性震荡日线（95↔105 双向穿越），让真实网格引擎在 240 根内产生数百笔成交。"""
+    bars = []
+    for i in range(count):
+        if i % 2 == 0:
+            low, high, close = 94.5, 100.0, 95.0
+        else:
+            low, high, close = 100.0, 105.5, 105.0
+        bars.append(
+            {
+                "date": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}",
+                "open": close,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": 10000,
+            }
+        )
+    return bars
+
+
+def test_compare_grid_real_engine_returns_full_trades(monkeypatch):
+    """真实截断路径回归：引擎默认 -100 截断，对比端点必须取全量（spec §3.1）。"""
+    bars = _oscillating_bars()
+    _patch_history(monkeypatch, bars)
+    with TestClient(app_module.create_app()) as client:
+        resp = client.post("/api/strategy/compare", json={"code": "600519", "strategyTypes": ["grid"]})
+    assert resp.status_code == 200
+    item = resp.json()["results"][0]
+    assert len(item["trades"]) > 100
+    assert item["metrics"]["tradeCount"] == len(item["trades"])
+
+
+def test_backtest_grid_trades_limit_default_and_full():
+    """grid 引擎：默认 -100 截断仅影响返回列表（metrics 用全量），trades_limit=None 取全量。"""
+    bars = _oscillating_bars()
+    default = backtest_grid(bars, 90.0, 110.0, 8, 100000.0)
+    assert len(default["trades"]) == 100
+    assert default["metrics"]["tradeCount"] > 100
+    full = backtest_grid(bars, 90.0, 110.0, 8, 100000.0, trades_limit=None)
+    assert len(full["trades"]) == full["metrics"]["tradeCount"]
+
+
+class _FlipStrategy(BaseStrategy):
+    """shares==0 买、否则卖：隔日翻转，让 240 根 K 线产生 >100 笔真实成交。"""
+
+    id = "flip"
+    label = "翻转测试"
+
+    def signal_at(self, index, state):
+        bar = self._bars[index]
+        if state.shares == 0:
+            return Signal(date=bar.get("date", ""), side="buy", price=float(bar["close"]))
+        return Signal(date=bar.get("date", ""), side="sell", price=float(bar["close"]))
+
+
+def test_strategy_base_trades_limit_default_and_full():
+    """strategy_base：默认截断 ≤100（单策略端点契约逐字不变），tradesLimit=None 取全量。"""
+    strategy = _FlipStrategy()
+    bars = _bars(240)
+    default = strategy.backtest(bars, {})
+    assert len(default["trades"]) <= 100
+    assert default["metrics"]["tradeCount"] > 100
+    full = strategy.backtest(bars, {"tradesLimit": None})
+    assert len(full["trades"]) == full["metrics"]["tradeCount"]
