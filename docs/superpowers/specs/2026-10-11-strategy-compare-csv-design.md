@@ -1,7 +1,7 @@
 # 多策略回测对比 + CSV 导出 — 设计 Spec
 
 - **日期：** 2026-10-11
-- **状态：** 待用户复审（复审通过前禁止开发）
+- **状态：** 已评审通过（2026-10-11 用户裁定：符合生产级需求，准予开发；评审补充已并入 §3.4/§3.7/§4.1/§8）
 - **规划来源：** ROADMAP.md「研究体验」P3 项「多策略回测对比 + CSV 导出」
 - **计划分支：** `feature/strategy-compare-csv-export`（Git Flow，spec 与实现同分支）
 
@@ -115,7 +115,7 @@
 ### 3.3 对比口径与公平性声明（写入 UI 脚注与响应披露）
 
 - 同标的对比：全部策略共享同一份 bars、同一 `capital`/`feeBps`/窗口/费率规则 → 指标可比。
-- **网格参数是样本内自动建议**（用全窗口 bars 拟合区间，存在参数过拟合偏乐观），引擎默认参数是固定值 → 口径差异在对比结果脚注与 `assumptions` 中如实披露，不宣称「完全公平」。
+- 网格参数是**样本内自动建议**（用全窗口 bars 拟合区间，存在参数过拟合偏乐观），引擎默认参数是固定值 → 口径差异在对比结果脚注与 `assumptions` 中**醒目**披露（脚注用警示样式，如 `signal-chip-watch` 黄条 + 固定文案「网格区间为样本内自动建议，结果偏乐观」），不宣称「完全公平」。
 - 定投（DCA）与网格的 `metrics` 同构（共用 `_compute_metrics`），可同表比较；但 DCA 的资金语义是「每期投入 + 止盈止损全平」，其 `excessReturnPct` 分母与全仓策略含义不同，脚注一并披露。
 
 ### 3.4 资源上界 / 并发 / 竞态
@@ -124,7 +124,16 @@
 - `lookback` clamp 20..240；`capital`/`feeBps` 数值校验如上表。
 - 对比为纯 CPU 计算（240 bars × 8 策略，毫秒级），**无锁需求**；上游取数复用既有节流/熔断/降级护栏。
 - 端点无服务端状态（零写库），单用户本地单进程下无竞态面。
+- **缓存写入并发安全（评审确认，2026-10-11）：** `save_market_bars` 为幂等 upsert（逐行 SELECT→INSERT/UPDATE、单事务），`market_bars` 带 `(code, trade_date, adjustment)` 唯一约束（并发双写 IntegrityError 回滚，不产生重复行），写入值同源幂等（last-writer-wins 无害），且部署为 uvicorn 单 worker——前端快速连点/多 tab 并发触发对比**无需加锁**。
 - 响应体积上界见 §3.1；不引入分页/流式。
+
+### 3.7 可观测性（评审补充）
+
+两端点出口处结构化日志（沿用 app.py 现行 `logger.info(event, extra={...})` 风格）：
+
+- `strategy.compare`：`trace_id` / `code` / `strategy_types` / `lookback` / `capital` / `fee_bps` / `elapsed_ms` / `result_status`（`success` | `partial_failure`） / `data_source`（live/local） / `failed_types`（失败类型列表，空则省略）。
+- `strategy.compare_saved`：`trace_id` / `mode`（snapshot/rerun） / `id_count` / `elapsed_ms` / `result_status`（`success` | `partial_failure`）/ `failed_ids`。
+- 部分失败是**预期态**（HTTP 200），日志级别用 info 而非 warning——排查慢请求与失败分布靠字段，不靠告警噪音。
 
 ### 3.5 错误契约
 
@@ -160,7 +169,7 @@
 **区块 2 — 已保存策略对比**
 
 - 合并列出网格策略 + 普通策略（复用 `strategy-row` 样式 + checkbox 前缀），显示名称/类型/代码/最近回测时间；全选/清空快捷按钮；已选计数 `x/10`，超选禁用。
-- 「对比快照」按钮（snapshot，默认）与「重新回测并对比」按钮（rerun）并列；rerun 按钮旁小字注明「仅对比，不更新已存快照」。
+- 「对比快照」按钮（snapshot，默认）与「重新回测并对比」按钮（rerun）并列；rerun 按钮旁小字注明「仅对比，不更新已存快照」；rerun 运行中按钮文案为「正在回测，最长可能数十秒…」（后端单请求无流式进度，如实提示耗时即可）。
 - 结果：指标对比表（同上，无叠图）；error/缺失行如实披露（`不存在或不属于当前工作区` / `从未回测` / `失败：原因`）。
 - 空态：无任何已保存策略时空态文案「暂无已保存策略，先到上方运行并保存」。
 
@@ -234,6 +243,7 @@ null 值 → 空单元格；列顺序按上表固定。
 - rerun 响应不含权益曲线（不同标的日期轴不同，叠加无意义）。
 - live 历史取数按既有行为写 `market_bars` 历史缓存（与单策略回测端点一致，非对比功能新增写路径）。
 - compare 响应最坏约数百 KB（8 策略 × ~480 笔全量 trades），本地单用户可接受。
+- 已保存策略列表无搜索/筛选（评审议定：单用户量级小暂不做，反馈列表过长后再加简单名称/代码搜索框）。
 
 ## 9. 验收清单
 
