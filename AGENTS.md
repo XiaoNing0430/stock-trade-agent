@@ -150,7 +150,7 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（262 项，24 文件，jsdom + @vue/test-utils）
+npx vitest run                        # 前端单元测试（267 项，24 文件，jsdom + @vue/test-utils）
 python -m pytest tests/ -v            # 后端测试（679 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
