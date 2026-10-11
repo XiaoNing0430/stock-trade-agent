@@ -146,7 +146,7 @@ html {
   background: var(--canvas);
   color: var(--ink);
   font-family: Inter, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
-  font-size: 15px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   text-rendering: optimizeLegibility;
   height: 100%;
@@ -220,7 +220,7 @@ textarea:focus-visible {
   border-radius: 9px;
   background: var(--coral);
   color: var(--sidebar-text);
-  font-size: 19px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   letter-spacing: -1px;
 }
@@ -231,13 +231,13 @@ textarea:focus-visible {
 }
 
 .brand-copy strong {
-  font-size: 16px;
+  font-size: var(--fs-md);
   letter-spacing: 0.02em;
 }
 
 .brand-copy span {
   color: var(--sidebar-muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .market-switcher {
@@ -265,18 +265,18 @@ textarea:focus-visible {
 }
 
 .market-switcher-copy strong {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
 .market-switcher-copy span:last-child {
   color: var(--sidebar-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .market-state {
   color: var(--sidebar-green);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -338,7 +338,7 @@ textarea:focus-visible {
 
 .nav-item span {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .nav-item kbd {
@@ -350,7 +350,7 @@ textarea:focus-visible {
   border-radius: 5px;
   color: var(--sidebar-kbd);
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .nav-count {
@@ -362,14 +362,14 @@ textarea:focus-visible {
   border-radius: 20px;
   background: var(--coral);
   color: var(--sidebar-text);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-style: normal;
 }
 
 .sidebar-section-label {
   margin: 29px 11px 10px;
   color: var(--sidebar-label);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.11em;
   text-transform: uppercase;
 }
@@ -388,13 +388,13 @@ textarea:focus-visible {
 
 .sidebar-data-note strong {
   color: var(--sidebar-text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
 .sidebar-data-note span:last-child {
   color: var(--sidebar-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .status-dot {
@@ -457,13 +457,13 @@ textarea:focus-visible {
 }
 
 .sidebar-note strong {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
 .sidebar-note span {
   color: var(--sidebar-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
@@ -484,7 +484,7 @@ textarea:focus-visible {
   border-radius: 50%;
   background: var(--chip-blue-bg);
   color: var(--chip-blue-ink);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
@@ -495,13 +495,13 @@ textarea:focus-visible {
 }
 
 .user-copy strong {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
 .user-copy span {
   color: var(--sidebar-muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .main-area {
@@ -532,7 +532,7 @@ textarea:focus-visible {
 .topbar-eyebrow,
 .section-kicker {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.13em;
 }
@@ -547,7 +547,7 @@ textarea:focus-visible {
 .topbar h1 {
   margin: 0;
   color: var(--ink);
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -555,7 +555,7 @@ textarea:focus-visible {
 .topbar-context p {
   margin: 1px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .demo-badge {
@@ -568,7 +568,7 @@ textarea:focus-visible {
   border-radius: 20px;
   background: var(--green-soft);
   color: var(--green);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -620,7 +620,7 @@ textarea:focus-visible {
   outline: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .global-search input::placeholder {
@@ -637,7 +637,7 @@ textarea:focus-visible {
   border-radius: 4px;
   color: var(--kbd-text);
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .icon-button,
@@ -690,7 +690,7 @@ textarea:focus-visible {
   width: auto;
   padding: 0 10px;
   color: var(--muted-strong);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .content-area {
@@ -806,7 +806,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--muted);
   background: none;
@@ -836,7 +836,7 @@ textarea:focus-visible {
 .view-heading h2 {
   margin: 5px 0 0;
   color: var(--ink);
-  font-size: 25px;
+  font-size: var(--fs-xl);
   font-weight: 600;
   letter-spacing: -0.025em;
 }
@@ -844,7 +844,7 @@ textarea:focus-visible {
 .heading-note {
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .view-heading-actions {
@@ -862,7 +862,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -876,7 +876,7 @@ textarea:focus-visible {
   border-radius: 8px;
   background: var(--gold-wash);
   color: var(--gold);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .connection-banner svg {
@@ -900,7 +900,7 @@ textarea:focus-visible {
   border: 1px dashed var(--line);
   border-radius: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .spinning {
@@ -928,7 +928,7 @@ textarea:focus-visible {
   padding: 0 13px;
   border: 1px solid transparent;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   white-space: nowrap;
   transition:
@@ -979,7 +979,7 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   color: var(--blue);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -1009,7 +1009,7 @@ textarea:focus-visible {
 .surface-heading h3 {
   margin: 3px 0 0;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.015em;
 }
@@ -1048,7 +1048,7 @@ textarea:focus-visible {
 
 .index-item-head span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .index-item-head svg {
@@ -1061,18 +1061,18 @@ textarea:focus-visible {
   display: block;
   margin: 6px 0 3px;
   color: var(--ink);
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
 .index-item-foot span:first-child {
   color: var(--muted-strong);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .index-item-foot span:last-child {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
@@ -1096,12 +1096,12 @@ textarea:focus-visible {
 
 .chart-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .chart-heading strong {
   color: var(--ink);
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -1109,7 +1109,7 @@ textarea:focus-visible {
 .trend-up,
 .trend-down,
 .trend-flat {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
@@ -1164,7 +1164,7 @@ textarea:focus-visible {
 .chart-axis-label {
   fill: var(--muted);
   font-family: inherit;
-  font-size: 9px;
+  font-size: var(--fs-xs);
 }
 
 .market-breadth {
@@ -1183,12 +1183,12 @@ textarea:focus-visible {
 
 .breadth-label span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .breadth-label strong {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
@@ -1223,7 +1223,7 @@ textarea:focus-visible {
   gap: 9px;
   margin-top: 9px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .breadth-legend span {
@@ -1255,7 +1255,7 @@ textarea:focus-visible {
 .muted-count,
 .strategy-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .strategy-label {
@@ -1275,7 +1275,7 @@ textarea:focus-visible {
   padding: 9px 9px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   text-align: left;
   white-space: nowrap;
@@ -1285,7 +1285,7 @@ textarea:focus-visible {
   padding: 12px 9px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   vertical-align: middle;
 }
 
@@ -1322,7 +1322,7 @@ textarea:focus-visible {
 .stock-cell-copy strong {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1330,7 +1330,7 @@ textarea:focus-visible {
 
 .stock-cell-copy span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -1343,7 +1343,7 @@ textarea:focus-visible {
   border-radius: 8px;
   background: var(--surface-tint);
   color: var(--blue);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 
@@ -1363,7 +1363,7 @@ textarea:focus-visible {
   min-height: 22px;
   padding: 0 7px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -1438,7 +1438,7 @@ textarea:focus-visible {
 .mini-stock-copy strong {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1446,11 +1446,11 @@ textarea:focus-visible {
 
 .mini-stock-copy span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .mini-stock-change {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
@@ -1506,7 +1506,7 @@ textarea:focus-visible {
 .activity-copy strong {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1515,7 +1515,7 @@ textarea:focus-visible {
 .activity-copy span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1576,13 +1576,13 @@ textarea:focus-visible {
 }
 
 .preset-item strong {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
 .preset-item small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .preset-icon {
@@ -1650,7 +1650,7 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 7px;
   color: var(--muted-strong);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .field > span strong {
@@ -1670,7 +1670,7 @@ textarea:focus-visible {
   border-radius: 7px;
   background: var(--surface-soft);
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   outline: 0;
 }
 
@@ -1712,7 +1712,7 @@ textarea:focus-visible {
   background: var(--surface-soft);
   color: var(--ink-soft);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   outline: 0;
 }
 
@@ -1746,7 +1746,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .filter-hint svg,
@@ -1798,13 +1798,13 @@ textarea:focus-visible {
 
 .result-insight strong {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
 .result-insight span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .data-table-dense th,
@@ -1845,7 +1845,7 @@ textarea:focus-visible {
   border-radius: 10px;
   background: var(--coral-soft);
   color: var(--coral-dark);
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
@@ -1860,7 +1860,7 @@ textarea:focus-visible {
   overflow: hidden;
   margin: 0;
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1869,7 +1869,7 @@ textarea:focus-visible {
 .ticker-code,
 .stock-sector {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -1886,7 +1886,7 @@ textarea:focus-visible {
 
 .selected-stock-quote strong {
   color: var(--ink);
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -1904,12 +1904,12 @@ textarea:focus-visible {
 
 .selected-stock-metrics span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .selected-stock-metrics strong {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
@@ -1964,7 +1964,7 @@ textarea:focus-visible {
   border-radius: 5px;
   background: var(--gold-soft);
   color: var(--gold);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .form-grid {
@@ -1995,12 +1995,12 @@ textarea:focus-visible {
   outline: 0;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .number-input span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .field-note {
@@ -2025,13 +2025,13 @@ textarea:focus-visible {
 
 .risk-preview-heading > span:first-child {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
 }
 
 .muted-inline {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .risk-metrics {
@@ -2048,12 +2048,12 @@ textarea:focus-visible {
 
 .risk-metrics span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .risk-metrics strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -2101,7 +2101,7 @@ textarea:focus-visible {
   min-width: 0;
 }
 .plan-pairing .field > span {
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 .plan-pairing select {
   width: 100%;
@@ -2131,7 +2131,7 @@ textarea:focus-visible {
 .plan-card-identity strong {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2139,7 +2139,7 @@ textarea:focus-visible {
 
 .plan-card-identity span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .plan-status {
@@ -2150,7 +2150,7 @@ textarea:focus-visible {
   border-radius: 5px;
   background: var(--blue-soft);
   color: var(--blue);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -2176,19 +2176,19 @@ textarea:focus-visible {
 
 .plan-card-metric span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .plan-card-metric strong {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
 }
 
 .plan-card-foot {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .plan-card-foot strong {
@@ -2206,7 +2206,7 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .plan-card-actions button:hover {
@@ -2221,7 +2221,7 @@ textarea:focus-visible {
 
 .toggle-label {
   color: var(--green);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -2289,26 +2289,26 @@ textarea:focus-visible {
 .monitor-stat-label {
   grid-column: 1 / -1;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .monitor-stat strong {
   color: var(--ink);
-  font-size: 20px;
+  font-size: var(--fs-lg);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
 .monitor-stat > span:last-child {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .monitor-stat-source strong {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .monitor-stat-source strong .live-dot {
@@ -2359,7 +2359,7 @@ textarea:focus-visible {
 .grid-instrument strong {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2368,14 +2368,14 @@ textarea:focus-visible {
 .grid-instrument span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .grid-instrument b {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -2415,12 +2415,12 @@ textarea:focus-visible {
 .grid-metrics span,
 .grid-assumption {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .grid-metrics strong {
   color: var(--ink);
-  font-size: 16px;
+  font-size: var(--fs-md);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2461,7 +2461,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .legend-line {
@@ -2496,7 +2496,7 @@ textarea:focus-visible {
   border-left: 2px solid var(--coral);
   background: var(--surface-soft);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .grid-levels span {
@@ -2505,7 +2505,7 @@ textarea:focus-visible {
   border-radius: 4px;
   background: var(--surface-soft);
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2554,13 +2554,13 @@ textarea:focus-visible {
 
 .strategy-row strong {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
 .strategy-row span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .monitor-table-panel,
@@ -2584,7 +2584,7 @@ textarea:focus-visible {
   display: grid;
   gap: 3px;
   color: var(--muted-strong);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2664,7 +2664,7 @@ textarea:focus-visible {
 .alert-copy strong {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2672,7 +2672,7 @@ textarea:focus-visible {
 
 .alert-copy span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
@@ -2682,7 +2682,7 @@ textarea:focus-visible {
   gap: 7px;
   margin-top: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .alert-item.unread .alert-copy strong {
@@ -2716,12 +2716,12 @@ textarea:focus-visible {
 
 .empty-state strong {
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
 .empty-state span {
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .settings-grid {
@@ -2757,13 +2757,13 @@ textarea:focus-visible {
 
 .settings-row strong {
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
 .settings-row span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 /* 设置行控件统一样式：高度 36px、右缘对齐 */
@@ -2778,7 +2778,7 @@ textarea:focus-visible {
   border-radius: 7px;
   background: var(--surface-soft);
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   outline: 0;
   box-sizing: border-box;
 }
@@ -2835,7 +2835,7 @@ textarea:focus-visible {
   gap: 15px;
   padding: 25px 2px 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .toast-region {
@@ -2858,7 +2858,7 @@ textarea:focus-visible {
   background: var(--surface);
   box-shadow: var(--shadow-small);
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   animation: toast-in 180ms ease both;
 }
 
@@ -2897,7 +2897,7 @@ textarea:focus-visible {
   background: var(--ink);
   color: var(--on-ink);
   content: attr(data-tooltip);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 400;
   pointer-events: none;
   white-space: nowrap;
@@ -2982,7 +2982,7 @@ textarea:focus-visible {
     min-width: 17px;
     height: 17px;
     padding: 0 4px;
-    font-size: 9px;
+    font-size: var(--fs-xs);
   }
 
   .user-profile {
@@ -3166,7 +3166,7 @@ textarea:focus-visible {
   }
 
   .view-heading h2 {
-    font-size: 22px;
+    font-size: var(--fs-lg);
   }
 
   .view-heading-actions {
@@ -3195,7 +3195,7 @@ textarea:focus-visible {
   }
 
   .index-item-value {
-    font-size: 18px;
+    font-size: var(--fs-lg);
   }
 
   .breadth-legend {
@@ -3363,7 +3363,7 @@ textarea:focus-visible {
   border: 1px solid var(--chip-line);
   background: transparent;
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -3469,7 +3469,7 @@ textarea:focus-visible {
 .draft-fallback-badge {
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--warning-ink);
   background: var(--warning-bg);
   border: 1px solid var(--warning-line);
@@ -3481,7 +3481,7 @@ textarea:focus-visible {
   border: 1px solid var(--coral);
   background: var(--coral-soft);
   color: var(--coral-dark);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .draft-warnings {
@@ -3490,7 +3490,7 @@ textarea:focus-visible {
   list-style: none;
   display: grid;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--warning-ink);
 }
 
@@ -3518,7 +3518,7 @@ textarea:focus-visible {
 .draft-params label {
   display: grid;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
@@ -3541,7 +3541,7 @@ textarea:focus-visible {
 
 .draft-metrics dt,
 .draft-result dt {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
@@ -3553,13 +3553,13 @@ textarea:focus-visible {
 
 .draft-disclaimer {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
 .draft-disable-hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--red);
 }
 
@@ -3581,7 +3581,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: var(--coral);
   color: var(--on-accent);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 16px;
   text-align: center;
@@ -3603,18 +3603,18 @@ textarea:focus-visible {
 }
 
 .desk-kpi-label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   letter-spacing: 0.08em;
   color: var(--muted-strong);
 }
 
 .desk-kpi strong {
-  font-size: 26px;
+  font-size: var(--fs-xl);
   line-height: 1.2;
 }
 
 .desk-kpi-note {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted-strong);
 }
 
@@ -3659,7 +3659,7 @@ textarea:focus-visible {
 
 .preset-hit-count {
   margin-left: auto;
-  font-size: 16px;
+  font-size: var(--fs-md);
 }
 
 .desk-stat-rows {
@@ -3674,7 +3674,7 @@ textarea:focus-visible {
   padding: 8px 10px;
   border-radius: 10px;
   background: var(--chip-hover);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .desk-stat-row-risk strong {
@@ -3687,7 +3687,7 @@ textarea:focus-visible {
   border-radius: 10px;
   background: var(--chip-hover);
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
   display: flex;
   align-items: flex-start;
@@ -3740,7 +3740,7 @@ textarea:focus-visible {
     background: transparent;
     border: none;
     color: var(--muted-strong);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     cursor: pointer;
     position: relative;
   }
@@ -3754,7 +3754,7 @@ textarea:focus-visible {
     top: 4px;
     right: 18%;
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--fs-xs);
     font-weight: 700;
     color: var(--on-accent);
     background: var(--coral);
@@ -3775,7 +3775,7 @@ textarea:focus-visible {
     border: 1px solid var(--chip-line);
     background: transparent;
     color: var(--muted-strong);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     font-weight: 600;
     cursor: pointer;
   }
@@ -3810,7 +3810,7 @@ textarea:focus-visible {
   border-radius: 9px;
   background: transparent;
   color: var(--muted-strong);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -3849,7 +3849,7 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   color: var(--muted-strong);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
   transition: color 160ms ease;
@@ -3895,7 +3895,7 @@ textarea:focus-visible {
 }
 
 .source-badge {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   padding: 2px 10px;
   border-radius: 999px;
   background: var(--green-soft);
@@ -3923,7 +3923,7 @@ textarea:focus-visible {
   border-radius: 6px;
   background: var(--surface-soft);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .minute-toolbar button:hover {
@@ -3942,7 +3942,7 @@ textarea:focus-visible {
   border-radius: var(--radius-small);
   background: var(--surface-soft);
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .tushare-config {
@@ -3957,7 +3957,7 @@ textarea:focus-visible {
 }
 
 .tushare-warn {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -4001,7 +4001,7 @@ textarea:focus-visible {
 
 .custom-strategy-subtitle {
   margin: 14px 0 6px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted-strong);
 }
 
@@ -4018,7 +4018,7 @@ textarea:focus-visible {
   border-radius: var(--radius-small);
   background: var(--red-soft);
   color: var(--red);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .custom-strategy-state {
@@ -4056,7 +4056,7 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -4086,7 +4086,7 @@ textarea:focus-visible {
 }
 
 .sort-arrow {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--coral);
 }
 
@@ -4099,7 +4099,7 @@ textarea:focus-visible {
 }
 
 .pagination-info {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -4115,7 +4115,7 @@ textarea:focus-visible {
   padding: 1px 6px;
   border-radius: 8px;
   background: var(--surface-raised);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 .strategy-mode-tabs {
@@ -4130,7 +4130,7 @@ textarea:focus-visible {
 }
 .review-panel .plan-draft-error {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .review-toggle {
   display: flex;
@@ -4141,7 +4141,7 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   cursor: pointer;
 }
@@ -4170,7 +4170,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: var(--surface);
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -4197,18 +4197,18 @@ textarea:focus-visible {
 }
 .kpi b {
   color: var(--ink);
-  font-size: 20px;
+  font-size: var(--fs-lg);
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 .kpi span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 .kpi-note {
   grid-column: 1 / -1;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 .review-table {
   width: 100%;
@@ -4219,7 +4219,7 @@ textarea:focus-visible {
   padding: 8px 10px;
   border-bottom: 1px solid var(--line-strong);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-align: left;
   white-space: nowrap;
@@ -4228,7 +4228,7 @@ textarea:focus-visible {
   padding: 9px 10px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   vertical-align: middle;
 }
 .review-table tbody tr:last-child td {
@@ -4258,7 +4258,7 @@ textarea:focus-visible {
   border-radius: var(--radius-small);
   background: var(--surface-soft);
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 .review-trace p {
@@ -4272,7 +4272,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: var(--surface-tint);
   color: var(--muted-strong);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   vertical-align: middle;
   white-space: nowrap;
@@ -4282,17 +4282,17 @@ textarea:focus-visible {
   padding-top: 10px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 .field-hint {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 /* 复审 M1：复盘面板 muted 披露行（摘要/降级提示/留痕）此前无任何规则，红线披露与正文视觉无差别 */
 .muted {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 /* ── 组合风险视图（Task 8）：pf- 前缀，复用 review/.kpi/.surface/.empty-state/.badge-muted 族 ── */
@@ -4318,7 +4318,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: transparent;
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -4339,7 +4339,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .pf-adv-field input[type='date'] {
   padding: 4px 8px;
@@ -4347,7 +4347,7 @@ textarea:focus-visible {
   border-radius: var(--radius-small);
   background: var(--surface);
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .pf-kpis {
   margin-bottom: 14px;
@@ -4369,14 +4369,14 @@ textarea:focus-visible {
   border-radius: var(--radius-small);
   background: var(--gold-soft);
   color: var(--gold);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .pf-exposure.pf-over {
   border-color: var(--red);
 }
 .pf-over-text {
   color: var(--red);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .pf-bar {
   position: relative;
@@ -4410,7 +4410,7 @@ textarea:focus-visible {
   gap: 16px;
   margin: 4px 0 0;
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 .pf-conc-metrics {
@@ -4419,7 +4419,7 @@ textarea:focus-visible {
   gap: 18px;
   margin-bottom: 10px;
   color: var(--muted-strong);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 .pf-warming {
@@ -4429,7 +4429,7 @@ textarea:focus-visible {
   border-radius: var(--radius-small);
   background: var(--surface-soft);
   color: var(--muted-strong);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   text-align: center;
 }
 .pf-ind-row {
@@ -4438,7 +4438,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 10px;
   margin: 6px 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .pf-ind-label {
   overflow: hidden;
@@ -4479,7 +4479,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: var(--gold-soft);
   color: var(--gold);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   vertical-align: middle;
 }
@@ -4503,7 +4503,7 @@ textarea:focus-visible {
   flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 .pf-event-type {
@@ -4511,7 +4511,7 @@ textarea:focus-visible {
   border-radius: 999px;
   background: var(--blue-soft);
   color: var(--blue);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -4529,7 +4529,7 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .compare-saved-row {
@@ -4678,7 +4678,7 @@ html[data-theme='dark'] {
   border-radius: var(--radius-small);
   background: transparent;
   color: var(--sidebar-muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   cursor: pointer;
   transition:
     color 140ms ease,
@@ -4699,7 +4699,7 @@ html[data-theme='dark'] {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--ink-soft);
   cursor: pointer;
 }
