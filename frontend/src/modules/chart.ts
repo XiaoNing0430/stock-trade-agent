@@ -41,7 +41,7 @@ export function chartSvg(points: number[], accent: string, label: string) {
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${safeLabel}">
       <title>${safeLabel}</title>
       ${grid}
-      <path class="chart-area" style="fill:${accent}16" d="${areaPath}"></path>
+      <path class="chart-area" d="${areaPath}"></path>
       <path class="chart-line" style="stroke:${accent}" d="${linePath}"></path>
       <circle class="chart-dot" style="stroke:${accent}" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4"></circle>
       ${labelMarkup}

@@ -59,6 +59,7 @@
       <div class="sidebar-spacer"></div>
 
       <button
+        :key="currentTheme"
         class="sidebar-theme-toggle"
         type="button"
         :aria-label="currentTheme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
@@ -348,7 +349,7 @@ const currentTheme = effectiveTheme;
 /** 切换主题后等 Vue 完成补丁，再重渲染 lucide 图标（sun/moon 随主题互换）。 */
 function onToggleTheme(): void {
   toggleTheme();
-  nextTick(() => workspace.renderIcons());
+  nextTick(() => renderIcons());
 }
 
 /** 面板行未读态：工作区提醒看 read 标志；扫描项 read 恒 false（静态占位），已读语义走 scan 的 seen 时间戳。 */
