@@ -933,7 +933,7 @@ textarea:focus-visible {
     transform 160ms ease;
 }
 
-.button:hover {
+.button:not(:disabled):hover {
   transform: translateY(-1px);
 }
 
@@ -964,6 +964,23 @@ textarea:focus-visible {
 
 .button-full {
   width: 100%;
+}
+
+/* lg 38px 档（spec §5.3「面板主操作」）：对话框 footer 与表单 footer 的主按钮 */
+.button-lg,
+.plan-draft-foot .button-primary,
+.custom-strategy-actions .button-primary,
+.form-footer .button-primary {
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  font-size: var(--fs-sm);
+}
+
+/* 禁用态统一（spec §5.3）：透明度 + 禁用光标；icon-button 亦有禁用场景，一并覆盖 */
+.button:disabled,
+.icon-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .text-button {
@@ -2761,12 +2778,12 @@ textarea:focus-visible {
   font-size: var(--fs-xs);
 }
 
-/* 设置行控件统一样式：高度 36px、右缘对齐 */
+/* 设置行控件统一样式：高度 32px、右缘对齐 */
 .settings-row input[type='text'],
 .settings-row input:not([type]),
 .settings-row input[type='number'],
 .settings-row select {
-  height: 36px;
+  height: 32px;
   min-width: 0;
   padding: 0 var(--space-3);
   border: 1px solid var(--line);

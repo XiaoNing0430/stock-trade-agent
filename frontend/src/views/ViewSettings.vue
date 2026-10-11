@@ -111,7 +111,7 @@
         </div>
         <div class="view-heading-actions">
           <button
-            class="button"
+            class="button button-lg"
             :class="settingsDirty ? 'button-primary' : 'button-secondary'"
             type="button"
             :disabled="settingsLoading"
