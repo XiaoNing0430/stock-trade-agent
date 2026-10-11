@@ -62,7 +62,7 @@ frontend/
     main.ts               Vue 应用启动（createApp, Pinia, 挂载）
     app.ts                Vue 应用设置、路由、轮询、错误处理
     App.vue               根布局 SFC
-    styles.css            全部样式（CSS 变量，单文件）
+    styles.css            全部样式（CSS 变量令牌体系，:root 浅色 + [data-theme='dark'] 暗色，单文件）
     components/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
       CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；409 保留本地编辑仅刷新 version）
@@ -77,7 +77,7 @@ frontend/
     modules/              纯逻辑模块
       constants.ts / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
-      assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表） / csv.ts（对比 CSV 组装与公式注入防护）
+      assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表） / csv.ts（对比 CSV 组装与公式注入防护） / theme.ts（三态主题：浅/深/跟随系统，localStorage 持久化）
     views/                8 个 SFC 视图
       ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
       ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
@@ -111,7 +111,7 @@ tests/
   test_strategy_compare.py  多策略对比：同 bars 重放/白名单上界/部分失败隔离/trades 不截断/快照与现跑零写库
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
-  frontend/               24 个 vitest 测试文件（共 267 项测试）
+  frontend/               25 个 vitest 测试文件（共 276 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -150,7 +150,7 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（267 项，24 文件，jsdom + @vue/test-utils）
+npx vitest run                        # 前端单元测试（276 项，25 文件，jsdom + @vue/test-utils）
 python -m pytest tests/ -v            # 后端测试（679 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py

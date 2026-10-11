@@ -75,7 +75,7 @@
         v-html="
           chartSvg(
             selectedHistory.map((item: any) => item.close),
-            '#3b6fb6',
+            'var(--blue)',
             (selectedStock?.name || '股票') + '近期走势'
           )
         "
@@ -153,7 +153,7 @@ const minuteSvg = computed(() =>
   minuteState.value === 'ok' && minuteBars.value.length
     ? chartSvg(
         minuteBars.value.map((bar: any) => bar.close),
-        '#3b6fb6',
+        'var(--blue)',
         `分钟线 ${minuteChartPeriod.value}`
       )
     : ''

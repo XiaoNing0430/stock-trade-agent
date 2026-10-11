@@ -41,7 +41,7 @@ export function chartSvg(points: number[], accent: string, label: string) {
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${safeLabel}">
       <title>${safeLabel}</title>
       ${grid}
-      <path class="chart-area" style="fill:${accent}16" d="${areaPath}"></path>
+      <path class="chart-area" d="${areaPath}"></path>
       <path class="chart-line" style="stroke:${accent}" d="${linePath}"></path>
       <circle class="chart-dot" style="stroke:${accent}" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4"></circle>
       ${labelMarkup}
@@ -91,8 +91,8 @@ export function compareChartSvg(
     <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${label}">
       <title>${label}</title>
       ${grid}
-      <path class="chart-line chart-line-benchmark" style="stroke:#9aa7bd" d="${pathFor(benchmark)}"></path>
-      <path class="chart-line chart-line-strategy" style="stroke:#ef6d53" d="${pathFor(strategy)}"></path>
+      <path class="chart-line chart-line-benchmark" style="stroke:var(--chart-benchmark)" d="${pathFor(benchmark)}"></path>
+      <path class="chart-line chart-line-strategy" style="stroke:var(--coral)" d="${pathFor(strategy)}"></path>
     </svg>
     <div class="chart-legend">
       <span><i class="legend-line legend-line-strategy"></i>网格策略</span>

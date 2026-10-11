@@ -302,4 +302,16 @@ describe('ViewSettings', () => {
     // 运行时熔断状态如实展示
     expect(text).toContain('上游熔断中');
   });
+
+  it('外观卡片：三态单选渲染，点击深色写 localStorage 并切 data-theme', async () => {
+    const alerts = useAlertsStore();
+    // 外观卡片位于网站设置 tab 的 workspace 分组（settingsTab 默认即 workspace）
+    alerts.hubTab = 'settings';
+    const wrapper = mount(ViewSettings);
+    const radios = wrapper.findAll('input[name="atlas-theme-option"]');
+    expect(radios.length).toBe(3);
+    await radios[1].setValue();
+    expect(window.localStorage.getItem('atlas-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+  });
 });

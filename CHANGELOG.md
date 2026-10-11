@@ -11,6 +11,14 @@ All notable changes to this project. 版本更新清单。
 - **前端**：ViewGrid 新增第 9 个「对比」tab（策略类型勾选 + 指标对比表最优高亮 + `multiLineSvg` 归一化净值叠图 + 已保存策略合并勾选 ≤10）；新模块 `modules/csv.ts`（指标/曲线宽表/成交长表三张 CSV 组装，`csvCell` 对 `= + - @ \t \r` 开头字符串加 `'` 前缀防 Excel 公式注入，BOM + Blob 下载）；新 store `useCompareStore`。
 - **测试**：新增 `tests/test_strategy_compare.py`（14 用例，含 rerun 零写库断言与终审收尾回归：保存 0 值参数不被 `or` 兜底改写、`tradesLimit` 穿透隔离、未知策略类型中文报错）+ 前端 3 个测试文件（csv 注入矩阵 + RFC4180 引号包裹 / store 全选清空截断 / ViewGrid 冒烟）。
 
+### UI 主题基建（第①批）
+
+- `styles.css` 全量令牌化：103 处裸色值收敛为语义令牌（浅色渲染零变化），新增 `html[data-theme='dark']` 覆盖块（B · 中性炭灰基调）。
+- 另修复基线遗留的 7 处未定义令牌引用（--border/--text/--accent/--shadow-large）与图表面积填充的令牌适配——前者的边框/着色/阴影修复前因变量未定义而不渲染，属用户可见变化。
+- 终审修复：图表面积填充改由 `.chart-area` 类规则着色（`var()` 拼 hex alpha 曾致 SVG 黑块）、侧栏主题开关图标随主题翻转；暗色补 `color-scheme: dark` 并为无样式控件（`.field` 文本输入 / `.settings-row` / `.input` / `.minute-toolbar`）接通既有令牌——浅色下这些控件由 UA 白底改为令牌浅灰，属用户可见变化。
+- 新模块 `modules/theme.ts`：浅/深/跟随系统三态，localStorage 持久化（键 `atlas-theme`，异常静默降级），`main.ts` 首帧前应用防闪白，系统偏好变化仅在未显式选择时联动。
+- 入口：侧栏底部快捷开关 + 设置页「外观」三态卡片；图表/组件取色接入 `--chart-N` 令牌，暗色自适应。
+
 ## [v0.7.1] - 2026-10-03
 
 ### 修复

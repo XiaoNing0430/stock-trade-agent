@@ -58,6 +58,17 @@
 
       <div class="sidebar-spacer"></div>
 
+      <button
+        :key="currentTheme"
+        class="sidebar-theme-toggle"
+        type="button"
+        :aria-label="currentTheme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+        @click="onToggleTheme"
+      >
+        <i :data-lucide="currentTheme === 'dark' ? 'sun' : 'moon'" aria-hidden="true"></i>
+        <span>{{ currentTheme === 'dark' ? '浅色模式' : '深色模式' }}</span>
+      </button>
+
       <div class="sidebar-note">
         <div class="sidebar-note-icon">
           <i data-lucide="shield-check" aria-hidden="true"></i>
@@ -288,11 +299,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { nextTick, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
 import { NAV_ITEMS } from '@/modules/constants';
 import { formatTime } from '@/modules/format';
+import { effectiveTheme, toggleTheme } from '@/modules/theme';
 import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
@@ -330,6 +342,15 @@ const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPerm
 const { toggleNotifCenter, clearReadAlerts, markAlertRead, markScanSeen, goAlertCenter, requestNotifications } = alerts;
 
 const navItems = NAV_ITEMS;
+
+// 侧栏主题快捷开关：effectiveTheme 为 theme 模块级 computed，模板引用自动解包（useWorkspaceStore 复用既有 workspace 实例）
+const currentTheme = effectiveTheme;
+
+/** 切换主题后等 Vue 完成补丁，再重渲染 lucide 图标（sun/moon 随主题互换）。 */
+function onToggleTheme(): void {
+  toggleTheme();
+  nextTick(() => renderIcons());
+}
 
 /** 面板行未读态：工作区提醒看 read 标志；扫描项 read 恒 false（静态占位），已读语义走 scan 的 seen 时间戳。 */
 function isItemUnread(item: Alert): boolean {

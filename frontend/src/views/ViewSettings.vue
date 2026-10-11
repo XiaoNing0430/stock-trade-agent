@@ -160,6 +160,22 @@
               ><span></span></span
           ></label>
         </section>
+        <section v-if="settingsTab === 'workspace'" class="settings-row">
+          <div>
+            <strong>外观</strong>
+            <span>界面主题即时生效，仅保存在本浏览器</span>
+          </div>
+          <div class="theme-options">
+            <label v-for="option in THEME_OPTIONS" :key="option.value" class="theme-option">
+              <input
+                type="radio"
+                name="atlas-theme-option"
+                :checked="(themePreference ?? 'system') === option.value"
+                @change="onThemeChange(option.value)"
+              /><span>{{ option.label }}</span>
+            </label>
+          </div>
+        </section>
         <section v-if="settingsTab === 'data'" class="settings-row">
           <div><strong>行情刷新间隔</strong><span>盯盘标的存在时自动刷新</span></div>
           <div class="number-input">
@@ -343,6 +359,7 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { SETTINGS_TABS } from '@/modules/constants';
+import { themePreference, setTheme } from '@/modules/theme';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -359,6 +376,16 @@ const { saveSettings, clearTushareToken } = settings;
 const { renderIcons } = workspace;
 
 const settingsTabs = SETTINGS_TABS;
+
+// 外观三态：null = 跟随系统（theme 模块状态内聚，不进 Pinia）
+const THEME_OPTIONS = [
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+  { value: 'system', label: '跟随系统' },
+] as const;
+function onThemeChange(value: 'light' | 'dark' | 'system') {
+  setTheme(value === 'system' ? null : value);
+}
 
 onMounted(() => renderIcons());
 </script>
