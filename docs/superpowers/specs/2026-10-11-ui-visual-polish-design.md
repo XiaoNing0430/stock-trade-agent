@@ -59,14 +59,14 @@
 
 1. **数据表格**：tbody 行内边距统一 `var(--space-2) var(--space-3)`（≈34px 行高 @ `--fs-sm`）；表头、斑马纹、悬停态（`--row-hover`）、可点击行、分页器内边距统一；`.data-table` 家族内不再有 9/10/13px 混排。
 2. **表单控件**：`input/select/.number-input` 高度统一 32px；focus 态统一 `0 0 0 3px var(--focus-ring)`；单位后缀（元/BP/%）基线对齐；`.field` 标签与控件间距栅格化。
-3. **按钮体系**：三档高度——`sm` 28px（text-button/icon-button）、`md` 34px（.button/.button-secondary/.button-primary 默认）、`lg` 38px（面板主操作）；图标与文字 `gap: var(--space-2)` 垂直居中；禁用态统一 `opacity` 与 `cursor`。
+3. **按钮体系**：三档高度——`sm` 28px（text-button/icon-button）、`md` 34px（.button/.button-secondary/.button-primary 默认）、`lg` 38px（面板主操作）；图标与文字 `gap: var(--space-2)` 垂直居中；禁用态统一 `opacity` 与 `cursor`。lg 38px 应用于对话框与表单 footer 主操作（终审修复波落地，选择器清单见实现报告）；禁用态 opacity+cursor 统一。
 4. **卡片与标题层级**：`.surface` 内边距栅格化（16/20）；`.surface-heading` 三段（section-kicker / 标题 / 状态位）统一垂直节奏与间距；`.heading-note`、`.section-kicker` 字阶映射 `--fs-xs`。
 
 精修原则：**只动尺寸/间距/字阶/圆角/阴影，不动颜色与结构**；每条规则调整前后行为可由截图对比核验。
 
 ## 6. 实现方式
 
-- 全部走 CSS 令牌（`:root` 追加字阶/间距/圆角/阴影令牌，主题无关不进 dark 块）；styles.css 全量替换 + 按第 5 节清单做规则级精修。
+- 全部走 CSS 令牌（`:root` 追加字阶/间距/圆角/阴影令牌，主题无关不进 dark 块；阴影是版式令牌中唯一主题相关的例外——`--shadow-sm`/`--shadow-md` 的暗色覆盖保留在 dark 块，阴影色本就随主题，dark 块行数不变断言按此口径成立）；styles.css 全量替换 + 按第 5 节清单做规则级精修。
 - 替换顺序：先令牌定义追加 → 字号全量替换 → 间距全量替换 → 圆角/阴影迁移（含旧令牌删除）→ 四族精修。每步可独立验证，避免一次巨 diff。
 - **before 截图在实现计划 Task 1 采集**（playwright 8 视图 × 浅/深，存 SDD workspace），验收时与 after 对比。
 
@@ -76,7 +76,7 @@
 - 圆角：`border-radius` 像素字面量为 0（`999px`/`50%` 及微型语义特例 `1px`/`2px`/`inherit` 除外）；`var(--radius-sm|md|lg)` 三种 + 特例。20px 药丸语义（nav-count/demo-badge/toggle-track）归 999px（这些元素高度 ≤ 半径，视觉逐像素等价）。
 - 阴影：`var(--shadow)`/`var(--shadow-small)` 旧名残留为 0。
 - 间距：padding/margin/gap 像素值全部 ∈ {0,1,2} ∪ {4 的倍数}（含令牌引用；>32px 结构留白允许 4 倍数字面量）∪ {auto,999px,50%}（grep 清单核对，命令在计划给出并预验证）。
-- 深浅同构：字阶/间距/圆角/阴影令牌不进 dark 块（自动同构），dark 块行数不变。
+- 深浅同构：字阶/间距/圆角令牌不进 dark 块（自动同构）；阴影是版式令牌中唯一主题相关的例外——`--shadow-sm`/`--shadow-md` 的暗色覆盖保留在 dark 块（阴影色本就随主题），dark 块行数不变断言按此口径成立。
 
 ## 8. 测试与验收清单
 
@@ -96,4 +96,4 @@
 - 占位符扫描：无 TBD；「计划逐条落地/计划给出命令」为数据依赖（映射需逐行比对实际 CSS），非未实现内容。
 - 一致性：§3-§4 令牌定义与 §5 消费、§7 断言互相一致；旧令牌（--radius/--radius-small/--shadow/--shadow-small）在 §4 定义了迁移与删除路径。
 - 范围：单实现计划可承载（令牌定义 + 三步替换 + 四族精修 + 截图验收），无需再拆。
-- 歧义修复：明确 10px 取整方向（平局向下 10→8）；明确 999px/50%/knob/glow 为特例不参与归并；明确 before 截图时点（Task 1）。
+- 歧义修复：明确 10px 取整方向（平局向上 10→12，后修订）；明确 999px/50%/knob/glow 为特例不参与归并；明确 before 截图时点（Task 1）。
