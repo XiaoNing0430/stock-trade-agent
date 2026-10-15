@@ -62,7 +62,7 @@ frontend/
     main.ts               Vue 应用启动（createApp, Pinia, 挂载）
     app.ts                Vue 应用设置、路由、轮询、错误处理
     App.vue               根布局 SFC
-    styles.css            全部样式（CSS 变量令牌体系，:root 浅色 + [data-theme='dark'] 暗色，单文件）
+    styles.css            全部样式（CSS 变量令牌体系：颜色+版式[字阶/间距/圆角/阴影]，:root 浅色 + [data-theme='dark'] 暗色，单文件）
     components/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
       CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；409 保留本地编辑仅刷新 version）
