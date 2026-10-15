@@ -875,13 +875,25 @@ def test_grid_strategy_not_found_returns_code():
 
 
 def test_upstream_failure_returns_code(monkeypatch):
-    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+    """降级链上每个源都失败 → 502 UPSTREAM_UNAVAILABLE（统一错误契约）。
 
+    路由经 `_call_with_source_fallback` 调用**适配器实例**的方法（不再是 `data_source` 门面函数，
+    故 patch 门面无效）。`fallbackEnabled=True` 时单个源失败会换源，只有**全链**失败才如实 502
+    （单源失败换源见 test_market_runtime_fallback_switches_source_and_discloses）。
+    """
+    from backend.sources import build_router
+
+    def boom(*args, **kwargs):
+        raise ConnectionError("upstream down")
+
+    chain = list(build_router().source_chain("tencent", "realtime", True))
+    assert chain, "降级链非空——否则 502 会因『无可用源』假通过"
+    for source in chain:
+        monkeypatch.setattr(type(source), "load_market", boom)
     monkeypatch.setattr(
-        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
-    )
-    monkeypatch.setattr(
-        "backend.data_source.load_market", lambda codes: (_ for _ in ()).throw(ConnectionError("upstream down"))
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"realtimeSource": "tencent", "fallbackEnabled": True},
     )
     from fastapi.testclient import TestClient
 
@@ -1487,18 +1499,25 @@ def test_strategy_backtest_history_failure_returns_422(monkeypatch):
 
 
 def test_screener_upstream_failure_returns_502(monkeypatch):
-    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+    """精选选股：降级链上每个源都失败 → 502 UPSTREAM_UNAVAILABLE。"""
+    from backend.sources import build_router
 
+    def boom(*args, **kwargs):
+        raise ConnectionError("upstream down")
+
+    chain = list(build_router().source_chain("tencent", "screener", True))
+    assert chain, "降级链非空——否则 502 会因『无可用源』假通过"
+    for source in chain:
+        monkeypatch.setattr(type(source), "load_screener", boom)
     monkeypatch.setattr(
-        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
-    )
-    monkeypatch.setattr(
-        "backend.data_source.load_screener",
-        lambda market, page_size: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "tencent", "fallbackEnabled": True},
     )
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/screener")
     assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
 
 
 def test_lifespan_survives_storage_init_failure(monkeypatch):
@@ -1647,17 +1666,21 @@ def test_screener_v2_routes_via_router_eastmoney(monkeypatch):
 
 
 def test_screener_v2_upstream_failure_returns_502(monkeypatch):
-    """路由选中源请求失败时返回 502 UPSTREAM_UNAVAILABLE。"""
-    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+    """全市场分页：降级链上每个源都失败 → 502 UPSTREAM_UNAVAILABLE。"""
+    from backend.sources import build_router
 
-    monkeypatch.setattr(
-        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
-    )
-
-    def fake_v2(page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
+    def boom(*args, **kwargs):
         raise RuntimeError("全市场选股器请求失败: timeout")
 
-    monkeypatch.setattr("backend.data_source.load_screener_v2", fake_v2)
+    chain = list(build_router().source_chain("tencent", "paged_screener", True))
+    assert chain, "降级链非空——否则 502 会因『无可用源』假通过"
+    for source in chain:
+        monkeypatch.setattr(type(source), "load_screener_paged", boom)
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "tencent", "fallbackEnabled": True},
+    )
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/screener/v2")
     assert resp.status_code == 502
