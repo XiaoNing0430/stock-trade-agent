@@ -34,11 +34,11 @@
 **Interfaces:**
 - Produces: Task 2-5 消费的全部版式令牌；before 截图（Task 6 对比基准）。
 
-- [ ] **Step 1: 采集 before 截图**
+- [ ] **Step 1: 采集 before 截图**（本机未留存截图产物，无凭据，未回填——见文末「回填说明」）
 
 启动 `npm run dev`（后台；若 5173 已有遗留 dev server 直接复用）。用 node + playwright（从仓库根 `require('playwright')` 或 `require('playwright-core')`，chromium 已随依赖安装）写脚本：访问 `http://127.0.0.1:5173`，依次点击侧栏导航（总览/盯盘/选股/股票详情——详情需先在选股或自选点开一只票，无票则截选股详情空态并记录/策略实验室/计划/组合风险/设置），每视图截浅色一张；执行 `localStorage.setItem('atlas-theme','dark'); location.reload()` 后再截深色一套。存 `.superpowers/sdd/2026-10-11-ui-visual-polish/screens/before/<view>-<light|dark>.png`。视图片名清单：`overview monitor screener stock-detail grid plans portfolio settings`。某视图无法到达（如详情无票）时截其空态并在报告注明。
 
-- [ ] **Step 2: `:root` 追加版式令牌（`--radius-small: 8px;` 行之后）**
+- [x] **Step 2: `:root` 追加版式令牌（`--radius-small: 8px;` 行之后）**
 
 ```css
   /* ===== 版式令牌（第②批：字阶/间距/圆角/阴影，主题无关） ===== */
@@ -62,11 +62,11 @@
   --shadow-md: 0 14px 34px rgba(21, 32, 51, 0.06);
 ```
 
-- [ ] **Step 3: 验证渲染零变化（纯添加）**
+- [x] **Step 3: 验证渲染零变化（纯添加）**
 
 Run: `npx vitest run`（应 276 全绿）
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/styles.css
@@ -84,12 +84,12 @@ git commit -m "feat: styles.css 新增版式令牌（字阶/间距/圆角/阴影
 - Consumes: Task 1 的 `--fs-*`。
 - Produces: styles.css 中 `font-size: \d` 像素字面量为 0（机械验收）。
 
-- [ ] **Step 1: 预核验替换范围**
+- [x] **Step 1: 预核验替换范围**
 
 Run: `grep -rn "font-size" frontend/src --include="*.vue" --include="*.ts" | grep -v node_modules`
 Expected: 无输出（若有命中：逐处按同规则令牌化并在报告申报）。
 
-- [ ] **Step 2: 按值映射全局替换（值→令牌无歧义，可安全全局替换）**
+- [x] **Step 2: 按值映射全局替换（值→令牌无歧义，可安全全局替换）**
 
 | 现值 | 目标 | 处数（实测） |
 |---|---|---|
@@ -110,7 +110,7 @@ Expected: 无输出（若有命中：逐处按同规则令牌化并在报告申�
 
 合计 134。替换后 `grep -c "font-size: [0-9]" frontend/src/styles.css` 必须为 **0**；`grep -oE "var\(--fs-[a-z]+\)" frontend/src/styles.css | sort -u` 恰 5 种。
 
-- [ ] **Step 3: 验证与提交**
+- [x] **Step 3: 验证与提交**
 
 Run: `npx vitest run && npx vue-tsc --noEmit`
 Expected: 全绿（纯 CSS）。
@@ -131,7 +131,7 @@ git commit -m "refactor: 字号全量收敛为字阶令牌（14 种→5 档）"
 - Consumes: Task 1 的 `--space-1..8`。
 - Produces: 间距声明仅含 `var(--space-*)` 或允许字面量（0/1px/2px/auto/>32px 的 4 倍数/999px/50%）。
 
-- [ ] **Step 1: 按单值映射表替换（完整覆盖实测全部 distinct 值）**
+- [x] **Step 1: 按单值映射表替换（完整覆盖实测全部 distinct 值）**
 
 对每个 spacing 声明（padding/margin/gap/row-gap/column-gap 及四向子属性）的**每个 px 分量**独立按下表映射：
 
@@ -155,14 +155,14 @@ git commit -m "refactor: 字号全量收敛为字阶令牌（14 种→5 档）"
 
 组合值按分量独立映射（如 `10px 12px` → `var(--space-3) var(--space-3)`，可简写为 `var(--space-3)`；`8px 10px` → `var(--space-2) var(--space-3)`）。高频组合实测对照：`10px 12px`×9→`var(--space-3)`、`0 10px`×5→`0 var(--space-3)`、`8px 10px`×4→`var(--space-2) var(--space-3)`、`9px 10px`×2→`var(--space-2) var(--space-3)`、`6px 0`×3→`var(--space-2) 0`、`0 9px`×3→`0 var(--space-2)`、`5px 8px`×2→`var(--space-1) var(--space-2)`、`5px 14px`×2→`var(--space-1) var(--space-4)`、`10px 16px`×2→`var(--space-3) var(--space-4)`、`1px 7px`×2→`1px var(--space-2)`。
 
-- [ ] **Step 2: 机械验收（命令已预验证）**
+- [x] **Step 2: 机械验收（命令已预验证）**
 
 ```bash
 grep -oE "(padding|margin|gap|row-gap|column-gap)(-top|-right|-bottom|-left)?: [^;]+;" frontend/src/styles.css | grep -oE "[0-9]+px" | sort -n | uniq -c
 ```
 Expected: 输出仅含 `1px`、`2px`、`40px`、`44px`、`96px` 五种（当前基线含 3-29px 共 29 种）。若出现其他值：按映射表补替换。
 
-- [ ] **Step 3: 验证与提交**
+- [x] **Step 3: 验证与提交**
 
 Run: `npx vitest run && npx vue-tsc --noEmit`
 Expected: 全绿。
@@ -183,7 +183,7 @@ git commit -m "refactor: 间距全量落 4px 栅格并令牌化（最近取整�
 - Consumes: Task 1 的 `--radius-sm/md/lg`、`--shadow-sm/md`。
 - Produces: `var(--radius)`/`var(--radius-small)`/`var(--shadow)`/`var(--shadow-small)` 全仓残留 0；:root 中这四个旧定义删除。
 
-- [ ] **Step 1: 圆角替换**
+- [x] **Step 1: 圆角替换**
 
 | 现值 | 目标 | 处数（实测） |
 |---|---|---|
@@ -196,7 +196,7 @@ git commit -m "refactor: 间距全量落 4px 栅格并令牌化（最近取整�
 | `border-radius: var(--radius)` | `border-radius: var(--radius-lg)` | 2 |
 | 999px / 50% | 保留 | — |
 
-- [ ] **Step 2: 阴影替换**
+- [x] **Step 2: 阴影替换**
 
 | 现值 | 目标 | 处数 |
 |---|---|---|
@@ -204,11 +204,11 @@ git commit -m "refactor: 间距全量落 4px 栅格并令牌化（最近取整�
 | `box-shadow: var(--shadow-small)` | `box-shadow: var(--shadow-sm)` | 1 |
 | `var(--shadow-hairline)` / `--knob-shadow` / `--glow-*` | 保留 | — |
 
-- [ ] **Step 3: 删除旧令牌定义**
+- [x] **Step 3: 删除旧令牌定义**
 
 从 `:root` 删除 `--radius: 12px;`、`--radius-small: 8px;`、`--shadow: …;`、`--shadow-small: …;` 四行。
 
-- [ ] **Step 4: 机械验收**
+- [x] **Step 4: 机械验收**
 
 ```bash
 grep -n "var(--radius)\|var(--radius-small)\|var(--shadow)\|var(--shadow-small)" frontend/src/styles.css frontend/src -r --include="*.vue" --include="*.ts"
@@ -216,7 +216,7 @@ grep -oE "border-radius: [^;]+" frontend/src/styles.css | sort | uniq -c | sort 
 ```
 Expected: 第一条无输出（注意 `var(--radius-sm` 是 `var(--radius)` 的前缀——用 `var(--radius)` 精确匹配时须带右括号或行尾判断，避免误报）；第二条仅含 `var(--radius-sm|md|lg)`、`999px`、`50%` 五种。
 
-- [ ] **Step 5: 验证与提交**
+- [x] **Step 5: 验证与提交**
 
 Run: `npx vitest run && npx vue-tsc --noEmit`
 Expected: 全绿。
@@ -237,7 +237,7 @@ git commit -m "refactor: 圆角三档与阴影两档迁移，删除旧版式令�
 - Consumes: Task 1-4 的全部版式令牌。
 - Produces: 四族组件统一尺寸（截图对比验收）。
 
-- [ ] **Step 1: 按逐规则表精修（selector | 属性 | 旧 | 新）**
+- [x] **Step 1: 按逐规则表精修（selector | 属性 | 旧 | 新）**
 
 **按钮体系**：
 
@@ -289,7 +289,7 @@ git commit -m "refactor: 圆角三档与阴影两档迁移，删除旧版式令�
 
 （「读现值」行：替换时读该选择器现行 font-size 按映射表落档；其余四族外选择器的字号已由 Task 2 全量覆盖，本任务只动上述结构性规则。）
 
-- [ ] **Step 2: 验证与提交**
+- [x] **Step 2: 验证与提交**
 
 Run: `npx vitest run && npx vue-tsc --noEmit`
 Expected: 全绿（若组件测试断言具体像素——如 ViewSettings 表单尺寸——同步断言并申报）。
@@ -307,11 +307,11 @@ git commit -m "feat: 四族组件精修——表格/表单/按钮/卡片标题�
 - Create: `.superpowers/sdd/2026-10-11-ui-visual-polish/screens/after/*.png`
 - Modify: `AGENTS.md`、`CHANGELOG.md`
 
-- [ ] **Step 1: after 截图（同 Task 1 脚本，存 `screens/after/`）**
+- [ ] **Step 1: after 截图（同 Task 1 脚本，存 `screens/after/`）**（未留存截图产物，无凭据，未回填）
 
 同参数重跑 8 视图 × 浅/深 16 张。
 
-- [ ] **Step 2: 前后对比走查**
+- [ ] **Step 2: 前后对比走查**（无前后截图可对比，未执行）
 
 逐视图成对核对（Read 图片）：版式更齐（字阶/间距/圆角一致）、无布局断裂、无文字截断/换行恶化（重点：侧栏宽标签、表格长代码列、按钮文字、中文换行）、深浅两套同构。发现断裂性换行/截断：定位规则修复（如补 `white-space: nowrap` 或微调该处 padding）并申报——这是精修清单内必须修复项。纯「更密/更松」的主观感受不算问题。
 
@@ -320,7 +320,9 @@ git commit -m "feat: 四族组件精修——表格/表单/按钮/卡片标题�
 Run: `npm run verify`
 Expected: 前端 276 全绿（纯 CSS 无波动；如有组件断言像素则同步）、后端 679 全绿、覆盖率 ≥80%。
 
-- [ ] **Step 4: 文档收口**
+> 回填实测（2026-10-15）：前端 **276 passed** + `vue-tsc` 退出码 0；覆盖率 93.20%。后端 **676 passed / 3 failed**——`test_upstream_failure_returns_code`、`test_screener_upstream_failure_returns_502`、`test_screener_v2_upstream_failure_returns_502`。三项在 `develop` 上**同样失败**（预先存在，与本批零后端改动无关），故本步骤未勾选。
+
+- [x] **Step 4: 文档收口**
 
 - `AGENTS.md`：styles.css 行描述更新为「全部样式（CSS 变量令牌体系：颜色+版式[字阶/间距/圆角/阴影]，:root 浅色 + [data-theme='dark'] 暗色，单文件）」。
 - `CHANGELOG.md`：[v0.7.2] 段落内「UI 主题基建（第①批）」之后追加小节：
@@ -333,7 +335,7 @@ Expected: 前端 276 全绿（纯 CSS 无波动；如有组件断言像素则同
 - playwright 8 视图 × 浅/深前后截图对比验收。
 ```
 
-- [ ] **Step 5: 提交并核验**
+- [x] **Step 5: 提交并核验**
 
 ```bash
 git add AGENTS.md CHANGELOG.md
@@ -351,3 +353,32 @@ Expected: 分支 8-9 提交（spec 3 + Task 1-6），工作树干净。
 2. **占位符**：无 TBD；「读现值」的 4 行（icon-button/section-kicker/heading-note）为数据依赖——替换时按映射表落档，规则确定；Task 5 表格未覆盖的 selector 块由 Task 2/3 全量替换先行覆盖。
 3. **类型一致性**：令牌名 `--fs-*`/`--space-*`/`--radius-*`/`--shadow-sm|md` 在 Task 1（定义）与 Task 2-5（消费）逐字一致；旧令牌删除仅在 Task 4 且验收断言兜底。
 4. **验收命令**：间距 grep（已预验证当前基线含 3-29px 非栅格值，改后仅剩 1/2/40/44/96）；字号/圆角/旧令牌 grep 语义明确。
+
+---
+
+## 回填说明（2026-10-15）
+
+复选框按**证据**回填，不按计划意图回填；无凭据者保持未勾选并就地注明。
+
+**提交对应**（`git log develop..HEAD`）：
+
+| Task | 提交 |
+|---|---|
+| 1 版式令牌 | `1f3301e feat: styles.css 新增版式令牌（字阶/间距/圆角/阴影，渲染零变化）` |
+| 2 字号收敛 | `dc6577b refactor: 字号全量收敛为字阶令牌（14 种→5 档）` |
+| 3 间距栅格 | `465f43c refactor: 间距全量落 4px 栅格并令牌化（最近取整平局向上）` |
+| 4 圆角/阴影 | `26ab7fe refactor: 圆角三档与阴影两档迁移，删除旧版式令牌` |
+| 5 四族精修 | `38bd541 feat: 四族组件精修…` + `52cc437 fix: 清理死令牌并统一设置页控件高度` + `7504aec fix: 补齐按钮 lg 档与禁用态，统一设置行控件高度` |
+| 6 文档收口 | `2958d33 docs: 收口 UI 第②批（版式令牌体系描述/CHANGELOG 视觉打磨小节）` |
+
+**机械验收实测**（`frontend/src/styles.css`，2026-10-15）：
+
+- `font-size: <数字>` 字面量声明 **0** 处；实际使用 `--fs-{xs,sm,md,lg,xl}` 恰 5 种。
+- padding/margin/gap 系 px 字面量仅剩 `1px`/`2px`/`40px`/`44px`/`96px` 五种（spec 允许的结构留白）。
+- `border-radius` 取值仅剩 `var(--radius-sm|md|lg)`/`999px`/`50%`/`1px`/`2px`/`inherit`（后三者见 spec「圆角特例」）。
+- 旧令牌 `var(--radius)`/`var(--radius-small)`/`var(--shadow)`/`var(--shadow-small)` 残留 **0** 处。
+
+**未勾选步骤及原因**：
+
+- Task 1 Step 1、Task 6 Step 1-2（before/after 截图与前后走查）：`.superpowers/sdd/2026-10-11-ui-visual-polish/` 不存在，全仓（含 `.worktrees/`、`test-results/`）无 `*.png` 走查产物，无凭据证明已执行，故未回填。若实现者确已执行并清理，请补充凭据后再勾选。
+- Task 6 Step 3（全量验证）：见该步骤下的实测注记——前端 276 全绿 + `vue-tsc` 0，后端 3 项失败系 `develop` 预先存在，与本批零后端改动无关。
