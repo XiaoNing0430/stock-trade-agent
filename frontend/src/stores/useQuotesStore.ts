@@ -1,11 +1,17 @@
 import { defineStore } from 'pinia';
 import { computed, nextTick, ref, reactive } from 'vue';
-import { DEFAULT_WATCHLIST, VIEW_META } from '@/modules/constants';
+import { DEFAULT_WATCHLIST, NAV_ITEMS, VIEW_META } from '@/modules/constants';
 import { mergeMarketQuotes } from '@/modules/marketUtils';
 import { useWorkspaceStore } from './useWorkspaceStore';
 import { useScreenerStore } from './useScreenerStore';
 import { usePlansStore } from './usePlansStore';
 import { useSettingsStore } from './useSettingsStore';
+
+/** 合法视图集合：主导航项 + 上下文详情页。localStorage 中的历史值必须过此白名单。 */
+const VIEW_IDS: readonly string[] = [...NAV_ITEMS.map((item) => item.id), 'stock-detail'];
+function normalizeView(name: unknown): string {
+  return typeof name === 'string' && VIEW_IDS.includes(name) ? name : 'overview';
+}
 
 /**
  * 行情 store：market 快照 / 选中股票 / 日线历史 / 行情抓取与合并。
@@ -14,7 +20,7 @@ import { useSettingsStore } from './useSettingsStore';
 export const useQuotesStore = defineStore('quotes', () => {
   const workspace = useWorkspaceStore();
   const saved = workspace.loadStorage();
-  const view = ref(saved.view || 'overview');
+  const view = ref(normalizeView(saved.view));
   const loading = ref(false);
   const globalSearch = ref('');
   const dataState = ref('connecting');
@@ -227,12 +233,8 @@ export const useQuotesStore = defineStore('quotes', () => {
     return { title: meta[0], subtitle: meta[1] };
   });
 
-  const mobileExecTab = ref('plans');
-  const execShowsPlans = computed(() => view.value === 'exec' && mobileExecTab.value === 'plans');
-  const execShowsAlerts = computed(() => view.value === 'exec' && mobileExecTab.value === 'alerts');
-
   function switchView(name: string) {
-    view.value = name;
+    view.value = normalizeView(name);
     workspace.persist();
     nextTick(workspace.renderIcons);
   }
@@ -279,9 +281,6 @@ export const useQuotesStore = defineStore('quotes', () => {
     toggleWatch,
     searchSymbol,
     currentViewMeta,
-    mobileExecTab,
-    execShowsPlans,
-    execShowsAlerts,
     switchView,
   };
 });

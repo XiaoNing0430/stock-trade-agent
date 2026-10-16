@@ -35,3 +35,46 @@ describe('行情状态标签', () => {
     expect(quotes.marketStatusTimeLabel).toBe('--');
   });
 });
+
+describe('view 白名单归一（spec §10）', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('localStorage 中的已移除视图 exec 归一到 overview', () => {
+    localStorage.setItem('atlas-stock-desk-v2', JSON.stringify({ view: 'exec' }));
+    setActivePinia(createPinia());
+    const quotes = useQuotesStore();
+    expect(quotes.view).toBe('overview');
+  });
+
+  it('未知视图与 switchView("exec") 同样归一到 overview', () => {
+    setActivePinia(createPinia());
+    const quotes = useQuotesStore();
+    quotes.switchView('exec');
+    expect(quotes.view).toBe('overview');
+    quotes.switchView('nowhere');
+    expect(quotes.view).toBe('overview');
+    quotes.switchView('portfolio');
+    expect(quotes.view).toBe('portfolio');
+  });
+
+  it('exec 三件套已从 store 移除', () => {
+    setActivePinia(createPinia());
+    const quotes = useQuotesStore() as unknown as Record<string, unknown>;
+    for (const key of ['mobileExecTab', 'execShowsPlans', 'execShowsAlerts']) {
+      expect(key in quotes).toBe(false);
+    }
+  });
+
+  it('switchView 落盘的是归一后的真实视图（Pinia 解包口径）', () => {
+    setActivePinia(createPinia());
+    const quotes = useQuotesStore();
+    quotes.switchView('plans');
+    const persisted = JSON.parse(localStorage.getItem('atlas-stock-desk-v2') || '{}');
+    expect(persisted.view).toBe('plans');
+    quotes.switchView('exec');
+    const normalized = JSON.parse(localStorage.getItem('atlas-stock-desk-v2') || '{}');
+    expect(normalized.view).toBe('overview');
+  });
+});

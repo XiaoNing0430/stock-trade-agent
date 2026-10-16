@@ -212,29 +212,9 @@
         <view-screener v-else-if="view === 'screener'"></view-screener>
         <view-stock-detail v-else-if="view === 'stock-detail'"></view-stock-detail>
         <view-grid v-else-if="view === 'grid'"></view-grid>
-        <section v-else-if="view === 'exec'" class="mobile-exec-tabs" role="tablist" aria-label="执行分组">
-          <button
-            type="button"
-            role="tab"
-            :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'plans' }]"
-            :aria-selected="mobileExecTab === 'plans'"
-            @click="mobileExecTab = 'plans'"
-          >
-            交易计划
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'alerts' }]"
-            :aria-selected="mobileExecTab === 'alerts'"
-            @click="mobileExecTab = 'alerts'"
-          >
-            盯盘
-          </button>
-        </section>
 
-        <view-plans v-else-if="view === 'plans' || execShowsPlans"></view-plans>
-        <view-monitor v-else-if="view === 'monitor' || execShowsAlerts"></view-monitor>
+        <view-plans v-else-if="view === 'plans'"></view-plans>
+        <view-monitor v-else-if="view === 'monitor'"></view-monitor>
         <view-portfolio v-else-if="view === 'portfolio'"></view-portfolio>
         <view-settings v-else-if="view === 'settings'"></view-settings>
 
@@ -326,9 +306,6 @@ const {
   marketStatusLabel,
   marketStatusTimeLabel,
   loading,
-  mobileExecTab,
-  execShowsPlans,
-  execShowsAlerts,
 } = storeToRefs(quotes);
 const { switchView, searchSymbol } = quotes;
 const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);
