@@ -7,6 +7,8 @@ vi.mock('@/api/client', async (importOriginal) => {
 });
 
 import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useScreenerStore } from '@/stores/useScreenerStore';
+import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 
 describe('行情状态标签', () => {
   beforeEach(() => {
@@ -76,5 +78,23 @@ describe('view 白名单归一（spec §10）', () => {
     quotes.switchView('exec');
     const normalized = JSON.parse(localStorage.getItem('atlas-stock-desk-v2') || '{}');
     expect(normalized.view).toBe('overview');
+  });
+
+  it('落盘保留选中标的与选股预设，且新 store 能据存储恢复选中标的', () => {
+    setActivePinia(createPinia());
+    const quotes = useQuotesStore();
+    const screener = useScreenerStore();
+    quotes.selectedCode = '000858';
+    screener.presetName = '低估修复';
+    useWorkspaceStore().persistLocal();
+
+    const persisted = JSON.parse(localStorage.getItem('atlas-stock-desk-v2') || '{}');
+    expect(persisted.selectedCode).toBe('000858');
+    expect(persisted.presetName).toBe('低估修复');
+
+    // 全新 pinia → 全新 store 实例 → selectedCode 只能来自 localStorage
+    setActivePinia(createPinia());
+    const restored = useQuotesStore();
+    expect(restored.selectedCode).toBe('000858');
   });
 });

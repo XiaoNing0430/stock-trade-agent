@@ -97,11 +97,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          // Pinia 会把 setup store 的 ref 解包：`quotes.view` 已是字符串，写成 `.value` 只会把
-          // undefined 存进 localStorage（刷新即丢视图）。此处与 view 白名单归一对齐读写口径。
+          // Pinia 会把 setup store 的 ref 解包：view/selectedCode/presetName 已是普通值，写成
+          // `.value` 只会把 undefined 存进 localStorage（刷新即丢视图、选中标的与选股预设）。
           view: quotes.view,
-          selectedCode: quotes.selectedCode.value,
-          presetName: screener.presetName.value,
+          selectedCode: quotes.selectedCode,
+          presetName: screener.presetName,
           watchlist: watchlistCodes.value,
           plans: plans.value,
           alerts: alerts.value,

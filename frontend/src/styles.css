@@ -3597,6 +3597,12 @@ textarea:focus-visible {
     display: none;
   }
 
+  /* 手机顶条 = 品牌 + 主题开关 + 版本号：spacer 是 .primary-nav 的兄弟节点，
+     不随其隐藏，需在此单独隐藏，否则 flex:1 会把开关与版本号推到右端。 */
+  .sidebar-spacer {
+    display: none;
+  }
+
   .content-area {
     padding-bottom: 96px;
   }
