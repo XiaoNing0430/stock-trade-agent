@@ -3594,6 +3594,61 @@ textarea:focus-visible {
   display: none;
 }
 
+/* 手机「更多」抽屉：与桌面侧栏同一套分区，底部栏未出现的项都在这里 */
+.more-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.more-sheet {
+  width: 100%;
+  max-height: 70dvh;
+  overflow: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface);
+}
+
+.more-sheet-group {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+}
+
+.more-sheet-group:first-child {
+  margin-top: 0;
+}
+
+.more-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.more-sheet-item:hover {
+  background: var(--surface-soft);
+}
+
+.more-sheet-item .nav-count {
+  margin-left: auto;
+}
+
 @media (max-width: 680px) {
   .primary-nav {
     display: none;

@@ -248,29 +248,51 @@
     <plan-draft-dialog></plan-draft-dialog>
 
     <nav class="bottom-nav" aria-label="手机端主导航">
-      <button type="button" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')">
-        <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
+      <button
+        v-for="slot in mobileBarItems"
+        :key="slot.id"
+        type="button"
+        :class="{ 'is-active': view === slot.id }"
+        @click="switchView(slot.id)"
+      >
+        <i :data-lucide="slot.icon" aria-hidden="true"></i><span>{{ slot.shortLabel }}</span>
       </button>
-      <button type="button" :class="{ 'is-active': view === 'screener' }" @click="switchView('screener')">
-        <i data-lucide="scan-search" aria-hidden="true"></i><span>选股</span>
-      </button>
-      <button type="button" :class="{ 'is-active': view === 'grid' }" @click="switchView('grid')">
-        <i data-lucide="grid-3x3" aria-hidden="true"></i><span>网格</span>
-      </button>
-      <button type="button" :class="{ 'is-active': view === 'exec' }" @click="switchView('exec')">
-        <i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>执行</span>
-      </button>
-      <button type="button" :class="{ 'is-active': view === 'settings' }" @click="switchView('settings')">
-        <i data-lucide="user-round" aria-hidden="true"></i><span>我的</span
+      <button
+        type="button"
+        :class="{ 'is-active': moreSheetOpen || isMoreView }"
+        aria-label="更多"
+        @click="openMoreSheet"
+      >
+        <i data-lucide="more-horizontal" aria-hidden="true"></i><span>更多</span
         ><em v-if="unreadTotalCount" class="nav-count">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em>
       </button>
     </nav>
+
+    <div v-if="moreSheetOpen" class="more-sheet-backdrop" @click.self="moreSheetOpen = false">
+      <section class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
+        <template v-for="section in moreSections" :key="section.key">
+          <div class="more-sheet-group">{{ section.group?.label }}</div>
+          <button
+            v-for="item in section.items"
+            :key="item.id"
+            class="more-sheet-item"
+            type="button"
+            @click="goFromMoreSheet(item.id)"
+          >
+            <i :data-lucide="item.icon" aria-hidden="true"></i><span>{{ item.label }}</span
+            ><em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
+              unreadTotalCount > 99 ? '99+' : unreadTotalCount
+            }}</em>
+          </button>
+        </template>
+      </section>
+    </div>
   </div>
   <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
 import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
@@ -326,6 +348,38 @@ const navSections = computed(() => [
   })),
 ]);
 
+/** 手机底部栏 4 个直达格（其余进「更多」抽屉）。短标签取自 NAV_ITEMS.shortLabel。 */
+const MOBILE_BAR_IDS = ['overview', 'screener', 'plans', 'monitor'] as const;
+const mobileBarItems = NAV_ITEMS.filter((item) => (MOBILE_BAR_IDS as readonly string[]).includes(item.id));
+
+const moreSheetOpen = ref(false);
+
+/** 抽屉分区：与桌面同一套分组，只保留未出现在底部栏的项。 */
+const moreSections = computed(() =>
+  NAV_GROUPS.map((group) => ({
+    key: group.id,
+    group,
+    items: NAV_ITEMS.filter(
+      (item) => item.group === group.id && !(MOBILE_BAR_IDS as readonly string[]).includes(item.id)
+    ),
+  })).filter((section) => section.items.length > 0)
+);
+
+const isMoreView = computed(() =>
+  moreSections.value.some((section) => section.items.some((item) => item.id === view.value))
+);
+
+/** 抽屉内图标同样需要 createIcons 渲染（lucide 按需注册表）。 */
+function openMoreSheet(): void {
+  moreSheetOpen.value = true;
+  nextTick(renderIcons);
+}
+
+function goFromMoreSheet(id: string): void {
+  moreSheetOpen.value = false;
+  switchView(id);
+}
+
 // 侧栏主题快捷开关：effectiveTheme 为 theme 模块级 computed，模板引用自动解包（useWorkspaceStore 复用既有 workspace 实例）
 const currentTheme = effectiveTheme;
 
@@ -352,6 +406,11 @@ function openScanDraft(item: Alert): void {
 watch(notifOpen, (open) => {
   if (!open) return;
   scan.hits.forEach((hit) => markScanSeen(hit.strategyId));
+});
+
+// 视图切换（含底部栏直达格）即关闭「更多」抽屉，避免抽屉残留遮挡新视图
+watch(view, () => {
+  moreSheetOpen.value = false;
 });
 
 onMounted(() => renderIcons());
