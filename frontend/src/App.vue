@@ -97,10 +97,6 @@
           <span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>
           <div class="topbar-title-row">
             <h1>{{ currentViewMeta.title }}</h1>
-            <span class="demo-badge" :class="{ 'demo-badge-stale': dataState !== 'live' }">
-              <span class="live-dot"></span
-              >{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情' : '行情连接中' }}
-            </span>
           </div>
           <p>{{ currentViewMeta.subtitle }}</p>
         </div>
@@ -229,9 +225,20 @@
               </div>
             </div>
           </div>
-          <button class="topbar-date" type="button" data-tooltip="刷新行情" @click="refreshAll()">
+          <button
+            class="topbar-date market-status-control"
+            type="button"
+            :data-state="dataState"
+            data-testid="market-status-control"
+            data-tooltip="刷新行情"
+            :title="`${providerLabel} · ${dataStatusText}`"
+            :aria-label="`${marketStatusLabel}，${marketStatusTimeLabel}，点击刷新行情`"
+            @click="refreshAll()"
+          >
+            <span class="status-dot" :class="dataState"></span>
+            <span class="market-status-label">{{ marketStatusLabel }}</span>
+            <span class="market-status-time">{{ marketStatusTimeLabel }}</span>
             <i data-lucide="refresh-cw" aria-hidden="true" :class="{ spinning: loading }"></i>
-            <span>{{ lastUpdatedLabel }}</span>
           </button>
         </div>
       </header>
@@ -269,7 +276,7 @@
 
         <footer class="app-footer">
           <span>Atlas Trading Desk · A 股真实行情工作台</span>
-          <span>行情接口：{{ providerLabel }} · 研究工具不构成投资建议</span>
+          <span>研究工具不构成投资建议</span>
         </footer>
       </div>
     </main>
@@ -331,7 +338,8 @@ const {
   dataStatusText,
   currentViewMeta,
   globalSearch,
-  lastUpdatedLabel,
+  marketStatusLabel,
+  marketStatusTimeLabel,
   loading,
   mobileExecTab,
   execShowsPlans,

@@ -553,32 +553,6 @@ textarea:focus-visible {
   font-size: var(--fs-sm);
 }
 
-.demo-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 22px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--demo-line);
-  border-radius: 999px;
-  background: var(--green-soft);
-  color: var(--green);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
-
-.demo-badge-stale {
-  border-color: var(--gold-line-soft);
-  background: var(--gold-soft);
-  color: var(--gold);
-}
-
-.demo-badge .live-dot {
-  width: 5px;
-  height: 5px;
-  box-shadow: none;
-}
-
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -686,6 +660,43 @@ textarea:focus-visible {
   padding: 0 var(--space-3);
   color: var(--muted-strong);
   font-size: var(--fs-xs);
+}
+
+.market-status-control {
+  gap: var(--space-2);
+  width: auto;
+  height: auto;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+}
+
+.market-status-label,
+.market-status-time {
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.market-status-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 三态签名与已删除的 .demo-badge / .demo-badge-stale 一一对应，error 更强不更弱 */
+.market-status-control[data-state='live'] .market-status-label {
+  color: var(--green);
+}
+
+.market-status-control[data-state='stale'] {
+  border-color: var(--gold-line-soft);
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.market-status-control[data-state='error'] {
+  border-color: var(--coral-line);
+  background: var(--coral-soft);
+  color: var(--coral);
 }
 
 .content-area {

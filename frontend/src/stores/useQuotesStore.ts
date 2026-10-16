@@ -51,6 +51,26 @@ export const useQuotesStore = defineStore('quotes', () => {
   });
   const lastUpdatedLabel = computed(() => formatTimeShort(market.fetchedAt));
   const fetchedLabel = computed(() => formatDateShort(market.fetchedAt));
+
+  /** 顶栏状态控件文案：与既有三态语义一一对应（勿改措辞，测试与人工核对依赖）。 */
+  const marketStatusLabel = computed(() =>
+    dataState.value === 'live' ? '真实行情' : dataState.value === 'stale' ? '缓存行情' : '行情连接中'
+  );
+
+  /** 顶栏状态控件时间：跨日时必须带日期，否则缓存数据无从分辨。当天分支复用 lastUpdatedLabel（避免该导出失去渲染点）。 */
+  const marketStatusTimeLabel = computed(() => {
+    if (!market.fetchedAt) return '--';
+    const fetched = new Date(market.fetchedAt);
+    const now = new Date();
+    const sameDay =
+      fetched.getFullYear() === now.getFullYear() &&
+      fetched.getMonth() === now.getMonth() &&
+      fetched.getDate() === now.getDate();
+    return sameDay
+      ? lastUpdatedLabel.value
+      : `${formatDateShort(market.fetchedAt)} ${formatTimeShort(market.fetchedAt)}`;
+  });
+
   const todayLabel = computed(() => new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }));
 
   const selectedStock = computed(() => quoteFor(selectedCode.value));
@@ -237,6 +257,8 @@ export const useQuotesStore = defineStore('quotes', () => {
     marketStatus,
     dataStatusText,
     lastUpdatedLabel,
+    marketStatusLabel,
+    marketStatusTimeLabel,
     fetchedLabel,
     todayLabel,
     selectedStock,
