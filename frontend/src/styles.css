@@ -3422,39 +3422,46 @@ textarea:focus-visible {
 }
 
 /* ===== P1 unified trading desk ===== */
-.desk-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.desk-kpi {
+.desk-status-strip {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-2);
 }
 
-.desk-kpi-label {
+.desk-status-item {
+  display: flex;
+  flex: 1 1 160px;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
   font-size: var(--fs-sm);
-  letter-spacing: 0.08em;
-  color: var(--muted-strong);
+  text-align: left;
+  cursor: pointer;
 }
 
-.desk-kpi strong {
-  font-size: var(--fs-xl);
-  line-height: 1.2;
+.desk-status-item:hover:not(.is-static) {
+  background: var(--surface-soft);
 }
 
-.desk-kpi-note {
-  font-size: var(--fs-sm);
-  color: var(--muted-strong);
+.desk-status-item.is-static {
+  cursor: default;
+}
+
+.desk-status-label {
+  color: var(--muted);
+  font-size: var(--fs-xs);
 }
 
 .desk-workspaces {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
   margin-bottom: var(--space-4);
 }
@@ -3747,10 +3754,6 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1260px) {
-  .desk-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .desk-workspaces {
     grid-template-columns: 1fr;
   }
