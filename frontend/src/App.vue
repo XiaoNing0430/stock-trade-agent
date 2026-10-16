@@ -18,43 +18,26 @@
         </div>
       </div>
 
-      <div class="market-switcher" aria-label="市场">
-        <div class="market-switcher-copy">
-          <span class="live-dot"></span>
-          <div>
-            <strong>A股市场</strong>
-            <span>实时行情代理</span>
-          </div>
-        </div>
-        <span class="market-state">{{ marketStatus }}</span>
-      </div>
-
       <nav class="primary-nav" aria-label="主导航">
-        <button
-          v-for="item in navItems"
-          :key="item.id"
-          class="nav-item"
-          :class="{ 'is-active': view === item.id }"
-          type="button"
-          :aria-label="item.label"
-          @click="switchView(item.id)"
-        >
-          <i :data-lucide="item.icon" aria-hidden="true"></i>
-          <span>{{ item.label }}</span>
-          <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
-            unreadTotalCount > 99 ? '99+' : unreadTotalCount
-          }}</em>
-        </button>
+        <template v-for="section in navSections" :key="section.key">
+          <div v-if="section.group" class="sidebar-section-label">{{ section.group.label }}</div>
+          <button
+            v-for="item in section.items"
+            :key="item.id"
+            class="nav-item"
+            :class="{ 'is-active': view === item.id }"
+            type="button"
+            :aria-label="item.label"
+            @click="switchView(item.id)"
+          >
+            <i :data-lucide="item.icon" aria-hidden="true"></i>
+            <span>{{ item.label }}</span>
+            <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
+              unreadTotalCount > 99 ? '99+' : unreadTotalCount
+            }}</em>
+          </button>
+        </template>
       </nav>
-
-      <div class="sidebar-section-label">数据连接</div>
-      <div class="sidebar-data-note">
-        <span class="status-dot" :class="dataState"></span>
-        <div>
-          <strong>{{ providerLabel }}</strong>
-          <span>{{ dataStatusText }}</span>
-        </div>
-      </div>
 
       <div class="sidebar-spacer"></div>
 
@@ -69,26 +52,7 @@
         <span>{{ currentTheme === 'dark' ? '浅色模式' : '深色模式' }}</span>
       </button>
 
-      <div class="sidebar-note">
-        <div class="sidebar-note-icon">
-          <i data-lucide="shield-check" aria-hidden="true"></i>
-        </div>
-        <div>
-          <strong>先计划，再执行</strong>
-          <span>真实行情只负责触发规则，不替你做决定。</span>
-        </div>
-      </div>
-
-      <div class="user-profile">
-        <div class="avatar">林</div>
-        <div class="user-copy">
-          <strong>林默</strong>
-          <span>个人工作区</span>
-        </div>
-        <button class="icon-button icon-button-dark" type="button" aria-label="打开用户菜单" data-tooltip="用户菜单">
-          <i data-lucide="more-horizontal" aria-hidden="true"></i>
-        </button>
-      </div>
+      <span class="sidebar-version">v{{ APP_VERSION }}</span>
     </aside>
 
     <main class="main-area">
@@ -306,10 +270,10 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, watch } from 'vue';
+import { computed, nextTick, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
-import { NAV_ITEMS } from '@/modules/constants';
+import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
 import { formatTime } from '@/modules/format';
 import { effectiveTheme, toggleTheme } from '@/modules/theme';
 import type { Alert } from '@/types/models';
@@ -332,7 +296,6 @@ const scan = useScanStore();
 const { conflictVisible, adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
 const {
   view,
-  marketStatus,
   dataState,
   providerLabel,
   dataStatusText,
@@ -349,7 +312,19 @@ const { switchView, searchSymbol } = quotes;
 const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);
 const { toggleNotifCenter, clearReadAlerts, markAlertRead, markScanSeen, goAlertCenter, requestNotifications } = alerts;
 
-const navItems = NAV_ITEMS;
+/** 侧栏分区：置顶项（group === null）在前，随后按 NAV_GROUPS 顺序展开。 */
+const navSections = computed(() => [
+  {
+    key: 'top',
+    group: null as { id: string; label: string } | null,
+    items: NAV_ITEMS.filter((item) => item.group === null),
+  },
+  ...NAV_GROUPS.map((group) => ({
+    key: group.id,
+    group: group as { id: string; label: string } | null,
+    items: NAV_ITEMS.filter((item) => item.group === group.id),
+  })),
+]);
 
 // 侧栏主题快捷开关：effectiveTheme 为 theme 模块级 computed，模板引用自动解包（useWorkspaceStore 复用既有 workspace 实例）
 const currentTheme = effectiveTheme;
