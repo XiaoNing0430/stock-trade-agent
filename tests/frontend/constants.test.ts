@@ -1,8 +1,13 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import {
   PRESETS,
   NAV_ITEMS,
+  NAV_GROUPS,
+  APP_VERSION,
   VIEW_META,
   SETTINGS_TABS,
   STRATEGY_TYPES,
@@ -89,4 +94,43 @@ test('STRATEGY_SCHEMAS 各类型配置字段结构', () => {
       assert.ok(field.default !== undefined, `${type}.${field.key} 应有默认值`);
     }
   }
+});
+
+test('NAV_GROUPS 分区顺序与成员覆盖', () => {
+  assert.deepEqual(
+    NAV_GROUPS.map((group) => group.id),
+    ['research', 'validation', 'execution', 'risk', 'system']
+  );
+  assert.deepEqual(
+    NAV_GROUPS.map((group) => group.label),
+    ['研究', '验证', '执行', '风控', '系统']
+  );
+  for (const group of NAV_GROUPS) {
+    assert.ok(NAV_ITEMS.filter((item) => item.group === group.id).length > 0, `${group.id} 至少 1 个成员`);
+  }
+});
+
+test('NAV_ITEMS 具备 shortLabel 与 group，且顺序不变', () => {
+  for (const item of NAV_ITEMS) {
+    assert.equal(typeof item.shortLabel, 'string');
+    assert.ok(item.shortLabel.length > 0);
+  }
+  assert.deepEqual(
+    NAV_ITEMS.map((item) => item.id),
+    ['overview', 'screener', 'grid', 'plans', 'monitor', 'portfolio', 'settings'],
+    '顺序被 app.ts:97 快捷键契约锁定'
+  );
+  assert.deepEqual(
+    NAV_ITEMS.filter((item) => item.group === null).map((item) => item.id),
+    ['overview']
+  );
+});
+
+test('APP_VERSION 与 package.json 同步', () => {
+  // 注意：不可用 `new URL('../../package.json', import.meta.url)`——Vite 的 asset
+  // import.meta.url 插件会把它重写成 dev-server 的 http 资源地址，导致 fs 读取报
+  // “The URL must be of scheme file”。fileURLToPath 能拿到真实的 file: 路径。
+  const pkgPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version: string };
+  assert.equal(APP_VERSION, pkg.version);
 });
