@@ -1,6 +1,12 @@
 <template>
   <div v-if="screener.strategyEditorOpen" class="dialog-backdrop" @click.self="screener.closeStrategyEditor()">
-    <section class="dialog-panel custom-strategy-panel" role="dialog" aria-modal="true" aria-label="自定义策略编辑器">
+    <section
+      ref="overlayPanel"
+      class="dialog-panel custom-strategy-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="自定义策略编辑器"
+    >
       <header class="custom-strategy-head">
         <h3>{{ screener.strategyEditorId ? '编辑自定义策略' : '新建自定义策略' }}</h3>
         <button class="text-button" type="button" @click="screener.closeStrategyEditor()">关闭</button>
@@ -111,6 +117,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
+import { useOverlayA11y } from '@/modules/overlayA11y';
 
 // 与 backend/screener/factors.py FactorLibrary.available_factors() 保持一致
 const FACTORS = ['rsi', 'ma_slope', 'ma_arrange', 'bollinger_pos', 'momentum', 'deviation', 'volume_surge'];
@@ -124,6 +131,16 @@ const QUICK_FIELDS = [
 ] as const;
 
 const screener = useScreenerStore();
+
+// 统一浮层键盘行为（spec §6）：Esc 关闭仅栈顶、Tab 焦点陷阱、body 滚动锁、焦点归还。
+// 组件在 ViewScreener 中无条件渲染（挂载时关闭）→ 关闭态挂载是 no-op，由组合式函数处理。
+const overlayPanel = ref<HTMLElement | null>(null);
+useOverlayA11y({
+  id: 'custom-strategy',
+  isOpen: () => screener.strategyEditorOpen,
+  panelRef: overlayPanel,
+  onClose: () => screener.closeStrategyEditor(),
+});
 
 /** 数字输入归一：清空（`''` / null / undefined）或非有限值 → null（视为未填，绝不猜数）。 */
 function toNumberOrNull(value: unknown): number | null {

@@ -89,8 +89,15 @@
                 unreadTotalCount > 99 ? '99+' : unreadTotalCount
               }}</span>
             </button>
-            <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
-            <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
+            <div v-if="notifOpen" class="notif-backdrop" @click.self="notifOpen = false"></div>
+            <div
+              v-if="notifOpen"
+              ref="notifPanel"
+              class="notif-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="通知中心"
+            >
               <div class="notif-head">
                 <strong>通知中心</strong
                 ><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
@@ -257,7 +264,7 @@
     </nav>
 
     <div v-if="moreSheetOpen" class="more-sheet-backdrop" @click.self="moreSheetOpen = false">
-      <section class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
+      <section ref="moreSheetPanel" class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
         <template v-for="section in moreSections" :key="section.key">
           <div class="more-sheet-group">{{ section.group?.label }}</div>
           <button
@@ -286,6 +293,7 @@ import { appOptions } from '@/app';
 import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
 import { formatTime } from '@/modules/format';
 import { effectiveTheme, toggleTheme } from '@/modules/theme';
+import { useOverlayA11y } from '@/modules/overlayA11y';
 import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
@@ -338,6 +346,28 @@ const MOBILE_BAR_IDS = ['overview', 'screener', 'plans', 'monitor'] as const;
 const mobileBarItems = NAV_ITEMS.filter((item) => (MOBILE_BAR_IDS as readonly string[]).includes(item.id));
 
 const moreSheetOpen = ref(false);
+
+// 统一浮层键盘行为（spec §6）：Esc 关闭仅栈顶、Tab 焦点陷阱、body 滚动锁、焦点归还。
+const notifPanel = ref<HTMLElement | null>(null);
+const moreSheetPanel = ref<HTMLElement | null>(null);
+
+useOverlayA11y({
+  id: 'notif',
+  isOpen: () => notifOpen.value,
+  panelRef: notifPanel,
+  onClose: () => {
+    notifOpen.value = false;
+  },
+});
+
+useOverlayA11y({
+  id: 'more-sheet',
+  isOpen: () => moreSheetOpen.value,
+  panelRef: moreSheetPanel,
+  onClose: () => {
+    moreSheetOpen.value = false;
+  },
+});
 
 /** 抽屉分区：与桌面同一套分组，只保留未出现在底部栏的项。 */
 const moreSections = computed(() =>

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
 // App.vue 挂载所需的最小 mock（同 useAlertsStore.test.ts 模式）：图标渲染 + 关闭全局协调副作用。
@@ -132,6 +132,38 @@ describe('顶栏行情状态控件与页脚（spec §6/§7）', () => {
     expect(footer.text()).not.toContain('行情接口');
     // 侧栏版本号真实文案
     expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.1');
+    wrapper.unmount();
+  });
+});
+
+describe('浮层键盘行为（spec §6）', () => {
+  it('通知面板带 aria-modal，Esc 关闭并归还焦点给铃铛', async () => {
+    const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
+    const bell = wrapper.find('.notif-wrap button');
+    // jsdom 不会在 dispatchEvent('click') 时移动焦点，显式聚焦以还原真实浏览器点击后的焦点归位前置条件
+    (bell.element as HTMLElement).focus();
+    await bell.trigger('click');
+    const panel = wrapper.find('.notif-panel');
+    expect(panel.exists()).toBe(true);
+    expect(panel.attributes('aria-modal')).toBe('true');
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(wrapper.find('.notif-panel').exists()).toBe(false);
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+    expect(document.activeElement).toBe(bell.element);
+    wrapper.unmount();
+  });
+
+  it('更多抽屉 Esc 关闭并摘掉滚动锁', async () => {
+    const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
+    await wrapper.find('.bottom-nav button[aria-label="更多"]').trigger('click');
+    expect(wrapper.find('.more-sheet').exists()).toBe(true);
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(wrapper.find('.more-sheet').exists()).toBe(false);
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
     wrapper.unmount();
   });
 });
