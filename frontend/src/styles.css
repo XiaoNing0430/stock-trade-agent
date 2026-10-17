@@ -2918,8 +2918,14 @@ body.overlay-open .view-panel.is-active {
   .brand-copy,
   .nav-item span,
   .nav-item kbd,
-  .sidebar-section-label {
+  .sidebar-section-label,
+  .sidebar-theme-toggle span {
     display: none;
+  }
+
+  .sidebar-theme-toggle {
+    justify-content: center;
+    padding: var(--space-2) 0;
   }
 
   .nav-item {
