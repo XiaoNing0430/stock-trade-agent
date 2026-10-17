@@ -21,7 +21,11 @@
       </div>
     </div>
     <section class="selected-stock-panel surface">
-      <div class="selected-stock-summary">
+      <div v-if="loading && !selectedStock" class="loading-state" data-testid="detail-loading" role="status">
+        <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取行情</strong
+        ><span>行情返回后显示报价、指标与操作入口。</span>
+      </div>
+      <div v-else class="selected-stock-summary">
         <div class="selected-stock-identity">
           <div class="stock-avatar">{{ selectedStock?.name?.slice(0, 1) || '—' }}</div>
           <div>
@@ -89,6 +93,9 @@
           {{ period }}
         </button>
       </div>
+      <div v-if="minuteLoading" class="loading-state" data-testid="minute-loading" role="status">
+        <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取分钟线</strong>
+      </div>
       <div v-if="minuteSvg" class="stock-detail-chart minute-chart" data-testid="minute-chart" v-html="minuteSvg"></div>
       <div v-if="minuteCacheText" class="chart-source-row">
         <span class="source-badge source-badge-local minute-status-badge">{{ minuteCacheText }}</span>
@@ -120,7 +127,8 @@ const grid = useGridStore();
 const plans = usePlansStore();
 const assist = useAssistStore();
 
-const { selectedStock, selectedCode, selectedHistory, chartDataSource, detailReturnView } = storeToRefs(quotes);
+const { selectedStock, selectedCode, selectedHistory, chartDataSource, detailReturnView, loading } =
+  storeToRefs(quotes);
 const { backFromDetail, toggleWatch, isWatched } = quotes;
 const { openGridStrategy } = grid;
 const { createPlan } = plans;
@@ -133,6 +141,7 @@ const minuteDegraded = ref(false);
 const minuteUpdatedAtMs = ref<number | null>(null);
 const minuteBars = ref<any[]>([]);
 const minuteChartPeriod = ref('');
+const minuteLoading = ref(false);
 
 // spec §6 逐字文案：state→黄标/灰条映射，429 走 toast 不进状态条
 const MINUTE_STRIP_TEXT: Record<string, string> = {
@@ -172,6 +181,7 @@ const returnViewLabel = computed(() => {
 async function loadMinute(period: string) {
   minutePeriod.value = period;
   if (!selectedCode.value) return;
+  minuteLoading.value = true;
   try {
     const res = await fetchMinute(selectedCode.value, period);
     minuteState.value = res.state;
@@ -190,6 +200,8 @@ async function loadMinute(period: string) {
     minuteDegraded.value = true;
     minuteUpdatedAtMs.value = null;
     minuteBars.value = [];
+  } finally {
+    minuteLoading.value = false;
   }
 }
 
