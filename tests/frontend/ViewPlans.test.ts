@@ -200,6 +200,33 @@ describe('ViewPlans', () => {
     wrapper.unmount();
   });
 
+  // ── Task 8 入口可达性（R1）：复盘明细表代码下钻个股详情（折叠区需先展开） ──
+  it('复盘明细表的代码可下钻个股详情并记录来源', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const quotes = useQuotesStore();
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    await wrapper.find('[data-testid="review-code-link"]').trigger('click');
+    await flushPromises();
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('plans');
+    wrapper.unmount();
+  });
+
+  it('复盘明细代码缺失 → 渲染 -- 且不产生可点链接（绝不造可点元素）', async () => {
+    vi.mocked(requestJson).mockResolvedValue({
+      ...reviewPayload,
+      items: [{ ...reviewPayload.items[0], code: '' }],
+    });
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-code-link"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="review-items-detail"] tbody tr td').text()).toBe('--');
+    wrapper.unmount();
+  });
+
   it('展开绩效面板时首次拉取并渲染 testids', async () => {
     vi.mocked(requestJson).mockResolvedValue(reviewPayload);
     const wrapper = mount(ViewPlans);

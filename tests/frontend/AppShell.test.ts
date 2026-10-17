@@ -114,3 +114,24 @@ describe('标题唯一化（spec §8）', () => {
     wrapper.unmount();
   });
 });
+
+describe('顶栏行情状态控件与页脚（spec §6/§7）', () => {
+  it('顶栏唯一状态控件暴露 data-state，页脚去重复行情源，侧栏渲染版本号', () => {
+    const wrapper = mount(App, { global: viewStubs });
+    // 行情状态收归顶栏单控件：全局恰好一个，且 data-state 是 store 的真实态
+    const controls = wrapper.findAll('[data-testid="market-status-control"]');
+    expect(controls).toHaveLength(1);
+    const state = controls[0].attributes('data-state');
+    expect(state).toBe(useQuotesStore().dataState);
+    expect(['connecting', 'live', 'stale', 'error']).toContain(state);
+    // 假数据徽标已删除
+    expect(wrapper.find('.demo-badge').exists()).toBe(false);
+    // 页脚只留免责声明，行情源行已迁入顶栏控件
+    const footer = wrapper.find('.app-footer');
+    expect(footer.text()).toContain('研究工具不构成投资建议');
+    expect(footer.text()).not.toContain('行情接口');
+    // 侧栏版本号真实文案
+    expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.1');
+    wrapper.unmount();
+  });
+});

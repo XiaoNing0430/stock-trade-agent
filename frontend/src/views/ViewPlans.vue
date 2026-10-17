@@ -302,13 +302,15 @@
               <tr v-for="item in sortedDetail" :key="item.planId">
                 <td>
                   <button
+                    v-if="item.code"
                     class="code-link"
                     type="button"
-                    data-testid="plan-code-link"
+                    data-testid="review-code-link"
                     @click="selectStock(item.code, 'plans')"
                   >
                     {{ item.code }}
                   </button>
+                  <span v-else>--</span>
                 </td>
                 <td>{{ sourceLabel(item.source) }}</td>
                 <td>

@@ -245,11 +245,6 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px var(--glow-green);
 }
 
-.sidebar .live-dot {
-  background: var(--status-green);
-  box-shadow: 0 0 0 3px var(--glow-green-soft);
-}
-
 .primary-nav {
   display: grid;
   gap: var(--space-1);
@@ -538,7 +533,7 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* 三态签名与已删除的 .demo-badge / .demo-badge-stale 一一对应，error 更强不更弱 */
+/* 顶栏行情状态控件三态配色：live 更绿、stale 更暖、error 更强，互不混用 */
 .market-status-control[data-state='live'] .market-status-label {
   color: var(--green);
 }
@@ -3451,6 +3446,7 @@ textarea:focus-visible {
   align-items: stretch;
   gap: var(--space-2);
   padding: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .desk-status-item {
