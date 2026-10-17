@@ -596,6 +596,11 @@ textarea:focus-visible {
   scrollbar-color: var(--scroll-thumb-soft) transparent;
 }
 
+/* 浮层打开时冻结真实滚动容器（.view-panel.is-active），计数幂等由 overlayA11y 负责 */
+body.overlay-open .view-panel.is-active {
+  overflow: hidden;
+}
+
 .screener-view {
   display: block !important;
   overflow: auto !important;
