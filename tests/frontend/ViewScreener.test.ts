@@ -335,6 +335,27 @@ describe('ViewScreener', () => {
     expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
     expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
   });
+
+  it('精选列表加载中显示 .loading-state[role="status"] 而非 .empty-state（spec §7）', async () => {
+    const quotes = useQuotesStore();
+    quotes.loading = true;
+    const wrapper = mount(ViewScreener);
+    await flushPromises();
+    const loadingNode = wrapper.find('.loading-state[role="status"]');
+    expect(loadingNode.exists()).toBe(true);
+    expect(loadingNode.text()).toContain('正在读取真实行情');
+    expect(wrapper.findAll('.empty-state').some((node) => node.text().includes('正在读取真实行情'))).toBe(false);
+  });
+
+  it('精选无结果时空态带「重新读取行情」按钮并调用 fetchScreener（spec §7.4）', async () => {
+    const screener = useScreenerStore();
+    const spy = vi.spyOn(screener, 'fetchScreener').mockResolvedValue(undefined as any);
+    const wrapper = mount(ViewScreener);
+    await flushPromises();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('没有找到符合条件的股票'));
+    await empty!.find('button').trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('ViewScreener 自定义策略编辑器', () => {

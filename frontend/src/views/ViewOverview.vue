@@ -141,7 +141,7 @@
           </div>
         </div>
       </div>
-      <div v-else-if="loading" class="empty-state compact-empty">
+      <div v-else-if="loading" class="loading-state compact-empty" role="status">
         <i data-lucide="loader-circle" aria-hidden="true"></i>
         <strong>正在读取指数</strong>
         <span>行情代理返回后会显示最新价。</span>

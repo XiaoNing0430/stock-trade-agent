@@ -2608,7 +2608,7 @@ body.overlay-open .view-panel.is-active {
   content: '';
 }
 
-.empty-state {
+:is(.empty-state, .loading-state) {
   display: grid;
   justify-items: center;
   gap: var(--space-2);
@@ -2617,21 +2617,32 @@ body.overlay-open .view-panel.is-active {
   text-align: center;
 }
 
-.empty-state svg {
+:is(.empty-state, .loading-state) svg {
   width: 23px;
   height: 23px;
   margin-bottom: 2px;
   color: var(--coral);
 }
 
-.empty-state strong {
+:is(.empty-state, .loading-state) strong {
   color: var(--ink-soft);
   font-size: var(--fs-sm);
   font-weight: 500;
 }
 
-.empty-state span {
+:is(.empty-state, .loading-state) span {
   font-size: var(--fs-xs);
+}
+
+/* 加载态 = 与空态同版式 + 转圈；空态图标保持静止（语义靠形状与文案区分） */
+.loading-state svg {
+  animation: spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-state svg {
+    animation: none;
+  }
 }
 
 .settings-grid {
