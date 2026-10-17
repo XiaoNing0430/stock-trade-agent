@@ -12,6 +12,7 @@ vi.mock('@/api/client', async (importOriginal) => {
 });
 
 import App from '@/App.vue';
+import { helpOpen } from '@/modules/shortcuts';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import type { Alert } from '@/types/models';
@@ -34,6 +35,8 @@ const viewStubs = {
 beforeEach(() => {
   localStorage.clear();
   setActivePinia(createPinia());
+  // 模块级 helpOpen 在同一测试文件内共享：用例中途失败不得把开着的帮助浮层漏给后续用例
+  helpOpen.value = false;
 });
 
 describe('桌面侧栏分区（spec §4）', () => {
@@ -139,6 +142,22 @@ describe('顶栏行情状态控件与页脚（spec §6/§7）', () => {
     expect(footer.text()).not.toContain('行情接口');
     // 侧栏版本号真实文案
     expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.1');
+    wrapper.unmount();
+  });
+});
+
+describe('快捷键帮助浮层入口（spec §9.3）', () => {
+  it('顶栏唯一致的一个「键盘快捷键」入口，点击打开帮助浮层', async () => {
+    const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
+    const help = wrapper
+      .findAll('.topbar-actions button')
+      .find((node) => node.attributes('aria-label') === '键盘快捷键');
+    expect(help).toBeTruthy();
+    expect(help!.attributes('aria-keyshortcuts')).toBe('?');
+    await help!.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.shortcut-help-panel').exists()).toBe(true);
+    helpOpen.value = false;
     wrapper.unmount();
   });
 });

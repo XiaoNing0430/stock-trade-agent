@@ -3357,6 +3357,33 @@ body.overlay-open .view-panel.is-active {
   box-shadow: var(--shadow-md);
 }
 
+/* ---------- 快捷键帮助浮层（ShortcutHelpDialog） ---------- */
+
+.shortcut-help-panel .dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.shortcut-help-panel .shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcut-table th {
+  width: 84px;
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.shortcut-table td {
+  padding: var(--space-2) 0;
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+}
+
 .plan-draft-head,
 .plan-draft-foot {
   display: flex;

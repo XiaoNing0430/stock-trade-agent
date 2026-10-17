@@ -78,6 +78,16 @@
             />
             <kbd>/</kbd>
           </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="键盘快捷键"
+            aria-keyshortcuts="?"
+            data-tooltip="键盘快捷键"
+            @click="toggleHelp"
+          >
+            <i data-lucide="circle-question-mark" aria-hidden="true"></i>
+          </button>
           <div class="notif-wrap">
             <button
               class="icon-button"
@@ -286,6 +296,7 @@
       </section>
     </div>
   </div>
+  <ShortcutHelpDialog />
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
 </template>
 
@@ -296,10 +307,11 @@ import { appOptions } from '@/app';
 import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
 import { formatTime } from '@/modules/format';
 import { effectiveTheme, toggleTheme } from '@/modules/theme';
-import { shortcutForView } from '@/modules/shortcuts';
+import { shortcutForView, toggleHelp } from '@/modules/shortcuts';
 import { useOverlayA11y } from '@/modules/overlayA11y';
 import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
+import ShortcutHelpDialog from '@/components/ShortcutHelpDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
