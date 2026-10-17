@@ -152,7 +152,7 @@
           }}</span>
         </div>
         <div v-if="strategyStale" class="empty-state">
-          <i data-lucide="alert-triangle" aria-hidden="true"></i><strong>数据可能滞后</strong
+          <i data-lucide="triangle-alert" aria-hidden="true"></i><strong>数据可能滞后</strong
           ><span>数据源暂时不可用，以下为上次缓存结果，请稍后强制刷新。</span>
         </div>
         <div class="table-responsive results-table-wrap">
