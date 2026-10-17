@@ -4,7 +4,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import ViewSettings from '@/views/ViewSettings.vue';
 import { useAlertsStore } from '@/stores/useAlertsStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import type { Alert } from '@/types/models';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
@@ -61,6 +63,32 @@ describe('ViewSettings', () => {
     const wrapper = mount(ViewSettings);
     expect(workspace.alerts.length).toBeGreaterThan(0);
     expect(wrapper.text()).toContain('真实行情连接已就绪');
+  });
+
+  // ── Task 8 入口可达性（R1）：收件箱行代码下钻，且不干扰既有标记已读 ──
+  it('通知收件箱的代码可下钻，且不改动标记已读行为', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a1',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        time: '刚刚',
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    const quotes = useQuotesStore();
+    const wrapper = mount(ViewSettings);
+    await wrapper.find('[data-testid="alert-detail-link"]').trigger('click');
+    await flushPromises();
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('settings');
+    // 既有行为不受影响
+    expect(wrapper.text()).toContain('标记已读');
+    wrapper.unmount();
   });
 
   it('数据分组渲染4个动态数据源下拉（实时/日线/选股/基本面）', () => {

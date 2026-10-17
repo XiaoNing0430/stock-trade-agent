@@ -245,7 +245,18 @@
           </thead>
           <tbody>
             <tr v-for="(pair, i) in pairs" :key="String(pair.buyPlanId ?? i)">
-              <td>{{ pair.buy?.code ?? '--' }}</td>
+              <td>
+                <button
+                  v-if="pair.buy?.code"
+                  class="code-link"
+                  type="button"
+                  data-testid="pair-code-link"
+                  @click="selectStock(pair.buy.code, 'portfolio')"
+                >
+                  {{ pair.buy.code }}
+                </button>
+                <span v-else>--</span>
+              </td>
               <td>
                 {{ formatNumber(pair.buy?.entry) }} / {{ formatNumber(pair.buy?.stop) }} /
                 {{ formatNumber(pair.buy?.target) }}<span class="muted"> · {{ pair.buy?.status ?? '--' }}</span>
@@ -396,10 +407,12 @@ import {
   type PortfolioRow,
 } from '@/stores/usePortfolioStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 
 const store = usePortfolioStore();
 const workspace = useWorkspaceStore();
 const { renderIcons } = workspace;
+const { selectStock } = useQuotesStore();
 
 // store.setParam 只写参数不 fetch（已读 store 现状）→ 视图在 chip/输入 handler 里显式 fetchRisk，
 // 不引入参数 watch（避免双路径竞态；参数即点即算，语义与 review 面板同款）。

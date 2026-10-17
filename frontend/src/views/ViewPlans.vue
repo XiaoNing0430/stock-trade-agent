@@ -134,7 +134,17 @@
                 }}</span>
                 <div>
                   <strong>{{ quoteFor(plan.code)?.name || plan.code }}</strong
-                  ><span>{{ plan.code }} · {{ plan.direction === 'buy' ? '买入计划' : '卖出计划' }}</span>
+                  ><span
+                    ><button
+                      class="code-link"
+                      type="button"
+                      data-testid="plan-code-link"
+                      @click="selectStock(plan.code, 'plans')"
+                    >
+                      {{ plan.code }}
+                    </button>
+                    · {{ plan.direction === 'buy' ? '买入计划' : '卖出计划' }}</span
+                  >
                 </div>
               </div>
               <span :class="['plan-status', plan.status === '已触发' ? 'plan-status-triggered' : '']">{{
@@ -290,7 +300,16 @@
             </thead>
             <tbody>
               <tr v-for="item in sortedDetail" :key="item.planId">
-                <td>{{ item.code }}</td>
+                <td>
+                  <button
+                    class="code-link"
+                    type="button"
+                    data-testid="plan-code-link"
+                    @click="selectStock(item.code, 'plans')"
+                  >
+                    {{ item.code }}
+                  </button>
+                </td>
                 <td>{{ sourceLabel(item.source) }}</td>
                 <td>
                   {{ outcomeLabel(item) }}<span v-if="item.ambiguous" class="badge-muted">保守裁定</span
@@ -341,7 +360,7 @@ const review = useReviewStore();
 const { activePlans, draftDirty } = storeToRefs(workspace);
 const { refreshAll, renderIcons, showToast } = workspace;
 const { draft, planOptions, planMetrics } = storeToRefs(plans);
-const { quoteFor } = quotes;
+const { quoteFor, selectStock } = quotes;
 const { switchView } = quotes;
 const { savePlan, monitorPlan, archivePlan, updatePlanLinkage } = plans;
 

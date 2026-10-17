@@ -154,6 +154,15 @@
                     >
                       {{ alert.code }} 生成草案
                     </button>
+                    <button
+                      v-if="alert.code"
+                      class="text-button"
+                      type="button"
+                      data-testid="alert-detail-chip"
+                      @click="openAlertDetail(alert.code)"
+                    >
+                      查看详情
+                    </button>
                     <div class="alert-meta">
                       <span>{{ alert.time || formatTime(alert.createdAtMs) }}</span
                       ><!-- 扫描项已读走 markScanSeen（面板打开即批量标记），workspace.alerts.find 必然落空 → 隐藏失效按钮 -->
@@ -376,6 +385,13 @@ function openScanDraft(item: Alert): void {
   // openFor 自吞错误（内部 catch + toast），此处无需 await
   assist.openFor({ code: item.code, source: `scan:${item.strategyId}` });
   markScanSeen(item.strategyId || '');
+}
+
+/** 通知面板下钻：保持「返回」回到用户当前所在视图（已在详情页时沿用它原本的来源）。 */
+function openAlertDetail(code: string): void {
+  const from = view.value === 'stock-detail' ? (quotes.detailReturnView as string) : view.value;
+  notifOpen.value = false;
+  quotes.selectStock(code, from);
 }
 
 // 打开通知面板即批量标记可见扫描策略已读（拉取新命中后打开面板 → 徽标归零）

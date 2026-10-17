@@ -72,6 +72,14 @@
               ><span>{{ alert.message }}</span>
               <div class="alert-meta">
                 <span>{{ alert.time }}</span
+                ><button
+                  v-if="alert.code"
+                  class="text-button"
+                  type="button"
+                  data-testid="alert-detail-link"
+                  @click="selectStock(alert.code, 'settings')"
+                >
+                  查看详情</button
                 ><button class="text-button" type="button" @click="markAlertRead(alert.id)">
                   {{ alert.read ? '已读' : '标记已读' }}
                 </button>
@@ -354,6 +362,7 @@ import { SETTINGS_TABS } from '@/modules/constants';
 import { themePreference, setTheme } from '@/modules/theme';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 
 const workspace = useWorkspaceStore();
@@ -364,6 +373,7 @@ const { hubTab, alertFilter, filteredAlerts } = storeToRefs(alerts);
 const { settingsDirty, settingsLoading, settingsTab, settingsDraft, dataSources, tushareTokenInput } =
   storeToRefs(settings);
 const { clearReadAlerts, markAlertRead } = alerts;
+const { selectStock } = useQuotesStore();
 const { saveSettings, clearTushareToken } = settings;
 const { renderIcons } = workspace;
 

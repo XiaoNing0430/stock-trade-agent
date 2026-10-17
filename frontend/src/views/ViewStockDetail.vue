@@ -15,8 +15,8 @@
         <button class="button button-secondary" type="button" data-testid="generate-draft" @click="openDraft">
           <i data-lucide="file-pen-line" aria-hidden="true"></i>生成草案
         </button>
-        <button class="button button-secondary" type="button" @click="backFromDetail">
-          <i data-lucide="arrow-left" aria-hidden="true"></i>返回
+        <button class="button button-secondary" type="button" data-testid="back-from-detail" @click="backFromDetail">
+          <i data-lucide="arrow-left" aria-hidden="true"></i>返回{{ returnViewLabel }}
         </button>
       </div>
     </div>
@@ -106,6 +106,7 @@ import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { chartSvg } from '@/modules/chart';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
+import { VIEW_META } from '@/modules/constants';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useGridStore } from '@/stores/useGridStore';
@@ -119,7 +120,7 @@ const grid = useGridStore();
 const plans = usePlansStore();
 const assist = useAssistStore();
 
-const { selectedStock, selectedCode, selectedHistory, chartDataSource } = storeToRefs(quotes);
+const { selectedStock, selectedCode, selectedHistory, chartDataSource, detailReturnView } = storeToRefs(quotes);
 const { backFromDetail, toggleWatch, isWatched } = quotes;
 const { openGridStrategy } = grid;
 const { createPlan } = plans;
@@ -157,6 +158,16 @@ const minuteSvg = computed(() =>
       )
     : ''
 );
+
+/**
+ * 「返回」带来源名（VIEW_META[from][0]）；来源缺失/未知时退回泛化文案。
+ * VIEW_META 无索引签名，逐 key 取值需先断言为 Record（`VIEW_META[from]` 直接下标会挂 vue-tsc）。
+ */
+const returnViewLabel = computed(() => {
+  const from = detailReturnView.value;
+  const label = (VIEW_META as Record<string, string[]>)[from]?.[0];
+  return from === 'stock-detail' || !label ? '上一页' : label;
+});
 
 async function loadMinute(period: string) {
   minutePeriod.value = period;

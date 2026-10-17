@@ -885,6 +885,23 @@ textarea:focus-visible {
   height: 13px;
 }
 
+.code-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.code-link:hover {
+  color: var(--coral);
+  text-decoration-color: currentColor;
+}
+
 .surface {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);

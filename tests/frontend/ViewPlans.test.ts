@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import ViewPlans from '@/views/ViewPlans.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { usePlansStore } from '@/stores/usePlansStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import type { Plan } from '@/types/models';
 import { requestJson } from '@/api/client';
 
@@ -174,6 +175,29 @@ describe('ViewPlans', () => {
     expect(wrapper.find('.plan-count strong').text()).toBe('1');
     expect(wrapper.text()).toContain('600519');
     expect(wrapper.text()).not.toContain('还没有交易计划');
+  });
+
+  // ── Task 8 入口可达性（R1）：计划列表代码下钻个股详情 ──
+  it('计划列表的代码可下钻个股详情并记录来源', async () => {
+    const quotes = useQuotesStore();
+    const workspace = useWorkspaceStore();
+    workspace.plans = [
+      {
+        id: 'p1',
+        code: '600519',
+        direction: 'buy',
+        entry: 1680,
+        stop: 1620,
+        target: 1800,
+        status: '执行中',
+      } as Plan,
+    ];
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="plan-code-link"]').trigger('click');
+    await flushPromises(); // selectStock 是 async（内部 ensureQuote + fetchHistory）
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('plans');
+    wrapper.unmount();
   });
 
   it('展开绩效面板时首次拉取并渲染 testids', async () => {
