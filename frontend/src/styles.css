@@ -655,8 +655,8 @@ textarea:focus-visible {
   margin-bottom: var(--space-6);
 }
 
-.view-heading {
-  justify-content: flex-end;
+.view-heading > .view-heading-actions {
+  margin-left: auto;
 }
 
 .surface-title {
@@ -664,6 +664,10 @@ textarea:focus-visible {
   color: var(--ink);
   font-size: var(--fs-md);
   font-weight: 600;
+}
+
+.view-heading h2.surface-title {
+  font-size: var(--fs-md);
 }
 
 .strategy-tabs {

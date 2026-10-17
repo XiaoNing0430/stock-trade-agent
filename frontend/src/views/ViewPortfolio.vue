@@ -190,7 +190,7 @@
             >Top3 合计 <b>{{ pctText(concentration.top3) }}</b></span
           >
           <span
-            >HHI&nbsp;<b>{{ concentration.hhi == null ? '--' : concentration.hhi.toFixed(3) }}</b></span
+            >HHI <b>{{ concentration.hhi == null ? '--' : concentration.hhi.toFixed(3) }}</b></span
           >
           <span v-if="concentration.unknownPct > 0" data-testid="portfolio-unknown">
             未知桶 <b>{{ pctText(concentration.unknownPct) }}</b
