@@ -1,11 +1,17 @@
 import { defineStore } from 'pinia';
 import { computed, nextTick, ref, reactive } from 'vue';
-import { DEFAULT_WATCHLIST, VIEW_META } from '@/modules/constants';
+import { DEFAULT_WATCHLIST, NAV_ITEMS, VIEW_META } from '@/modules/constants';
 import { mergeMarketQuotes } from '@/modules/marketUtils';
 import { useWorkspaceStore } from './useWorkspaceStore';
 import { useScreenerStore } from './useScreenerStore';
 import { usePlansStore } from './usePlansStore';
 import { useSettingsStore } from './useSettingsStore';
+
+/** 合法视图集合：主导航项 + 上下文详情页。localStorage 中的历史值必须过此白名单。 */
+const VIEW_IDS: readonly string[] = [...NAV_ITEMS.map((item) => item.id), 'stock-detail'];
+function normalizeView(name: unknown): string {
+  return typeof name === 'string' && VIEW_IDS.includes(name) ? name : 'overview';
+}
 
 /**
  * 行情 store：market 快照 / 选中股票 / 日线历史 / 行情抓取与合并。
@@ -14,7 +20,7 @@ import { useSettingsStore } from './useSettingsStore';
 export const useQuotesStore = defineStore('quotes', () => {
   const workspace = useWorkspaceStore();
   const saved = workspace.loadStorage();
-  const view = ref(saved.view || 'overview');
+  const view = ref(normalizeView(saved.view));
   const loading = ref(false);
   const globalSearch = ref('');
   const dataState = ref('connecting');
@@ -37,12 +43,6 @@ export const useQuotesStore = defineStore('quotes', () => {
 
   const hasLiveQuotes = computed(() => market.quotes.length > 0 || useScreenerStore().screenRows.length > 0);
   const providerLabel = computed(() => market.provider || '行情代理');
-  const marketStatus = computed(() => {
-    if (dataState.value === 'live' && hasLiveQuotes.value) return '已连接';
-    if (dataState.value === 'stale') return '缓存';
-    if (dataState.value === 'error') return '断开';
-    return '连接中';
-  });
   const dataStatusText = computed(() => {
     if (dataState.value === 'live' && hasLiveQuotes.value) return '实时数据已同步';
     if (dataState.value === 'stale') return '接口异常，显示缓存';
@@ -51,7 +51,25 @@ export const useQuotesStore = defineStore('quotes', () => {
   });
   const lastUpdatedLabel = computed(() => formatTimeShort(market.fetchedAt));
   const fetchedLabel = computed(() => formatDateShort(market.fetchedAt));
-  const todayLabel = computed(() => new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }));
+
+  /** 顶栏状态控件文案：与既有三态语义一一对应（勿改措辞，测试与人工核对依赖）。 */
+  const marketStatusLabel = computed(() =>
+    dataState.value === 'live' ? '真实行情' : dataState.value === 'stale' ? '缓存行情' : '行情连接中'
+  );
+
+  /** 顶栏状态控件时间：跨日时必须带日期，否则缓存数据无从分辨。当天分支复用 lastUpdatedLabel（避免该导出失去渲染点）。 */
+  const marketStatusTimeLabel = computed(() => {
+    if (!market.fetchedAt) return '--';
+    const fetched = new Date(market.fetchedAt);
+    const now = new Date();
+    const sameDay =
+      fetched.getFullYear() === now.getFullYear() &&
+      fetched.getMonth() === now.getMonth() &&
+      fetched.getDate() === now.getDate();
+    return sameDay
+      ? lastUpdatedLabel.value
+      : `${formatDateShort(market.fetchedAt)} ${formatTimeShort(market.fetchedAt)}`;
+  });
 
   const selectedStock = computed(() => quoteFor(selectedCode.value));
   const selectedIndex = computed(() => market.indices[0] || null);
@@ -207,12 +225,8 @@ export const useQuotesStore = defineStore('quotes', () => {
     return { title: meta[0], subtitle: meta[1] };
   });
 
-  const mobileExecTab = ref('plans');
-  const execShowsPlans = computed(() => view.value === 'exec' && mobileExecTab.value === 'plans');
-  const execShowsAlerts = computed(() => view.value === 'exec' && mobileExecTab.value === 'alerts');
-
   function switchView(name: string) {
-    view.value = name;
+    view.value = normalizeView(name);
     workspace.persist();
     nextTick(workspace.renderIcons);
   }
@@ -234,11 +248,11 @@ export const useQuotesStore = defineStore('quotes', () => {
     market,
     hasLiveQuotes,
     providerLabel,
-    marketStatus,
     dataStatusText,
     lastUpdatedLabel,
+    marketStatusLabel,
+    marketStatusTimeLabel,
     fetchedLabel,
-    todayLabel,
     selectedStock,
     selectedIndex,
     indices,
@@ -257,9 +271,6 @@ export const useQuotesStore = defineStore('quotes', () => {
     toggleWatch,
     searchSymbol,
     currentViewMeta,
-    mobileExecTab,
-    execShowsPlans,
-    execShowsAlerts,
     switchView,
   };
 });

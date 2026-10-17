@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewPortfolio from '@/views/ViewPortfolio.vue';
 import { usePortfolioStore } from '@/stores/usePortfolioStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { requestJson } from '@/api/client';
 
 // mount 手法照 ViewPlans.test.ts：lucide/UI_ICONS no-op + @/api/client 的 requestJson 替换为 vi.fn()。
@@ -335,5 +336,36 @@ describe('ViewPortfolio', () => {
     const hypo = wrapper.find('[data-testid="portfolio-hypo"]');
     expect(hypo.exists()).toBe(true);
     expect(hypo.text()).toContain('假想参考，非真实持仓');
+  });
+
+  // ── Task 8 入口可达性（R1）：交易对表代码下钻组合风险来源详情（折叠区需先展开） ──
+  it('交易对表的代码可下钻组合风险来源详情', async () => {
+    const quotes = useQuotesStore();
+    const wrapper = await mountWith(makePayload());
+    await wrapper.find('[data-testid="portfolio-pairs-toggle"]').trigger('click');
+    await wrapper.find('[data-testid="pair-code-link"]').trigger('click');
+    await flushPromises();
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('portfolio');
+    wrapper.unmount();
+  });
+
+  it('交易对代码缺失 → 渲染 -- 且不产生可点链接（绝不造可点元素）', async () => {
+    const wrapper = await mountWith(
+      makePayload({
+        pairs: [
+          {
+            buyPlanId: 'b2',
+            sellPlanId: null,
+            exitMode: 'race',
+            buy: { code: null, entry: 10, stop: 9, target: 12, status: '执行中' },
+          },
+        ],
+      })
+    );
+    await wrapper.find('[data-testid="portfolio-pairs-toggle"]').trigger('click');
+    expect(wrapper.find('[data-testid="pair-code-link"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-pairs"] tbody tr td').text()).toBe('--');
+    wrapper.unmount();
   });
 });

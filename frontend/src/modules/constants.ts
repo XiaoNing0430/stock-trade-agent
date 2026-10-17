@@ -45,15 +45,39 @@ export const PRESETS = [
   },
 ];
 
-export const NAV_ITEMS = [
-  { id: 'overview', label: '总览', icon: 'layout-dashboard' },
-  { id: 'screener', label: '选股器', icon: 'scan-search' },
-  { id: 'grid', label: '策略', icon: 'grid-3x3' },
-  { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line' },
-  { id: 'monitor', label: '盯盘中心', icon: 'radar' },
-  { id: 'portfolio', label: '组合风险', icon: 'gauge' },
-  { id: 'settings', label: '个人中心', icon: 'user-round' },
+/** 应用版本：与 package.json 保持同步（constants.test.ts 守卫）。侧栏底部展示。 */
+export const APP_VERSION = '0.7.1';
+
+/** 主导航分区（顺序即侧栏渲染顺序）。总览不属任何分区，置顶展示。 */
+export const NAV_GROUPS = [
+  { id: 'research', label: '研究' },
+  { id: 'validation', label: '验证' },
+  { id: 'execution', label: '执行' },
+  { id: 'risk', label: '风控' },
+  { id: 'system', label: '系统' },
 ] as const;
+
+export type NavGroupId = (typeof NAV_GROUPS)[number]['id'];
+
+/**
+ * 主导航项。顺序与数量是外部契约：app.ts 的数字键快捷键按此顺序映射，不得改动。
+ * shortLabel 仅用于手机底部栏（宽度受限）；label 用于桌面侧栏与更多抽屉。
+ */
+export const NAV_ITEMS = [
+  { id: 'overview', label: '总览', icon: 'layout-dashboard', shortLabel: '总览', group: null },
+  { id: 'screener', label: '选股器', icon: 'scan-search', shortLabel: '选股', group: 'research' },
+  { id: 'grid', label: '策略', icon: 'grid-3x3', shortLabel: '策略', group: 'validation' },
+  { id: 'plans', label: '交易计划', icon: 'clipboard-pen-line', shortLabel: '计划', group: 'execution' },
+  { id: 'monitor', label: '盯盘中心', icon: 'radar', shortLabel: '盯盘', group: 'execution' },
+  { id: 'portfolio', label: '组合风险', icon: 'gauge', shortLabel: '风控', group: 'risk' },
+  { id: 'settings', label: '个人中心', icon: 'user-round', shortLabel: '我的', group: 'system' },
+] as const satisfies readonly {
+  id: string;
+  label: string;
+  icon: string;
+  shortLabel: string;
+  group: NavGroupId | null;
+}[];
 
 export const VIEW_META = {
   overview: ['交易总览', '把真实行情、计划与提醒放在同一张桌面上'],

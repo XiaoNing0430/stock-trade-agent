@@ -235,46 +235,6 @@ textarea:focus-visible {
   font-size: var(--fs-xs);
 }
 
-.market-switcher {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin: 0 2px var(--space-7);
-  padding: var(--space-3);
-  border: 1px solid var(--sidebar-line);
-  border-radius: var(--radius-md);
-  background: var(--sidebar-hover-soft);
-}
-
-.market-switcher-copy {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.market-switcher-copy > div {
-  display: grid;
-  min-width: 0;
-}
-
-.market-switcher-copy strong {
-  font-size: var(--fs-sm);
-  font-weight: 500;
-}
-
-.market-switcher-copy span:last-child {
-  color: var(--sidebar-muted);
-  font-size: var(--fs-xs);
-}
-
-.market-state {
-  color: var(--sidebar-green);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
-
 .live-dot {
   display: inline-block;
   width: 7px;
@@ -283,11 +243,6 @@ textarea:focus-visible {
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 0 3px var(--glow-green);
-}
-
-.sidebar .live-dot {
-  background: var(--status-green);
-  box-shadow: 0 0 0 3px var(--glow-green-soft);
 }
 
 .primary-nav {
@@ -365,31 +320,7 @@ textarea:focus-visible {
   margin: var(--space-7) var(--space-3) var(--space-3);
   color: var(--sidebar-label);
   font-size: var(--fs-xs);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-}
-
-.sidebar-data-note {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0 var(--space-3);
-}
-
-.sidebar-data-note > div {
-  display: grid;
-  gap: 1px;
-}
-
-.sidebar-data-note strong {
-  color: var(--sidebar-text-dim);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-}
-
-.sidebar-data-note span:last-child {
-  color: var(--sidebar-muted);
-  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
 }
 
 .status-dot {
@@ -420,83 +351,11 @@ textarea:focus-visible {
   min-height: 40px;
 }
 
-.sidebar-note {
-  display: flex;
-  gap: var(--space-3);
-  margin: 0 2px var(--space-4);
-  padding: var(--space-3);
-  border: 1px solid var(--sidebar-line);
-  border-radius: var(--radius-md);
-  background: var(--sidebar-soft);
-}
-
-.sidebar-note-icon {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: var(--sidebar-coral-bg);
-  color: var(--sidebar-coral-text);
-}
-
-.sidebar-note-icon svg {
-  width: 15px;
-  height: 15px;
-}
-
-.sidebar-note > div:last-child {
-  display: grid;
-  gap: 2px;
-}
-
-.sidebar-note strong {
-  font-size: var(--fs-xs);
-  font-weight: 500;
-}
-
-.sidebar-note span {
+.sidebar-version {
+  margin: 0 var(--space-3) var(--space-3);
   color: var(--sidebar-muted);
   font-size: var(--fs-xs);
-  line-height: 1.45;
-}
-
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-2) 0;
-  border-top: 1px solid var(--sidebar-line);
-}
-
-.avatar {
-  display: grid;
-  width: 29px;
-  height: 29px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--chip-blue-bg);
-  color: var(--chip-blue-ink);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-}
-
-.user-copy {
-  display: grid;
-  flex: 1;
-  gap: 1px;
-}
-
-.user-copy strong {
-  font-size: var(--fs-sm);
-  font-weight: 500;
-}
-
-.user-copy span {
-  color: var(--sidebar-muted);
-  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .main-area {
@@ -524,14 +383,6 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-.topbar-eyebrow,
-.section-kicker {
-  color: var(--muted);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.13em;
-}
-
 .topbar-title-row {
   display: flex;
   align-items: center;
@@ -551,32 +402,6 @@ textarea:focus-visible {
   margin: 1px 0 0;
   color: var(--muted);
   font-size: var(--fs-sm);
-}
-
-.demo-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 22px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--demo-line);
-  border-radius: 999px;
-  background: var(--green-soft);
-  color: var(--green);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
-
-.demo-badge-stale {
-  border-color: var(--gold-line-soft);
-  background: var(--gold-soft);
-  color: var(--gold);
-}
-
-.demo-badge .live-dot {
-  width: 5px;
-  height: 5px;
-  box-shadow: none;
 }
 
 .topbar-actions {
@@ -688,6 +513,43 @@ textarea:focus-visible {
   font-size: var(--fs-xs);
 }
 
+.market-status-control {
+  gap: var(--space-2);
+  width: auto;
+  height: auto;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+}
+
+.market-status-label,
+.market-status-time {
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.market-status-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 顶栏行情状态控件三态配色：live 更绿、stale 更暖、error 更强，互不混用 */
+.market-status-control[data-state='live'] .market-status-label {
+  color: var(--green);
+}
+
+.market-status-control[data-state='stale'] {
+  border-color: var(--gold-line-soft);
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.market-status-control[data-state='error'] {
+  border-color: var(--coral-line);
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+
 .content-area {
   display: flex;
   flex-direction: column;
@@ -788,6 +650,21 @@ textarea:focus-visible {
   margin-bottom: var(--space-6);
 }
 
+.view-heading > .view-heading-actions {
+  margin-left: auto;
+}
+
+.surface-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.view-heading h2.surface-title {
+  font-size: var(--fs-md);
+}
+
 .strategy-tabs {
   display: flex;
   gap: var(--space-1);
@@ -850,7 +727,6 @@ textarea:focus-visible {
   flex-wrap: wrap;
 }
 
-.data-updated,
 .scan-time,
 .plan-count {
   display: inline-flex;
@@ -1004,6 +880,23 @@ textarea:focus-visible {
   height: 13px;
 }
 
+.code-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.code-link:hover {
+  color: var(--coral);
+  text-decoration-color: currentColor;
+}
+
 .surface {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -1018,7 +911,7 @@ textarea:focus-visible {
   gap: var(--space-4);
 }
 
-.surface-heading h3 {
+.surface-heading h2 {
   margin: var(--space-1) 0 0;
   color: var(--ink);
   font-size: var(--fs-md);
@@ -2962,20 +2855,10 @@ textarea:focus-visible {
   }
 
   .brand-copy,
-  .market-switcher-copy > div,
-  .market-state,
   .nav-item span,
   .nav-item kbd,
-  .sidebar-section-label,
-  .sidebar-data-note,
-  .sidebar-note,
-  .user-copy {
+  .sidebar-section-label {
     display: none;
-  }
-
-  .market-switcher {
-    justify-content: center;
-    padding: var(--space-3);
   }
 
   .nav-item {
@@ -2995,16 +2878,6 @@ textarea:focus-visible {
     height: 17px;
     padding: 0 var(--space-1);
     font-size: var(--fs-xs);
-  }
-
-  .user-profile {
-    justify-content: center;
-    padding-right: 0;
-    padding-left: 0;
-  }
-
-  .user-profile .icon-button {
-    display: none;
   }
 
   .monitor-layout,
@@ -3090,39 +2963,6 @@ textarea:focus-visible {
   }
 
   .brand-copy {
-    display: none;
-  }
-
-  .market-switcher {
-    display: none;
-  }
-
-  .primary-nav {
-    display: flex;
-    gap: var(--space-1);
-    flex: 1 1 auto;
-    justify-content: space-between;
-    min-width: 0;
-  }
-
-  .nav-item {
-    width: 100%;
-    min-width: 0;
-    min-height: 36px;
-    padding: 0 var(--space-3);
-    justify-content: center;
-  }
-
-  .nav-item span {
-    display: none;
-  }
-
-  .nav-item kbd,
-  .sidebar-section-label,
-  .sidebar-data-note,
-  .sidebar-spacer,
-  .sidebar-note,
-  .user-profile {
     display: none;
   }
 
@@ -3600,39 +3440,47 @@ textarea:focus-visible {
 }
 
 /* ===== P1 unified trading desk ===== */
-.desk-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
+.desk-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
-.desk-kpi {
+.desk-status-item {
   display: flex;
-  flex-direction: column;
+  flex: 1 1 160px;
+  align-items: baseline;
   gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
-}
-
-.desk-kpi-label {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
   font-size: var(--fs-sm);
-  letter-spacing: 0.08em;
-  color: var(--muted-strong);
+  text-align: left;
+  cursor: pointer;
 }
 
-.desk-kpi strong {
-  font-size: var(--fs-xl);
-  line-height: 1.2;
+.desk-status-item:hover:not(.is-static) {
+  background: var(--surface-soft);
 }
 
-.desk-kpi-note {
-  font-size: var(--fs-sm);
-  color: var(--muted-strong);
+.desk-status-item.is-static {
+  cursor: default;
+}
+
+.desk-status-label {
+  color: var(--muted);
+  font-size: var(--fs-xs);
 }
 
 .desk-workspaces {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
   margin-bottom: var(--space-4);
 }
@@ -3674,25 +3522,6 @@ textarea:focus-visible {
   font-size: var(--fs-md);
 }
 
-.desk-stat-rows {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.desk-stat-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--chip-hover);
-  font-size: var(--fs-sm);
-}
-
-.desk-stat-row-risk strong {
-  color: var(--coral);
-}
-
 .grid-provenance {
   margin: 0;
   padding: var(--space-3);
@@ -3715,12 +3544,69 @@ textarea:focus-visible {
   display: none;
 }
 
-.mobile-exec-tabs {
-  display: none;
+/* 手机「更多」抽屉：与桌面侧栏同一套分区，底部栏未出现的项都在这里 */
+.more-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.more-sheet {
+  width: 100%;
+  max-height: 70dvh;
+  overflow: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface);
+}
+
+.more-sheet-group {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+}
+
+.more-sheet-group:first-child {
+  margin-top: 0;
+}
+
+.more-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.more-sheet-item:hover {
+  background: var(--surface-soft);
+}
+
+.more-sheet-item .nav-count {
+  margin-left: auto;
 }
 
 @media (max-width: 680px) {
   .primary-nav {
+    display: none;
+  }
+
+  /* 手机顶条 = 品牌 + 主题开关 + 版本号：spacer 是 .primary-nav 的兄弟节点，
+     不随其隐藏，需在此单独隐藏，否则 flex:1 会把开关与版本号推到右端。 */
+  .sidebar-spacer {
     display: none;
   }
 
@@ -3772,30 +3658,6 @@ textarea:focus-visible {
     background: var(--coral);
     border-radius: 999px;
     padding: 1px var(--space-1);
-  }
-
-  .mobile-exec-tabs {
-    display: flex;
-    gap: var(--space-2);
-    margin-bottom: var(--space-4);
-  }
-
-  .mobile-exec-tab {
-    flex: 1 1 0;
-    padding: var(--space-3);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--chip-line);
-    background: transparent;
-    color: var(--muted-strong);
-    font-size: var(--fs-sm);
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .mobile-exec-tab.is-active {
-    border-color: var(--coral);
-    color: var(--inset-text);
-    background: var(--coral-tint);
   }
 
   .toast-region {
@@ -3892,10 +3754,6 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1260px) {
-  .desk-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .desk-workspaces {
     grid-template-columns: 1fr;
   }

@@ -1,12 +1,5 @@
 <template>
   <section class="view-panel is-active">
-    <div class="view-heading">
-      <div>
-        <span class="section-kicker">PERSONAL HUB</span>
-        <h2>个人中心</h2>
-        <p class="heading-note">提醒中心与网站设置的统一入口。</p>
-      </div>
-    </div>
     <div class="settings-tabs settings-tabs-primary" role="tablist" aria-label="个人中心分组">
       <button
         type="button"
@@ -32,8 +25,7 @@
       <section class="alerts-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">NOTIFICATIONS</span>
-            <h3>通知收件箱</h3>
+            <h2>通知收件箱</h2>
           </div>
           <button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
         </div>
@@ -80,6 +72,14 @@
               ><span>{{ alert.message }}</span>
               <div class="alert-meta">
                 <span>{{ alert.time }}</span
+                ><button
+                  v-if="alert.code"
+                  class="text-button"
+                  type="button"
+                  data-testid="alert-detail-link"
+                  @click="selectStock(alert.code, 'settings')"
+                >
+                  查看详情</button
                 ><button class="text-button" type="button" @click="markAlertRead(alert.id)">
                   {{ alert.read ? '已读' : '标记已读' }}
                 </button>
@@ -362,6 +362,7 @@ import { SETTINGS_TABS } from '@/modules/constants';
 import { themePreference, setTheme } from '@/modules/theme';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 
 const workspace = useWorkspaceStore();
@@ -372,6 +373,7 @@ const { hubTab, alertFilter, filteredAlerts } = storeToRefs(alerts);
 const { settingsDirty, settingsLoading, settingsTab, settingsDraft, dataSources, tushareTokenInput } =
   storeToRefs(settings);
 const { clearReadAlerts, markAlertRead } = alerts;
+const { selectStock } = useQuotesStore();
 const { saveSettings, clearTushareToken } = settings;
 const { renderIcons } = workspace;
 

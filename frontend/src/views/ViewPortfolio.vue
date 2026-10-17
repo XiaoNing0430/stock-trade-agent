@@ -1,11 +1,6 @@
 <template>
   <section class="view-panel is-active pf-root">
     <div class="view-heading">
-      <div>
-        <span class="section-kicker">PORTFOLIO RISK</span>
-        <h2>组合风险模拟回放</h2>
-        <p class="heading-note">多份计划在同一资金池上的设计口径回放：毛/净净值、敞口与行业集中度。</p>
-      </div>
       <div class="view-heading-actions">
         <button class="button button-secondary" type="button" @click="reload">
           <i data-lucide="refresh-cw" aria-hidden="true"></i>刷新
@@ -126,8 +121,7 @@
     <section class="pf-nav surface">
       <div class="surface-heading">
         <div>
-          <span class="section-kicker">NAV CURVE</span>
-          <h3>组合净值曲线</h3>
+          <h2>组合净值曲线</h2>
         </div>
         <span v-if="store.loading" class="muted">计算中…</span>
       </div>
@@ -155,8 +149,7 @@
     >
       <div class="surface-heading">
         <div>
-          <span class="section-kicker">EXPOSURE</span>
-          <h3>计划敞口</h3>
+          <h2>计划敞口</h2>
         </div>
         <strong v-if="exposure?.overCap" class="pf-over-text" data-testid="portfolio-overcap">计划敞口已超上限</strong>
       </div>
@@ -184,8 +177,7 @@
     <section class="pf-concentration surface">
       <div class="surface-heading">
         <div>
-          <span class="section-kicker">CONCENTRATION</span>
-          <h3>行业集中度</h3>
+          <h2>行业集中度</h2>
         </div>
         <span v-if="coverage" class="muted">
           行业识别 {{ coverage.known }}/{{ coverage.total }} · 陈旧 {{ coverage.staleCount }}
@@ -253,7 +245,18 @@
           </thead>
           <tbody>
             <tr v-for="(pair, i) in pairs" :key="String(pair.buyPlanId ?? i)">
-              <td>{{ pair.buy?.code ?? '--' }}</td>
+              <td>
+                <button
+                  v-if="pair.buy?.code"
+                  class="code-link"
+                  type="button"
+                  data-testid="pair-code-link"
+                  @click="selectStock(pair.buy.code, 'portfolio')"
+                >
+                  {{ pair.buy.code }}
+                </button>
+                <span v-else>--</span>
+              </td>
               <td>
                 {{ formatNumber(pair.buy?.entry) }} / {{ formatNumber(pair.buy?.stop) }} /
                 {{ formatNumber(pair.buy?.target) }}<span class="muted"> · {{ pair.buy?.status ?? '--' }}</span>
@@ -404,10 +407,12 @@ import {
   type PortfolioRow,
 } from '@/stores/usePortfolioStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 
 const store = usePortfolioStore();
 const workspace = useWorkspaceStore();
 const { renderIcons } = workspace;
+const { selectStock } = useQuotesStore();
 
 // store.setParam 只写参数不 fetch（已读 store 现状）→ 视图在 chip/输入 handler 里显式 fetchRisk，
 // 不引入参数 watch（避免双路径竞态；参数即点即算，语义与 review 面板同款）。

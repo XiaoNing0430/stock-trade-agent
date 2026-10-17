@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { nextTick } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewStockDetail from '@/views/ViewStockDetail.vue';
@@ -166,5 +167,30 @@ describe('ViewStockDetail', () => {
     await clickPeriod(wrapper, '5m');
     expect(toastSpy).toHaveBeenCalledWith('请求过于频繁', 'error');
     expect(wrapper.find('.minute-status').exists()).toBe(false);
+  });
+
+  // ── Task 8 入口可达性（R1）：返回按钮带来源名（VIEW_META[from][0]） ──
+  it('返回按钮显示来源视图名', async () => {
+    const { quotes, wrapper } = await mountDetail();
+    quotes.detailReturnView = 'portfolio';
+    await nextTick(); // flushPromises/mount 后已渲染；改 ref 需等一次更新
+    expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回组合风险');
+    wrapper.unmount();
+  });
+
+  it('来源键未知时返回按钮退回「返回上一页」而不崩溃', async () => {
+    const { quotes, wrapper } = await mountDetail();
+    quotes.detailReturnView = 'unknown-view';
+    await nextTick();
+    expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回上一页');
+    wrapper.unmount();
+  });
+
+  it('来源为详情页自身时同样退回「返回上一页」', async () => {
+    const { quotes, wrapper } = await mountDetail();
+    quotes.detailReturnView = 'stock-detail';
+    await nextTick();
+    expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回上一页');
+    wrapper.unmount();
   });
 });

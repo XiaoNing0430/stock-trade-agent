@@ -1,11 +1,6 @@
 <template>
   <section class="view-panel is-active">
     <div class="view-heading">
-      <div>
-        <span class="section-kicker">TRADE PLAN</span>
-        <h2>把想法写成可以执行的规则</h2>
-        <p class="heading-note">一份计划至少要有入场、止损、目标和仓位。</p>
-      </div>
       <div class="view-heading-actions">
         <span class="plan-count"
           ><strong>{{ activePlans.length }}</strong> 份执行中</span
@@ -18,8 +13,7 @@
       <section class="plan-form-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">NEW PLAN</span>
-            <h3>创建交易计划</h3>
+            <h2>创建交易计划</h2>
           </div>
           <span class="draft-status">{{ draftDirty ? '未保存' : '草稿' }}</span>
         </div>
@@ -119,8 +113,7 @@
       <section class="plans-list-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">ACTIVE PLANS</span>
-            <h3>执行中的计划</h3>
+            <h2>执行中的计划</h2>
           </div>
           <button
             class="icon-button"
@@ -141,7 +134,17 @@
                 }}</span>
                 <div>
                   <strong>{{ quoteFor(plan.code)?.name || plan.code }}</strong
-                  ><span>{{ plan.code }} · {{ plan.direction === 'buy' ? '买入计划' : '卖出计划' }}</span>
+                  ><span
+                    ><button
+                      class="code-link"
+                      type="button"
+                      data-testid="plan-code-link"
+                      @click="selectStock(plan.code, 'plans')"
+                    >
+                      {{ plan.code }}
+                    </button>
+                    · {{ plan.direction === 'buy' ? '买入计划' : '卖出计划' }}</span
+                  >
                 </div>
               </div>
               <span :class="['plan-status', plan.status === '已触发' ? 'plan-status-triggered' : '']">{{
@@ -297,7 +300,18 @@
             </thead>
             <tbody>
               <tr v-for="item in sortedDetail" :key="item.planId">
-                <td>{{ item.code }}</td>
+                <td>
+                  <button
+                    v-if="item.code"
+                    class="code-link"
+                    type="button"
+                    data-testid="review-code-link"
+                    @click="selectStock(item.code, 'plans')"
+                  >
+                    {{ item.code }}
+                  </button>
+                  <span v-else>--</span>
+                </td>
                 <td>{{ sourceLabel(item.source) }}</td>
                 <td>
                   {{ outcomeLabel(item) }}<span v-if="item.ambiguous" class="badge-muted">保守裁定</span
@@ -348,7 +362,7 @@ const review = useReviewStore();
 const { activePlans, draftDirty } = storeToRefs(workspace);
 const { refreshAll, renderIcons, showToast } = workspace;
 const { draft, planOptions, planMetrics } = storeToRefs(plans);
-const { quoteFor } = quotes;
+const { quoteFor, selectStock } = quotes;
 const { switchView } = quotes;
 const { savePlan, monitorPlan, archivePlan, updatePlanLinkage } = plans;
 

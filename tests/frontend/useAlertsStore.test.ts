@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
 const requestJsonMock = vi.fn();
@@ -16,6 +16,7 @@ import App from '@/App.vue';
 import { useAlertsStore } from '@/stores/useAlertsStore';
 import { useAssistStore } from '@/stores/useAssistStore';
 import { useScanStore } from '@/stores/useScanStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 
 describe('alerts + scan 合成', () => {
@@ -118,6 +119,46 @@ describe('App.vue 扫描项代码片（spec §8）', () => {
     // markSeen 效果落盘：atlas.scan.seen.{strategyId} 写入毫秒时间戳 → 扫描项视为已读
     expect(Number(localStorage.getItem('atlas.scan.seen.trend_breakout'))).toBeGreaterThan(0);
     expect(scan.unreadScanCount).toBe(0);
+    wrapper.unmount();
+  });
+
+  it('通知面板「查看详情」→ selectStock 记录当前视图为返回目标（不预切视图）', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a2',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        createdAtMs: 1,
+      },
+    ];
+    const quotes = useQuotesStore();
+    const stubView = { template: '<div />' };
+    const wrapper = mount(App, {
+      global: {
+        components: {
+          'view-overview': stubView,
+          'view-screener': stubView,
+          'view-stock-detail': stubView,
+          'view-grid': stubView,
+          'view-plans': stubView,
+          'view-monitor': stubView,
+          'view-portfolio': stubView,
+          'view-settings': stubView,
+        },
+      },
+    });
+    await wrapper.find('button[aria-label="通知中心"]').trigger('click');
+    const chip = wrapper.find('button[data-testid="alert-detail-chip"]');
+    expect(chip.exists()).toBe(true);
+    await chip.trigger('click');
+    await flushPromises();
+    expect(quotes.view).toBe('stock-detail');
+    // 面板打开时当前视图为总览 → 返回目标即总览（selectStock 自己切视图，handler 不预切）
+    expect(quotes.detailReturnView).toBe('overview');
     wrapper.unmount();
   });
 });

@@ -61,8 +61,9 @@ frontend/
   src/
     main.ts               Vue 应用启动（createApp, Pinia, 挂载）
     app.ts                Vue 应用设置、路由、轮询、错误处理
-    App.vue               根布局 SFC
-    styles.css            全部样式（CSS 变量令牌体系：颜色+版式[字阶/间距/圆角/阴影]，:root 浅色 + [data-theme='dark'] 暗色，单文件）
+    App.vue               根布局 SFC（分区侧栏 + 顶栏唯一行情状态控件 + ≤680px 手机底栏与「更多」抽屉 + 页脚免责声明）
+    styles.css            全部样式（CSS 变量令牌体系：颜色+版式[字阶/间距/圆角/阴影]，:root 浅色 + [data-theme='dark'] 暗色，单文件）；
+                          壳层断点 1260/1180/1060/900/680px（≤1060 侧栏退化为图标条，≤680 侧栏变横向顶条 + 固定底栏与更多抽屉）
     components/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
       CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；409 保留本地编辑仅刷新 version）
@@ -75,10 +76,10 @@ frontend/
       useScanStore.ts / useReviewStore.ts / usePortfolioStore.ts
       useCompareStore.ts    多策略回测对比（同标的横向对比 + 已保存策略快照/现跑）
     modules/              纯逻辑模块
-      constants.ts / format.ts / chart.ts / planUtils.ts
+      constants.ts（VIEW_META/NAV_GROUPS/APP_VERSION） / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
       assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表） / csv.ts（对比 CSV 组装与公式注入防护） / theme.ts（三态主题：浅/深/跟随系统，localStorage 持久化）
-    views/                8 个 SFC 视图
+    views/                8 个 SFC 视图（标题/副标题由 VIEW_META 单一驱动，视图内不再写装饰性标题或英文 kicker）
       ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
       ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
       ViewPortfolio.vue  组合风险（第 8 视图：毛/净 NAV 多线、敞口/集中度、交易对与事件折叠区）
@@ -111,7 +112,7 @@ tests/
   test_strategy_compare.py  多策略对比：同 bars 重放/白名单上界/部分失败隔离/trades 不截断/快照与现跑零写库
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
-  frontend/               25 个 vitest 测试文件（共 276 项测试）
+  frontend/               28 个 vitest 测试文件（共 304 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -150,7 +151,7 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（276 项，25 文件，jsdom + @vue/test-utils）
+npx vitest run                        # 前端单元测试（304 项，28 文件，jsdom + @vue/test-utils）
 python -m pytest tests/ -v            # 后端测试（679 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
