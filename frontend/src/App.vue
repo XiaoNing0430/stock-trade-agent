@@ -283,7 +283,7 @@
       </section>
     </div>
   </div>
-  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
 </template>
 
 <script setup lang="ts">

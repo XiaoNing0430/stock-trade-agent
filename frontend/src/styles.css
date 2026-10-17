@@ -2794,6 +2794,51 @@ body.overlay-open .view-panel.is-active {
   color: var(--red);
 }
 
+.toast {
+  cursor: pointer;
+}
+
+.toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* 特异性修正：`.toast.error svg`(0,2,1) 会压过 `.toast-close svg`(0,1,1)，
+   令错误 toast 的关闭图标误染红色；升到 (0,2,1) 后在两种 tone 下都取 muted。 */
+.toast .toast-close svg {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+
+.toast-pulse {
+  animation: toast-pulse 200ms ease;
+}
+
+/* 填模修正：`.toast` 的 `animation: toast-in ... both` 会以 fill 覆盖普通声明，
+   使 `opacity:0` 失效（节点直接消失、看不到淡出）；置 `animation: none` 让过渡真正执行。 */
+.toast-leaving {
+  animation: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+@keyframes toast-pulse {
+  from {
+    border-color: var(--line-strong);
+  }
+  to {
+    border-color: var(--line);
+  }
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
