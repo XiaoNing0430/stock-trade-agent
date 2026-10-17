@@ -368,4 +368,41 @@ describe('ViewPortfolio', () => {
     expect(wrapper.find('[data-testid="portfolio-pairs"] tbody tr td').text()).toBe('--');
     wrapper.unmount();
   });
+
+  // ── Task 6：KPI「计算中」（spec §7.3-10）+ 净值空态跳转入口（spec §7.4） ──
+  // 请求悬挂（永不 resolve）→ store.loading 保持 true，才是真实「首次计算中」的时序；
+  // 否则 flushPromises 后 fetchRisk 已收尾（loading=false），断言会退化为恒真/假阴性。
+  function holdRequest() {
+    vi.mocked(requestJson)
+      .mockReset()
+      .mockReturnValue(new Promise<never>(() => {}));
+  }
+
+  it('加载中且无数据时 KPI 显示「计算中」而非裸 --（spec §7.3-10）', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-kpis"]').text()).toContain('计算中');
+  });
+
+  it('已有数据时重算不清空旧值', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.payload = makePayload();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-kpis"]').text()).not.toContain('计算中');
+  });
+
+  it('无净值空态按钮跳转交易计划（spec §7.4）', async () => {
+    holdRequest();
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    const quotes = useQuotesStore();
+    await wrapper.find('[data-testid="portfolio-empty"] button').trigger('click');
+    expect(quotes.view).toBe('plans');
+  });
 });
