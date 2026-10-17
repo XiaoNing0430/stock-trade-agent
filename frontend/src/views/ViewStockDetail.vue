@@ -2,8 +2,7 @@
   <section class="view-panel is-active">
     <div class="view-heading">
       <div>
-        <span class="section-kicker">STOCK DETAIL</span>
-        <h2>{{ selectedStock?.name || '个股详情' }}</h2>
+        <h2 class="surface-title">{{ selectedStock?.name || '个股详情' }}</h2>
         <p class="heading-note">
           {{
             selectedStock

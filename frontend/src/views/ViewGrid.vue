@@ -2,8 +2,9 @@
   <section class="view-panel is-active">
     <div class="view-heading">
       <div>
-        <span class="section-kicker">STRATEGY LAB</span>
-        <h2>{{ strategyType === 'grid' ? '让区间交易有数据依据' : strategyTypeLabel + '策略回测' }}</h2>
+        <h2 class="surface-title">
+          {{ strategyType === 'grid' ? '让区间交易有数据依据' : strategyTypeLabel + '策略回测' }}
+        </h2>
         <p class="heading-note">
           {{
             strategyType === 'grid'
@@ -83,8 +84,7 @@
       <section class="grid-config-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">CONFIGURATION</span>
-            <h3>网格参数</h3>
+            <h2>网格参数</h2>
           </div>
           <span class="draft-status">{{ gridLoading ? '计算中' : '日线回测' }}</span>
         </div>
@@ -195,8 +195,7 @@
       <section class="grid-result-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">BACKTEST RESULT</span>
-            <h3>回测表现</h3>
+            <h2>回测表现</h2>
           </div>
           <button
             class="icon-button"
@@ -330,8 +329,7 @@
       <section class="grid-config-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">CONFIGURATION</span>
-            <h3>{{ strategyTypeLabel }}参数</h3>
+            <h2>{{ strategyTypeLabel }}参数</h2>
           </div>
           <span class="draft-status">{{ strategyLoading ? '计算中' : '日线回测' }}</span>
         </div>
@@ -418,8 +416,7 @@
       <section class="grid-result-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">BACKTEST RESULT</span>
-            <h3>回测表现</h3>
+            <h2>回测表现</h2>
           </div>
           <button
             v-if="hasStrategyResult"
@@ -513,8 +510,7 @@
       <section class="grid-config-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">COMPARISON</span>
-            <h3>多策略横向对比</h3>
+            <h2>多策略横向对比</h2>
           </div>
           <span class="draft-status">{{ compare.runLoading ? '计算中' : '日线回测' }}</span>
         </div>
@@ -579,8 +575,7 @@
       <section class="grid-result-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">COMPARE RESULT</span>
-            <h3>对比结果</h3>
+            <h2>对比结果</h2>
           </div>
         </div>
         <div v-if="compare.runResult" class="grid-result-body">
@@ -675,8 +670,7 @@
       <section class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">SAVED COMPARISON</span>
-            <h3>已保存策略对比</h3>
+            <h2>已保存策略对比</h2>
           </div>
           <div class="compare-saved-heading">
             <span class="draft-status">已选 {{ compare.savedSelection.length }}/10</span>
@@ -794,8 +788,7 @@
       <section class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">SAVED STRATEGIES</span>
-            <h3>已保存策略</h3>
+            <h2>已保存策略</h2>
           </div>
         </div>
         <div class="strategy-list">
@@ -824,8 +817,7 @@
       <section v-if="gridCandidates.length" class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">OPTIMIZATION</span>
-            <h3>候选参数</h3>
+            <h2>候选参数</h2>
           </div>
         </div>
         <div class="table-responsive">
@@ -866,8 +858,7 @@
       <section v-if="gridStrategies.length" class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">SAVED STRATEGIES</span>
-            <h3>已保存策略</h3>
+            <h2>已保存策略</h2>
           </div>
         </div>
         <div class="strategy-list">

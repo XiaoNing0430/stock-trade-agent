@@ -1,11 +1,6 @@
 <template>
   <section class="view-panel is-active screener-view">
     <div class="view-heading">
-      <div>
-        <span class="section-kicker">SCREENING LAB</span>
-        <h2>用真实行情筛出值得研究的标的</h2>
-        <p class="heading-note">筛选字段来自行情列表：涨跌幅、PE、PB、量比和换手率。</p>
-      </div>
       <div class="view-heading-actions">
         <span class="scan-time">行情列表 {{ screenerUpdatedLabel }}</span>
         <button class="button button-primary" type="button" @click="scanNow">
@@ -43,8 +38,7 @@
       <section class="filter-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">PIPELINE</span>
-            <h3>策略选股</h3>
+            <h2>策略选股</h2>
           </div>
           <i data-lucide="git-branch" class="heading-icon" aria-hidden="true"></i>
         </div>
@@ -148,11 +142,10 @@
       <div class="results-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">RESULTS</span>
-            <h3>
+            <h2>
               命中结果
               <span v-if="strategyReferenceDate" class="heading-note">基准日期 {{ strategyReferenceDate }}</span>
-            </h3>
+            </h2>
           </div>
           <span v-if="strategyCached" class="scan-time">{{
             strategyStale ? '⚠ 数据可能滞后（缓存降级）' : '缓存命中'
@@ -254,8 +247,7 @@
       <section class="filter-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">STRATEGY</span>
-            <h3>筛选策略</h3>
+            <h2>筛选策略</h2>
           </div>
           <i data-lucide="sparkles" class="heading-icon" aria-hidden="true"></i>
         </div>
@@ -336,10 +328,9 @@
       <section class="results-panel surface">
         <div class="surface-heading results-heading">
           <div>
-            <span class="section-kicker">RESULTS</span>
-            <h3>
+            <h2>
               <span>{{ filteredRows.length }}</span> 只股票符合条件
-            </h3>
+            </h2>
           </div>
           <div class="results-actions">
             <span class="muted-count">候选池 {{ screenTotal.toLocaleString() }} 只</span>
@@ -430,10 +421,9 @@
     <div v-else class="all-market-panel surface">
       <div class="surface-heading results-heading">
         <div>
-          <span class="section-kicker">FULL MARKET</span>
-          <h3>
+          <h2>
             <span>{{ screenerAllTotal.toLocaleString() }}</span> 只沪深 A 股
-          </h3>
+          </h2>
         </div>
         <div class="results-actions">
           <span class="muted-count">第 {{ screenerPage }} 页 · 每页 50 只</span>

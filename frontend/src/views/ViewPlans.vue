@@ -1,11 +1,6 @@
 <template>
   <section class="view-panel is-active">
     <div class="view-heading">
-      <div>
-        <span class="section-kicker">TRADE PLAN</span>
-        <h2>把想法写成可以执行的规则</h2>
-        <p class="heading-note">一份计划至少要有入场、止损、目标和仓位。</p>
-      </div>
       <div class="view-heading-actions">
         <span class="plan-count"
           ><strong>{{ activePlans.length }}</strong> 份执行中</span
@@ -18,8 +13,7 @@
       <section class="plan-form-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">NEW PLAN</span>
-            <h3>创建交易计划</h3>
+            <h2>创建交易计划</h2>
           </div>
           <span class="draft-status">{{ draftDirty ? '未保存' : '草稿' }}</span>
         </div>
@@ -119,8 +113,7 @@
       <section class="plans-list-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">ACTIVE PLANS</span>
-            <h3>执行中的计划</h3>
+            <h2>执行中的计划</h2>
           </div>
           <button
             class="icon-button"

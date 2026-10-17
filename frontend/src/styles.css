@@ -388,14 +388,6 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-.topbar-eyebrow,
-.section-kicker {
-  color: var(--muted);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.13em;
-}
-
 .topbar-title-row {
   display: flex;
   align-items: center;
@@ -663,6 +655,17 @@ textarea:focus-visible {
   margin-bottom: var(--space-6);
 }
 
+.view-heading {
+  justify-content: flex-end;
+}
+
+.surface-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
 .strategy-tabs {
   display: flex;
   gap: var(--space-1);
@@ -725,7 +728,6 @@ textarea:focus-visible {
   flex-wrap: wrap;
 }
 
-.data-updated,
 .scan-time,
 .plan-count {
   display: inline-flex;
@@ -893,7 +895,7 @@ textarea:focus-visible {
   gap: var(--space-4);
 }
 
-.surface-heading h3 {
+.surface-heading h2 {
   margin: var(--space-1) 0 0;
   color: var(--ink);
   font-size: var(--fs-md);

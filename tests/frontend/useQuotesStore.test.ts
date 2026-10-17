@@ -98,3 +98,11 @@ describe('view 白名单归一（spec §10）', () => {
     expect(restored.selectedCode).toBe('000858');
   });
 });
+
+describe('todayLabel 已随总览页头移除（spec §10）', () => {
+  it('store 不再导出 todayLabel', () => {
+    setActivePinia(createPinia());
+    const quotes = useQuotesStore() as unknown as Record<string, unknown>;
+    expect('todayLabel' in quotes).toBe(false);
+  });
+});

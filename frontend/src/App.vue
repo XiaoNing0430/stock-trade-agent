@@ -58,7 +58,6 @@
     <main class="main-area">
       <header class="topbar">
         <div class="topbar-context">
-          <span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>
           <div class="topbar-title-row">
             <h1>{{ currentViewMeta.title }}</h1>
           </div>

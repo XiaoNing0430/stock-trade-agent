@@ -105,3 +105,12 @@ describe('手机底部栏与更多抽屉（spec §5）', () => {
     wrapper.unmount();
   });
 });
+
+describe('标题唯一化（spec §8）', () => {
+  it('顶栏无英文 eyebrow，视图区无 section-kicker 残留类', () => {
+    const wrapper = mount(App, { global: viewStubs });
+    expect(wrapper.find('.topbar-eyebrow').exists()).toBe(false);
+    expect(wrapper.find('.section-kicker').exists()).toBe(false);
+    wrapper.unmount();
+  });
+});

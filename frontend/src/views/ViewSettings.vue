@@ -1,12 +1,5 @@
 <template>
   <section class="view-panel is-active">
-    <div class="view-heading">
-      <div>
-        <span class="section-kicker">PERSONAL HUB</span>
-        <h2>个人中心</h2>
-        <p class="heading-note">提醒中心与网站设置的统一入口。</p>
-      </div>
-    </div>
     <div class="settings-tabs settings-tabs-primary" role="tablist" aria-label="个人中心分组">
       <button
         type="button"
@@ -32,8 +25,7 @@
       <section class="alerts-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">NOTIFICATIONS</span>
-            <h3>通知收件箱</h3>
+            <h2>通知收件箱</h2>
           </div>
           <button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
         </div>

@@ -1,11 +1,6 @@
 <template>
   <section class="view-panel is-active">
     <div class="view-heading">
-      <div>
-        <span class="section-kicker">MONITORING CENTER</span>
-        <h2>盯住规则，不盯住情绪</h2>
-        <p class="heading-note">添加标的并开启自动扫描，触发结果统一进入个人中心提醒中心。</p>
-      </div>
       <div class="view-heading-actions">
         <div class="monitor-toggle-wrap">
           <span
@@ -41,8 +36,7 @@
       <section class="monitor-table-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">LIVE WATCH</span>
-            <h3>盯盘列表</h3>
+            <h2>盯盘列表</h2>
           </div>
           <button class="text-button" type="button" @click="switchView('screener')">
             添加标的 <i data-lucide="plus" aria-hidden="true"></i>

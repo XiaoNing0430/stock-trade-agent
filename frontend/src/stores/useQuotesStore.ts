@@ -71,8 +71,6 @@ export const useQuotesStore = defineStore('quotes', () => {
       : `${formatDateShort(market.fetchedAt)} ${formatTimeShort(market.fetchedAt)}`;
   });
 
-  const todayLabel = computed(() => new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }));
-
   const selectedStock = computed(() => quoteFor(selectedCode.value));
   const selectedIndex = computed(() => market.indices[0] || null);
   const indices = computed(() => market.indices || []);
@@ -255,7 +253,6 @@ export const useQuotesStore = defineStore('quotes', () => {
     marketStatusLabel,
     marketStatusTimeLabel,
     fetchedLabel,
-    todayLabel,
     selectedStock,
     selectedIndex,
     indices,

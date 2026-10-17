@@ -1,17 +1,5 @@
 <template>
   <section class="view-panel is-active">
-    <div class="view-heading">
-      <div>
-        <span class="section-kicker">TRADING DESK</span>
-        <h2>今日交易台</h2>
-        <p class="heading-note">市场怎样、有什么机会、策略是否可靠、当前有哪些风险。</p>
-      </div>
-      <div class="view-heading-actions">
-        <span class="data-updated"><span class="live-dot"></span>{{ fetchedLabel }}</span>
-        <span class="strategy-label">{{ todayLabel }}</span>
-      </div>
-    </div>
-
     <div v-if="errorMessage" class="connection-banner">
       <i data-lucide="triangle-alert" aria-hidden="true"></i>
       <span>{{ errorMessage }}</span>
@@ -40,8 +28,7 @@
       <section class="desk-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">OPPORTUNITIES</span>
-            <h3>发现机会</h3>
+            <h2>发现机会</h2>
           </div>
           <span class="strategy-label">{{ presetName }}</span>
         </div>
@@ -90,8 +77,7 @@
       <section class="desk-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">EXECUTION RISK</span>
-            <h3>执行跟踪</h3>
+            <h2>执行跟踪</h2>
           </div>
         </div>
         <div class="activity-list">
@@ -129,8 +115,7 @@
     <section class="market-board surface">
       <div class="surface-heading">
         <div>
-          <span class="section-kicker">MARKET PULSE</span>
-          <h3>盘面温度</h3>
+          <h2>盘面温度</h2>
         </div>
         <button
           class="icon-button"
@@ -224,7 +209,7 @@ const quotes = useQuotesStore();
 const screener = useScreenerStore();
 const strategy = useStrategyStore();
 
-const { fetchedLabel, todayLabel, errorMessage, selectedIndex, indices, loading, indexHistory } = storeToRefs(quotes);
+const { errorMessage, selectedIndex, indices, loading, indexHistory } = storeToRefs(quotes);
 const { breadth, screenRows, filteredRows, presetName, presetHits } = storeToRefs(screener);
 const { strategyStats } = storeToRefs(strategy);
 const { unreadAlerts, alerts, refreshAll, renderIcons } = workspace;
