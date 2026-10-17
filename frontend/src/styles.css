@@ -3526,25 +3526,6 @@ textarea:focus-visible {
   font-size: var(--fs-md);
 }
 
-.desk-stat-rows {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.desk-stat-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--chip-hover);
-  font-size: var(--fs-sm);
-}
-
-.desk-stat-row-risk strong {
-  color: var(--coral);
-}
-
 .grid-provenance {
   margin: 0;
   padding: var(--space-3);
