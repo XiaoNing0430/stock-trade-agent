@@ -96,7 +96,7 @@ beforeEach(() => {
   - `NAV_ITEMS: readonly { id: string; label: string; icon: string; shortLabel: string; group: NavGroupId | null }[]`
   - `APP_VERSION: string`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 该文件**既有风格是 `node:assert/strict` + `test(...)`**（不是 `describe/it/expect`），追加内容必须与之一致：把 `NAV_GROUPS, APP_VERSION` 加入第 3-11 行的既有 import，把 `import { readFileSync } from 'node:fs';` 加在第 2 行之后，并在文件末尾追加：
 
@@ -142,12 +142,12 @@ test('APP_VERSION 与 package.json 同步', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/constants.test.ts`
 Expected: FAIL —— `NAV_GROUPS` / `APP_VERSION` 未导出（`item.shortLabel` 为 undefined）。
 
-- [ ] **Step 3: 实现常量**
+- [x] **Step 3: 实现常量**
 
 用下列内容替换 `frontend/src/modules/constants.ts:48-56` 的 `NAV_ITEMS` 定义块：
 
@@ -187,17 +187,17 @@ export const NAV_ITEMS = [
 }[];
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/constants.test.ts tests/frontend/lucideIcons.test.ts`
 Expected: PASS（含原有断言与图标注册断言）。
 
-- [ ] **Step 5: 全量门禁**
+- [x] **Step 5: 全量门禁**
 
 Run: `npm run verify`
 Expected: 全绿（`satisfies` 需 `vue-tsc` 通过；后端 679 项不受影响）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add frontend/src/modules/constants.ts tests/frontend/constants.test.ts
@@ -221,7 +221,7 @@ git commit -m "feat: 导航常量新增分区与手机短标签，并引入应�
   - `marketStatusTimeLabel: ComputedRef<string>`（今天 → `HH:MM`；跨日 → `MM/DD HH:MM`）
   - 新的 DOM 契约：`button[data-testid="market-status-control"]`，其 `data-state` 为 `dataState` 原值（`connecting`/`live`/`stale`/`error`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/frontend/useQuotesStore.test.ts`：
 
@@ -265,12 +265,12 @@ describe('行情状态标签', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/useQuotesStore.test.ts`
 Expected: FAIL —— `marketStatusLabel` / `marketStatusTimeLabel` 未定义。
 
-- [ ] **Step 3: 实现 store computed**
+- [x] **Step 3: 实现 store computed**
 
 在 `frontend/src/stores/useQuotesStore.ts` 的 `fetchedLabel` computed（`:53`）**之后**插入（必须在其后：本块引用了 `lastUpdatedLabel`）：
 
@@ -302,12 +302,12 @@ Expected: FAIL —— `marketStatusLabel` / `marketStatusTimeLabel` 未定义。
     marketStatusTimeLabel,
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/useQuotesStore.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 改造顶栏与页脚模板**
+- [x] **Step 5: 改造顶栏与页脚模板**
 
 `frontend/src/App.vue` 三处编辑：
 
@@ -349,7 +349,7 @@ Expected: PASS
 
 > 提示文案分工：`data-tooltip="刷新行情"` 沿用既有 CSS tooltip 惯例；`providerLabel`/`dataStatusText` 按 spec §6 进原生 `title`（浏览器悬停可见），`aria-label` 承担「状态 + 时间 + 点击刷新行情」的读屏语义。`loading` 时的 `spinning` 类与 `.spinning` 样式（`styles.css:901`）保持现状。
 
-- [ ] **Step 6: 补 CSS 并删除废弃徽标样式**
+- [x] **Step 6: 补 CSS 并删除废弃徽标样式**
 
 `frontend/src/styles.css`：删除 `.demo-badge`（`:556`）、`.demo-badge-stale`（`:570`）与 `.demo-badge .live-dot`（`:576`）三条规则——即 `:556-580` 整段（已核对该段连续、无与其他选择器共用；删前再以 `Get-ChildItem frontend\src -Recurse -Include *.vue | Select-String -Pattern 'demo-badge'` 确认 0 命中），随后在 `.topbar-date` 变体规则（`:682` 起）之后追加（**文字色须用浅色面 token**：`--status-gold`/`--status-coral` 是浅色调，给状态点填充尚可（`.status-dot.stale/.error` 现用），但作为白底顶栏的**文字**色对比度不足，会弱化现状警示强度）：
 
@@ -394,12 +394,12 @@ Expected: PASS
 
 （`.status-dot` 及其 `.live/.stale/.error` 变体样式保留：本任务删掉的是侧栏区块的用法，样式在 Task 3 之后仍被本控件消费。）
 
-- [ ] **Step 7: 运行前端全量测试**
+- [x] **Step 7: 运行前端全量测试**
 
 Run: `npx vitest run`
 Expected: PASS（`useAlertsStore.test.ts` 仍须通过——铃铛 `aria-label="通知中心"` 与 `alert-code-chip` 未被触碰）。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add frontend/src/App.vue frontend/src/stores/useQuotesStore.ts frontend/src/styles.css tests/frontend/useQuotesStore.test.ts
@@ -419,7 +419,7 @@ git commit -m "feat: 行情状态收归顶栏单控件，页脚去掉重复的�
 - Consumes: Task 1 的 `NAV_GROUPS`、`NAV_ITEMS.group/shortLabel`、`APP_VERSION`
 - Produces: 侧栏分区 DOM 契约——每个分区标题为 `.sidebar-section-label` 且文本 ∈ `['研究','验证','执行','风控','系统']`；`.nav-item` 数量为 7
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/frontend/AppShell.test.ts`（含前述共享样板 + `viewStubs`）：
 
@@ -449,12 +449,12 @@ describe('桌面侧栏分区（spec §4）', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/AppShell.test.ts`
 Expected: FAIL —— 组标题尚不存在（`labels` 为空数组）；`.user-profile` 仍存在。
 
-- [ ] **Step 3: 改造侧栏模板**
+- [x] **Step 3: 改造侧栏模板**
 
 `frontend/src/App.vue` 的 `<aside class="sidebar">` 内：删除 `market-switcher` 区块（`:21-30`）、`sidebar-section-label`「数据连接」与 `sidebar-data-note` 区块（`:50-57`）、`sidebar-note` 区块（`:72-80`）、`user-profile` 区块（`:82-91`）；`primary-nav`（`:32-48`）替换为分区渲染，并在主题开关之后追加版本号：
 
@@ -505,7 +505,7 @@ const navSections = computed(() => [
 
 **同任务内必须清理解构**：`market-switcher` 是 `App.vue` 里 `marketStatus` 的唯一渲染点（`:29`），删掉它之后 `marketStatus`（`:328` 解构）成为未使用变量，会被 pre-commit 的 eslint 拦下 → 从 `:326-339` 的解构中删除 `marketStatus,`。（`providerLabel`/`dataStatusText` 改由 Task 2 的顶栏状态控件消费，保留。）store 里 `marketStatus` computed 的删除在 Task 6（见文末「与 spec 的偏差记录」）。
 
-- [ ] **Step 4: 清理 CSS**
+- [x] **Step 4: 清理 CSS**
 
 `frontend/src/styles.css`：
 - 删除市场卡样式整段 `:238-276`：`.market-switcher`、`.market-switcher-copy`、`.market-switcher-copy > div`、`.market-switcher-copy strong`、`.market-switcher-copy span:last-child`、`.market-state`——**先** `Get-ChildItem frontend\src -Recurse -Include *.vue | Select-String -Pattern 'market-switcher|market-state'` 确认 0 命中（唯二引用在 App.vue:21-30 与本 Step 已删的解构）。（`@media` 内的同名残留见 Task 5。）
@@ -524,17 +524,17 @@ const navSections = computed(() => [
 }
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/AppShell.test.ts tests/frontend/useAlertsStore.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: 门禁**
+- [x] **Step 6: 门禁**
 
 Run: `npm run verify`
 Expected: 全绿
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add frontend/src/App.vue frontend/src/styles.css tests/frontend/AppShell.test.ts
@@ -554,7 +554,7 @@ git commit -m "feat: 侧栏按工作流分区，删除假 UI 与重复的行情�
 - Consumes: Task 1 常量；Task 2/3 的 `unreadTotalCount`、`switchView`、`renderIcons`
 - Produces: DOM 契约——`button[aria-label="更多"]`；抽屉容器 `.more-sheet`；抽屉项 `.more-sheet-item`（三个：策略/组合风险/个人中心）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/frontend/AppShell.test.ts` 追加：
 
@@ -612,12 +612,12 @@ describe('手机底部栏与更多抽屉（spec §5）', () => {
 
 （`useQuotesStore` / `useWorkspaceStore` / `Alert` 类型补进文件顶部 import；`nav-count` 的值断言用 1 条未读 + 1 条已读固定住。）
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/AppShell.test.ts`
 Expected: FAIL —— 底部栏仍是 `总览/选股/网格/执行/我的`，`.more-sheet` 不存在。
 
-- [ ] **Step 3: 实现底部栏与抽屉**
+- [x] **Step 3: 实现底部栏与抽屉**
 
 `frontend/src/App.vue` 中 `bottom-nav`（`:279-296`）整体替换：
 
@@ -699,7 +699,7 @@ function goFromMoreSheet(id: string): void {
 `watch(view, ...)` 追加关闭语义（放在既有 `watch(notifOpen, ...)` 附近）：`watch(view, () => { moreSheetOpen.value = false; });`。
 `ref`/`computed`/`nextTick` 需在 `:302` 的 `vue` import 中齐备。
 
-- [ ] **Step 4: 补抽屉 CSS**
+- [x] **Step 4: 补抽屉 CSS**
 
 `frontend/src/styles.css` 在 `.bottom-nav`（`:3714`）区块附近追加：
 
@@ -761,12 +761,12 @@ function goFromMoreSheet(id: string): void {
 
 （底部栏只有 ≤680px 显示；`.bottom-nav` 与 `.more-sheet-*` 的显隐规则保持现有 `@media (max-width: 680px)` 结构不变。）
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/AppShell.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add frontend/src/App.vue frontend/src/styles.css tests/frontend/AppShell.test.ts
@@ -789,7 +789,7 @@ git commit -m "feat: 手机底部栏改为 4 格直连加更多抽屉，徽标�
 
 > **顺序约束（勿在本任务删 `todayLabel`）**：`todayLabel` 的唯一渲染点是 `ViewOverview.vue:11`，它要到 Task 7 才随总览页头一起删除。若在本任务删掉 store 导出，`vue-tsc` 会在 Task 5 的 Step 各门禁里失败。故 `todayLabel` 的删除归属 Task 7。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/frontend/useQuotesStore.test.ts` 追加：
 
@@ -823,12 +823,12 @@ describe('view 白名单归一（spec §10）', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/useQuotesStore.test.ts`
 Expected: FAIL —— `view` 仍为 `'exec'`；`execShowsPlans` 等仍存在。
 
-- [ ] **Step 3: 实现归一并拆除**
+- [x] **Step 3: 实现归一并拆除**
 
 `frontend/src/stores/useQuotesStore.ts`：
 
@@ -864,12 +864,12 @@ function normalizeView(name: unknown): string {
 - 修剪 `@media (max-width: 1060px)`（`:2948` 块）中**只服务于已删元素**的选择器：从 `display: none` 列表删 `.market-switcher-copy > div,`、`.market-state,`、`.sidebar-data-note,`、`.sidebar-note,`、`.user-copy`（保留 `.brand-copy`/`.nav-item span`/`.nav-item kbd`/`.sidebar-section-label`——其中 **`.sidebar-section-label` 必须留**：组标题只在 >1060px 的宽侧栏显示，681-1060px 的图标条里要隐藏），并删除 `.market-switcher { justify-content: center; ... }`（`:2976-2979`）。**保留**该块的 `.nav-item` / `.nav-item svg` / `.nav-count`（681-1060px 的图标条仍在用）
 - ≤680px 侧栏退化为「品牌 + 主题开关 + 版本号」后在 Task 9 Step 2 的人工断点核对中确认（`.sidebar` 是 `display:flex; flex-direction:row`，版本号与主题开关同排）
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/useQuotesStore.test.ts tests/frontend/AppShell.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 机械断言（本任务口径）**
+- [x] **Step 5: 机械断言（本任务口径）**
 
 Run:
 ```powershell
@@ -879,7 +879,7 @@ Select-String -Path frontend\src\styles.css -Pattern 'mobile-exec' | Measure-Obj
 ```
 Expected: 三处计数均为 0（`ViewPortfolio.vue` 的 `d.executed` 不匹配 `mobileExecTab` 这类驼峰模式；`exec` 单词本身不要裸查，会误伤 `executed`）。
 
-- [ ] **Step 6: 门禁并提交**
+- [x] **Step 6: 门禁并提交**
 
 ```bash
 npm run verify
@@ -902,7 +902,7 @@ git commit -m "refactor: 拆除手机端 exec 伪视图并给 view 加白名单�
 
 > **状态带只放数字，不放注解**：KPI③ 的「待重新回测/样本外超额」与 KPI④ 的「活跃计划/止损触及」正是本任务要删掉的重复行（§7），若把它们搬进状态带就等于没删。`filteredRows`/`presetName` 的归属是「发现机会」面板（`:58`、`:80`、`:94`，本任务保持原样）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/frontend/ViewOverview.test.ts`（共享样板 + 视图直挂）：
 
@@ -960,12 +960,12 @@ describe('总览状态带（spec §7）', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/ViewOverview.test.ts`
 Expected: FAIL —— `.desk-status-strip` 不存在；`.desk-kpi` 存在；文本含「验证策略」。
 
-- [ ] **Step 3: 实现状态带**
+- [x] **Step 3: 实现状态带**
 
 `frontend/src/views/ViewOverview.vue` 用状态带替换 `:21-49` 的 `desk-kpis` 区块：
 
@@ -989,7 +989,7 @@ Expected: FAIL —— `.desk-status-strip` 不存在；`.desk-kpi` 存在；文�
 
 （指数段用 `<span>` 而非禁用按钮：它就是本页「盘面温度」的内容，不做跳转；其余三段分别跳选股器 / 策略 / 个人中心。`screenRows` 的 `--` 兜底无需：空数组渲染 `0`，与 KPI② 现状一致。）
 
-- [ ] **Step 4: 删除重复面板与重复行**
+- [x] **Step 4: 删除重复面板与重复行**
 
 `frontend/src/views/ViewOverview.vue`：
 - 删除「验证策略」整张 `<section class="desk-panel surface">`（`:102-128`，含其 kicker/h3/`.desk-stat-rows` 三行与两个按钮）
@@ -1000,7 +1000,7 @@ Expected: FAIL —— `.desk-status-strip` 不存在；`.desk-kpi` 存在；文�
 
 `frontend/src/stores/useQuotesStore.ts`：删除 `marketStatus` computed（`:40-45`）与返回对象中的 `marketStatus,`（`:237`）——它是 `dataState` 的**第三种复述**（`已连接/缓存/断开/连接中`，与 `dataStatusText`、顶栏状态控件同义），两个渲染点（App.vue:29、ViewOverview:28）本批均已删除。理由与回退方式见文末「与 spec 的偏差记录」。
 
-- [ ] **Step 5: 状态带 CSS**
+- [x] **Step 5: 状态带 CSS**
 
 `frontend/src/styles.css`：删除 `.desk-kpis`、`.desk-kpi`、`.desk-kpi-label`、`.desk-kpi strong`、`.desk-kpi-note`（`:3603-3632`；先 `Get-ChildItem frontend\src -Recurse -Include *.vue | Select-String -Pattern 'desk-kpi'` 确认 0 命中），新增：
 
@@ -1045,12 +1045,12 @@ Expected: FAIL —— `.desk-status-strip` 不存在；`.desk-kpi` 存在；文�
 
 （不再需要 `.desk-status-note`：注解一律不进状态带。）
 
-- [ ] **Step 6: 运行测试确认通过**
+- [x] **Step 6: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/ViewOverview.test.ts`
 Expected: PASS
 
-- [ ] **Step 7: 门禁并提交**
+- [x] **Step 7: 门禁并提交**
 
 ```bash
 npm run verify
@@ -1073,7 +1073,7 @@ git commit -m "feat: 总览首屏压成一行状态带，删除与面板逐字�
 - Consumes: Task 2（顶栏承担数据日期）、Task 3（侧栏已去 kicker 无关）
 - Produces: 视图内不再有这种 h2/说明；`.view-heading-actions` 一律保留
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/frontend/AppShell.test.ts` 追加：
 
@@ -1088,7 +1088,7 @@ describe('标题唯一化（spec §8）', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/AppShell.test.ts tests/frontend/useQuotesStore.test.ts`
 Expected: FAIL —— `.topbar-eyebrow` 仍存在；`todayLabel` 仍在 store 上。
@@ -1105,7 +1105,7 @@ describe('todayLabel 已随总览页头移除（spec §10）', () => {
 });
 ```
 
-- [ ] **Step 3: 逐视图删除装饰标题与 kicker**
+- [x] **Step 3: 逐视图删除装饰标题与 kicker**
 
 删除规则：删 `<span class="section-kicker">…</span>` 行、装饰性 `<h2>…</h2>` 行、`<p class="heading-note">…</p>` 行；**同级 `.view-heading-actions` 原样保留**（唯一例外是总览：它的 actions 只剩「数据日期 + 今天日期」，两项都删，空容器一并删除，日期事实已由 Task 2 的顶栏控件承担）。逐个视图的执行清单（行号为 2026-10-15 核对位置，以文本定位为准）：
 
@@ -1118,7 +1118,7 @@ describe('todayLabel 已随总览页头移除（spec §10）', () => {
 - `ViewSettings.vue`：`:5` `PERSONAL HUB`、`:6` h2、`:7` note；`:35` `NOTIFICATIONS`
 - `ViewStockDetail.vue`：`:5` `STOCK DETAIL`。**h2（`:6`，股票名）与 `:7-13` 副信息保留**，降级为内容区标题
 
-- [ ] **Step 4: 层级与样式调整**
+- [x] **Step 4: 层级与样式调整**
 
 - 各视图内容区卡片标题由 `<h3>` 升为 `<h2>`（`.surface-heading` 内），保证 `h1 → h2` 不跳级；
 - `App.vue:97` 删除 `<span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>`（此时 `.topbar-title-row` 只剩 `h1`，样式无需改：它是 `display:flex`）；
@@ -1143,12 +1143,12 @@ describe('todayLabel 已随总览页头移除（spec §10）', () => {
 
 - `ViewGrid.vue` 的动态标题（`:6`）与 `ViewStockDetail.vue` 的股票名标题（`:6`）改为 `<h2 class="surface-title">`（不删，降级为内容区标题）；`ViewGrid` 的 `heading-note`（`:7-15`、`:293`、`:504`、`:592`、`:654`）与 `ViewStockDetail` 的 `:7-13` 副信息保留不动
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `npx vitest run`
 Expected: PASS（含 `ViewGrid.test.ts`/`ViewPlans.test.ts` 等既有视图测试——它们的断言不依赖 kicker/标题文本，已核对）
 
-- [ ] **Step 6: 机械断言**
+- [x] **Step 6: 机械断言**
 
 Run:
 ```powershell
@@ -1158,7 +1158,7 @@ Get-ChildItem frontend\src -Recurse -Include *.vue,*.ts | Select-String -Pattern
 ```
 Expected: 三者计数均为 0。
 
-- [ ] **Step 7: 门禁并提交**
+- [x] **Step 7: 门禁并提交**
 
 ```bash
 npm run verify
@@ -1183,7 +1183,7 @@ git commit -m "refactor: 视图标题唯一化，删除装饰标题与 34 处英
 - Consumes: `selectStock(code: string, fromView?: string)`、`detailReturnView`、`VIEW_META`
 - Produces: 5 处新入口；`ViewStockDetail` 返回按钮文本为 `返回{来源名}`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/frontend/ViewPlans.test.ts` 追加（沿用该文件既有样板：`useWorkspaceStore` + `flushPromises`；**`activePlans` 是 workspace 的 computed**，所以测试要写 `workspace.plans` 而不是 `activePlans`）：
 
@@ -1269,12 +1269,12 @@ it('通知收件箱的代码可下钻，且不改动标记已读行为', async (
 
 > 若既有测试文件的 mount 样板与本计划示例不同，**以既有文件的样板为准**，只追加用例（并补上缺的 import 与 `nextTick`/`flushPromises`）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/ViewPlans.test.ts tests/frontend/ViewStockDetail.test.ts tests/frontend/ViewPortfolio.test.ts tests/frontend/ViewSettings.test.ts`
 Expected: FAIL —— 三个 `data-testid` 均不存在。
 
-- [ ] **Step 3: 实现 5 处入口**
+- [x] **Step 3: 实现 5 处入口**
 
 统一模式（按钮而非 block 元素，键盘可聚焦）：
 
@@ -1357,7 +1357,7 @@ Expected: FAIL —— 三个 `data-testid` 均不存在。
   ```
   并从 `@/modules/constants` 引入 `VIEW_META`（`computed` 已在 `:106` 引入）。
 
-- [ ] **Step 4: 补 `.code-link` 样式**
+- [x] **Step 4: 补 `.code-link` 样式**
 
 `frontend/src/styles.css` 新增：
 
@@ -1380,12 +1380,12 @@ Expected: FAIL —— 三个 `data-testid` 均不存在。
 }
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `npx vitest run tests/frontend/ViewPlans.test.ts tests/frontend/ViewSettings.test.ts tests/frontend/ViewPortfolio.test.ts tests/frontend/ViewStockDetail.test.ts tests/frontend/useAlertsStore.test.ts`
 Expected: PASS（最后一个确认通知面板既有契约未破）
 
-- [ ] **Step 6: 门禁并提交**
+- [x] **Step 6: 门禁并提交**
 
 ```bash
 npm run verify
@@ -1404,7 +1404,7 @@ git commit -m "feat: 计划/提醒/交易对补下钻入口，详情返回带来
 - Consumes: 前 8 个任务的产物
 - Produces: 可复核的验收记录
 
-- [ ] **Step 1: 跑全量机械断言**
+- [x] **Step 1: 跑全量机械断言**
 
 Run:
 ```powershell
@@ -1418,13 +1418,13 @@ Run:
 ```
 Expected: 全部为 0。
 
-- [ ] **Step 2: 五个断点人工核对**
+- [x] **Step 2: 五个断点人工核对**
 
 Run: `npm run dev`，在浏览器逐宽度核对 1260 / 1180 / 1060 / 900 / 680px：
 ① 侧栏分区标题与 7 个导航项；② 顶栏状态控件的三态（含断网/跨日文案）；③ ≤680px 底部 4 格 + 更多抽屉（分组标题、徽标、点击切视图后关闭）；④ 页脚仅剩免责声明；⑤ 无横向溢出、无文字截断。
 把每一档的结论（通过/发现的问题）写进最终报告；发现的问题当场修复并补提交。
 
-- [ ] **Step 3: 更新文档**
+- [x] **Step 3: 更新文档**
 
 - `AGENTS.md`：项目布局段中 `App.vue` / `constants.ts` / `styles.css` 描述更新为「分区导航 + 顶栏唯一状态控件 + 手机更多抽屉 + 无装饰 kicker」；前端视图清单补充「8 视图标题由 `VIEW_META` 单一驱动」。
 - `CHANGELOG.md`：在 v0.7.2 段落内追加小节：
@@ -1441,12 +1441,12 @@ Run: `npm run dev`，在浏览器逐宽度核对 1260 / 1180 / 1060 / 900 / 680p
   ```
 - `ROADMAP.md`：勾选「整体界面优化」中本批覆盖的子项，注明 ③b（交互一致性）待做。
 
-- [ ] **Step 4: 最终门禁**
+- [x] **Step 4: 最终门禁**
 
 Run: `npm run verify`
 Expected: 全绿（vitest 全通过、`vue-tsc` 干净、pytest 679 项、覆盖率不低于 93%）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add AGENTS.md CHANGELOG.md ROADMAP.md
@@ -1508,4 +1508,20 @@ git commit -m "docs: 收口第③a批文档并记录验收结论"
 - **偏差**：删除 `stores/useQuotesStore.ts` 的 `marketStatus` computed（spec §10 只列了 `mobileExecTab`/`execShowsPlans`/`execShowsAlerts`/`todayLabel`）。
 - **依据**：核对 `:40-45` 后确认它是 `dataState` 的第三次复述（`已连接/缓存/断开/连接中`，与 `dataStatusText`、本批新增的顶栏状态控件同义）。它不是独立事实：代码里根本没有「交易中/已收盘」这类行情时段字段（若确有，本批会保留其唯一渲染点）。它仅有的两个渲染点 `App.vue:29`（Task 3 删）与 `ViewOverview.vue:28`（Task 6 删）都在本批消失，留着就是死代码。
 - **回退**：若复审要求保留，只需在 Task 6 跳过该步并保留 store 导出（不动，也不会有任何渲染点）。
+
+**7. 执行期裁定与验收修订**（执行过程中由用户拍板 / 控制方修订，均已落地，验收后补记）
+
+1. **`.sidebar-spacer` 在 ≤680px 保持隐藏**（Task 5 修复轮）：计划原文要求删除该规则，结果手机顶条的 `flex: 1` 把主题开关与版本号推到最右；用户裁定恢复 `display: none`，保留「品牌 + 主题开关 + 版本号」左对齐。
+2. **`.view-heading` 对齐机制改写**（Task 7 修复轮）：计划原文的 `justify-content: flex-end` 未加限定，会把 `ViewGrid` / `ViewStockDetail` 的保留标题推到右侧（`ViewGrid` 在 compare/multi_factor 模式下左半边全空）。用户裁定改为 `.view-heading > .view-heading-actions { margin-left: auto; }`——动作仍右对齐、标题回左，两种页头形态都成立，且不波及 `ViewSettings` 面板内的同名容器。
+3. **`.surface-title` 降级生效**（Task 7 修复轮）：计划新增的 `.surface-title` 被 `.view-heading h2` 权重覆盖而完全失效。用户裁定补 `.view-heading h2.surface-title { font-size: var(--fs-md); }`，两处保留标题真正降到内容级；真实渲染核对为 14px 且贴左。
+4. **`HHI&nbsp;` 回退为普通空格**（Task 7 修复轮）：为让大写英文标签正则归零而改的 `&nbsp;` 被裁定为「为指标而归零」，已回退。机械验收据此接受**一处已记录例外**（`ViewPortfolio.vue` 的 `HHI ` 指标读数，非装饰标签），并以**大小写敏感**方式复核（PowerShell `Select-String` 默认不敏感，会把品牌 `Atlas` 一并计入）。
+5. **Task 9 验收修订**：`marketStatus` 残留断言改用 `marketStatus(?!\w*Label)`（否则会误伤顶栏仍在消费的 `marketStatusLabel` / `marketStatusTimeLabel`）；顺带删除 Task 6 遗留的零消费死 CSS（`.desk-stat-rows` / `.desk-stat-row` / `.desk-stat-row-risk strong`）。
+6. **第 2 步「五个断点人工核对」的执行方式**：本会话无法改视口，改为用本地真实 chromium（`npm run dev` + 真后端）在 1440 / 1260 / 1180 / 1060 / 900 / 680 六档跑真实渲染 + DOM 探针 + 截图（截图与 `report.json` 在 gitignore 的 `.superpowers/sdd/2026-10-16-ui-layout-ia/visual/`，临时脚本跑完移出仓库）——**未新增 e2e/playwright 任务**（与第 5 节第 3 条一致）。结论：未发现本批引入的视觉回归；`≤1060` 图标条内主题开关文案竖排为批前既有问题（批前批后都没有隐藏该文案的规则），已记入待办。
+7. **终审修复波次**（`977e4d8`）：补回 `.desk-status-strip` 的 16px 间距、补顶栏 / 页脚 / 版本号 DOM 契约测试、补真实挂载视图的页头断言、拆分复盘表下钻 testid 并补缺码守卫、清掉两条扫描残留。
+8. **额外修复**（`07464ef`，用户批准）：模板引用的 `git-compare` / `git-branch` / `pen-line` / `file-pen-line` 从未注册进按需注册表、`alert-triangle` 是 lucide 改名前的旧名（含「数据可能滞后」降级提示图标），五处静默渲染空白 → 补注册 / 改名 + 新增模板扫描防回归用例。均为批前既有问题，与本批布局改动无关。
+
+**8. 最终状态与后续**
+
+- 分支 `feature/ui-layout-ia`，实现提交 `93f4d1f` → `07464ef`（共 13 个），`npm run verify` 全绿（vitest 29 文件 / 309 项、`vue-tsc --noEmit` 0 error、pytest 679 项、覆盖率 93.23%），后端零改动；尚未并入 `develop`。
+- 交接给第 ③b 批（交互一致性）：对话框 Esc / 焦点陷阱 / 滚动锁、`更多` 抽屉缺 Esc 与自关且未被媒体查询限制在 DOM 内、loading/空态规范、Toast 规范、快捷键增补，以及本批记录的两条既有问题（`≤1060` 图标条主题开关文案竖排、下钻控件缺逐行可访问名）。
 
