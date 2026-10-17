@@ -56,6 +56,13 @@ describe('桌面侧栏分区（spec §4）', () => {
     expect(wrapper.text()).not.toContain('林默');
     wrapper.unmount();
   });
+
+  it('导航项声明数字键快捷键（含 7 → 个人中心）', () => {
+    const wrapper = mount(App, { global: viewStubs });
+    const items = wrapper.findAll('.sidebar .nav-item');
+    expect(items.map((node) => node.attributes('aria-keyshortcuts'))).toEqual(['1', '2', '3', '4', '5', '6', '7']);
+    wrapper.unmount();
+  });
 });
 
 describe('手机底部栏与更多抽屉（spec §5）', () => {

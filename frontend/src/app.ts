@@ -9,6 +9,8 @@ import { usePlansStore } from '@/stores/usePlansStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useGridStore } from '@/stores/useGridStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
+import { helpOpen, shortcutFor, toggleHelp } from '@/modules/shortcuts';
+import { isAnyOverlayOpen } from '@/modules/overlayA11y';
 
 /**
  * 应用协调层 — 安装跨 store 响应式副作用（watch）与生命周期钩子。
@@ -22,6 +24,8 @@ export const appOptions = {
     const plans = usePlansStore();
     const settings = useSettingsStore();
     const grid = useGridStore();
+
+    let keydownDisposer: (() => void) | null = null;
 
     // 筛选条件变更 → 持久化 + 重新扫描
     watch(
@@ -85,24 +89,30 @@ export const appOptions = {
       await grid.restoreGridSuggestion();
       workspace.renderIcons();
       workspace.armRefreshTimer();
-      document.addEventListener('keydown', (event) => {
-        if (
-          event.key === '/' &&
-          document.activeElement?.tagName !== 'INPUT' &&
-          document.activeElement?.tagName !== 'TEXTAREA'
-        ) {
-          event.preventDefault();
-          (document.querySelector('.global-search input') as HTMLInputElement | null)?.focus();
+      const onShortcutKeydown = (event: KeyboardEvent) => {
+        const action = shortcutFor(event, { overlayOpen: isAnyOverlayOpen(), helpOpen: helpOpen.value });
+        if (!action) return;
+        if (action.type === 'view') {
+          quotes.switchView(action.view);
+          return;
         }
-        const shortcut = { 1: 'overview', 2: 'screener', 3: 'grid', 4: 'plans', 5: 'monitor', 6: 'portfolio' }[
-          event.key
-        ];
-        if (shortcut && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA')
-          quotes.switchView(shortcut);
-      });
+        if (action.type === 'search') {
+          const input = document.querySelector('.global-search input') as HTMLInputElement | null;
+          if (!input) return; // 无搜索框可聚焦时不吞掉按键（原实现无条件 preventDefault）
+          event.preventDefault();
+          input.focus();
+          return;
+        }
+        event.preventDefault();
+        toggleHelp();
+      };
+      document.addEventListener('keydown', onShortcutKeydown);
+      keydownDisposer = () => document.removeEventListener('keydown', onShortcutKeydown);
     });
 
     onBeforeUnmount(() => {
+      keydownDisposer?.();
+      keydownDisposer = null;
       clearInterval(workspace.refreshTimer);
       clearTimeout(workspace.workspaceSyncTimer);
     });

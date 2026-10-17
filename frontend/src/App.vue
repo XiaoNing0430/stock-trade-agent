@@ -28,6 +28,7 @@
             :class="{ 'is-active': view === item.id }"
             type="button"
             :aria-label="item.label"
+            :aria-keyshortcuts="shortcutForView(item.id) || undefined"
             @click="switchView(item.id)"
           >
             <i :data-lucide="item.icon" aria-hidden="true"></i>
@@ -72,6 +73,7 @@
               type="search"
               placeholder="搜索股票代码或名称"
               aria-label="搜索股票代码或名称"
+              aria-keyshortcuts="/"
               @keydown.enter="searchSymbol"
             />
             <kbd>/</kbd>
@@ -272,6 +274,7 @@
             :key="item.id"
             class="more-sheet-item"
             type="button"
+            :aria-keyshortcuts="shortcutForView(item.id) || undefined"
             @click="goFromMoreSheet(item.id)"
           >
             <i :data-lucide="item.icon" aria-hidden="true"></i><span>{{ item.label }}</span
@@ -293,6 +296,7 @@ import { appOptions } from '@/app';
 import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
 import { formatTime } from '@/modules/format';
 import { effectiveTheme, toggleTheme } from '@/modules/theme';
+import { shortcutForView } from '@/modules/shortcuts';
 import { useOverlayA11y } from '@/modules/overlayA11y';
 import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
