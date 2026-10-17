@@ -66,10 +66,12 @@ export interface OverlayA11yOptions {
 
 export function useOverlayA11y(options: OverlayA11yOptions): void {
   const { id, panelRef, onClose, closeOnEsc = true } = options;
+  let opened = false;
   let restoreTarget: HTMLElement | null = null;
   let panelTabIndexAdded = false;
 
   function onKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return; // 本次事件已由更上层浮层处理（同一 Esc 只关一个浮层）
     if (topOverlayId() !== id) return; // 只有最上层浮层响应键盘
     if (event.key === 'Escape') {
       if (!closeOnEsc) return;
@@ -92,6 +94,8 @@ export function useOverlayA11y(options: OverlayA11yOptions): void {
   }
 
   function open(): void {
+    if (opened) return; // 计数幂等：同一次打开只加一次锁
+    opened = true;
     if (!stack.includes(id)) stack.push(id);
     lockCount += 1;
     if (lockCount === 1) document.body.classList.add('overlay-open');
@@ -118,6 +122,8 @@ export function useOverlayA11y(options: OverlayA11yOptions): void {
   }
 
   function close(): void {
+    if (!opened) return; // 从未打开过的实例不得偷锁/摘 body 类（计数幂等）
+    opened = false;
     const index = stack.indexOf(id);
     if (index !== -1) stack.splice(index, 1);
     lockCount = Math.max(0, lockCount - 1);
@@ -142,6 +148,6 @@ export function useOverlayA11y(options: OverlayA11yOptions): void {
   window.addEventListener('keydown', onKeydown);
   onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown);
-    if (options.isOpen()) close();
+    if (opened) close();
   });
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, nextTick, ref } from 'vue';
+import { defineComponent, h, nextTick, ref, type Ref } from 'vue';
 import { mount } from '@vue/test-utils';
 import {
   focusableWithin,
@@ -110,6 +110,64 @@ describe('useOverlayA11y 行为', () => {
     await b.setProps({ open: false });
     expect(document.body.classList.contains('overlay-open')).toBe(false);
     expect(isOverlayOpen('a')).toBe(false);
+    a.unmount();
+    b.unmount();
+  });
+
+  it('关闭态挂载的浮层不偷锁（计数幂等）', async () => {
+    const a = mount(Harness, { props: { id: 'a', open: true, onClose: vi.fn() }, attachTo: document.body });
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+    const b = mount(Harness, { props: { id: 'b', open: false, onClose: vi.fn() }, attachTo: document.body });
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+    expect(topOverlayId()).toBe('a');
+    await a.setProps({ open: false });
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+    a.unmount();
+    b.unmount();
+  });
+
+  it('同一 Esc 只关栈顶（栈顶先挂载的顺序）', async () => {
+    // 真实接线中关闭信号常为同步生效（Pinia store / 局部 ref）；而经 VTU 根组件更新 props
+    // 是异步重渲染，无法在同一次 keydown 派发内弹出栈顶。故用同结构的面板 harness + ref 驱动。
+    const makeRefHarness = (openState: Ref<boolean>) =>
+      defineComponent({
+        props: { id: { type: String, required: true }, onClose: { type: Function, required: true } },
+        setup(props) {
+          const panel = ref<HTMLElement | null>(null);
+          useOverlayA11y({
+            id: props.id,
+            isOpen: () => openState.value,
+            panelRef: panel,
+            onClose: () => props.onClose(),
+          });
+          return () =>
+            openState.value
+              ? h('section', { ref: panel, 'data-testid': `panel-${props.id}` }, [
+                  h('button', { class: 'a' }, 'A'),
+                  h('button', { class: 'b', disabled: true }, 'B'),
+                  h('button', { class: 'c' }, 'C'),
+                ])
+              : null;
+        },
+      });
+    const bOpen = ref(false);
+    const aOpen = ref(true);
+    const onCloseA = vi.fn(() => {
+      aOpen.value = false;
+    });
+    const onCloseB = vi.fn(() => {
+      bOpen.value = false;
+    });
+    const b = mount(makeRefHarness(bOpen), { props: { id: 'b', onClose: onCloseB }, attachTo: document.body });
+    const a = mount(makeRefHarness(aOpen), { props: { id: 'a', onClose: onCloseA }, attachTo: document.body });
+    await nextTick();
+    bOpen.value = true;
+    await nextTick();
+    expect(topOverlayId()).toBe('b');
+    press('Escape');
+    expect(onCloseB).toHaveBeenCalledTimes(1);
+    expect(onCloseA).not.toHaveBeenCalled();
+    expect(topOverlayId()).toBe('a');
     a.unmount();
     b.unmount();
   });
