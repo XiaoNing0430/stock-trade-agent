@@ -6,6 +6,7 @@ import ViewPlans from '@/views/ViewPlans.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { usePlansStore } from '@/stores/usePlansStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useReviewStore } from '@/stores/useReviewStore';
 import type { Plan } from '@/types/models';
 import { requestJson } from '@/api/client';
 
@@ -569,5 +570,26 @@ describe('ViewPlans', () => {
         vi.unstubAllGlobals();
       }
     });
+  });
+
+  // ── Task 5 UI 交互一致性：复盘加载态 + 计划空态动作 ──
+  it('复盘首次加载显示加载态而非裸 --（spec §7.3-7）', async () => {
+    const review = useReviewStore();
+    review.loading = true;
+    review.review = null;
+    review.expanded = true;
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-loading"]').text()).toContain('正在回放复盘');
+    expect(wrapper.find('[data-testid="review-kpis"]').exists()).toBe(false);
+  });
+
+  it('无计划空态按钮跳转选股器（spec §7.4）', async () => {
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    const quotes = useQuotesStore();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('还没有交易计划'));
+    await empty!.find('button').trigger('click');
+    expect(quotes.view).toBe('screener');
   });
 });
