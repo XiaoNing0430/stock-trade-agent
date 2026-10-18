@@ -77,6 +77,7 @@
                   class="text-button"
                   type="button"
                   data-testid="alert-detail-link"
+                  :aria-label="viewDetailLabel(alert.code, null)"
                   @click="selectStock(alert.code, 'settings')"
                 >
                   查看详情</button
@@ -359,6 +360,7 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { SETTINGS_TABS } from '@/modules/constants';
+import { viewDetailLabel } from '@/modules/format';
 import { themePreference, setTheme } from '@/modules/theme';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';

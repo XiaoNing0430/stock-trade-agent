@@ -252,6 +252,7 @@
                   class="code-link"
                   type="button"
                   data-testid="pair-code-link"
+                  :aria-label="viewDetailLabel(pair.buy.code, quoteFor(pair.buy.code)?.name)"
                   @click="selectStock(pair.buy.code, 'portfolio')"
                 >
                   {{ pair.buy.code }}
@@ -400,7 +401,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { multiLineSvg, type MultiLineSeries } from '@/modules/chart';
-import { formatAmount, formatNumber } from '@/modules/format';
+import { formatAmount, formatNumber, viewDetailLabel } from '@/modules/format';
 import {
   usePortfolioStore,
   type PortfolioDays,
@@ -413,7 +414,7 @@ import { useQuotesStore } from '@/stores/useQuotesStore';
 const store = usePortfolioStore();
 const workspace = useWorkspaceStore();
 const { renderIcons } = workspace;
-const { selectStock, switchView } = useQuotesStore();
+const { selectStock, switchView, quoteFor } = useQuotesStore();
 
 // store.setParam 只写参数不 fetch（已读 store 现状）→ 视图在 chip/输入 handler 里显式 fetchRisk，
 // 不引入参数 watch（避免双路径竞态；参数即点即算，语义与 review 面板同款）。

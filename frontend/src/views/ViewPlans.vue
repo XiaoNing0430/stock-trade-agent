@@ -139,6 +139,7 @@
                       class="code-link"
                       type="button"
                       data-testid="plan-code-link"
+                      :aria-label="viewDetailLabel(plan.code, quoteFor(plan.code)?.name)"
                       @click="selectStock(plan.code, 'plans')"
                     >
                       {{ plan.code }}
@@ -316,6 +317,7 @@
                     class="code-link"
                     type="button"
                     data-testid="review-code-link"
+                    :aria-label="viewDetailLabel(item.code, quoteFor(item.code)?.name)"
                     @click="selectStock(item.code, 'plans')"
                   >
                     {{ item.code }}
@@ -364,7 +366,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import { formatMoney, formatNumber, formatTime } from '@/modules/format';
+import { formatMoney, formatNumber, formatTime, viewDetailLabel } from '@/modules/format';
 import { calculateRr, calculateShares } from '@/modules/planUtils';
 import type { Plan } from '@/types/models';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';

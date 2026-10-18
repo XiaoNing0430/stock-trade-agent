@@ -193,3 +193,25 @@ describe('浮层键盘行为（spec §6）', () => {
     wrapper.unmount();
   });
 });
+
+// ── Task 12 下钻控件逐行可访问名 ──
+describe('通知面板下钻控件可访问名（spec §10.2）', () => {
+  it('面板内「查看详情」按钮带代码式可访问名（提醒标题是事件标题，非股票名）', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a12',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    const wrapper = mount(App, { global: viewStubs });
+    await wrapper.find('button[aria-label="通知中心"]').trigger('click');
+    expect(wrapper.find('button[data-testid="alert-detail-chip"]').attributes('aria-label')).toBe('查看 600519 的详情');
+    wrapper.unmount();
+  });
+});

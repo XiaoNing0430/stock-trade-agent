@@ -369,6 +369,22 @@ describe('ViewPortfolio', () => {
     wrapper.unmount();
   });
 
+  // ── Task 12 下钻控件逐行可访问名 ──
+  it('交易对下钻控件代码只在手 → 可访问名为代码式', async () => {
+    const wrapper = await mountWith(makePayload());
+    await wrapper.find('[data-testid="portfolio-pairs-toggle"]').trigger('click');
+    expect(wrapper.find('[data-testid="pair-code-link"]').attributes('aria-label')).toBe('查看 600519 的详情');
+  });
+
+  // 名称路径端到端：行情里已有该代码的名称（同一次挂载内已加载，不新增请求）→ 名称式可访问名。
+  it('行情已有名称时，交易对下钻控件可访问名带名称', async () => {
+    const quotes = useQuotesStore();
+    quotes.market.quotes = [{ code: '600519', name: '贵州茅台', price: null, change: null, changePct: null }];
+    const wrapper = await mountWith(makePayload());
+    await wrapper.find('[data-testid="portfolio-pairs-toggle"]').trigger('click');
+    expect(wrapper.find('[data-testid="pair-code-link"]').attributes('aria-label')).toBe('查看 贵州茅台 600519 的详情');
+  });
+
   // ── Task 6：KPI「计算中」（spec §7.3-10）+ 净值空态跳转入口（spec §7.4） ──
   // 请求悬挂（永不 resolve）→ store.loading 保持 true，才是真实「首次计算中」的时序；
   // 否则 flushPromises 后 fetchRisk 已收尾（loading=false），断言会退化为恒真/假阴性。

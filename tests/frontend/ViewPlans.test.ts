@@ -592,4 +592,18 @@ describe('ViewPlans', () => {
     await empty!.find('button').trigger('click');
     expect(quotes.view).toBe('screener');
   });
+
+  // ── Task 12 下钻控件逐行可访问名 ──
+  it('计划行与复盘行下钻控件带逐行可访问名', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const workspace = useWorkspaceStore();
+    workspace.plans = [activePlan];
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    const link = wrapper.find('[data-testid="plan-code-link"]');
+    expect(link.attributes('aria-label')).toMatch(/^查看 .*600519 的详情$/);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-code-link"]').attributes('aria-label')).toMatch(/^查看 .*300750 的详情$/);
+  });
 });

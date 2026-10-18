@@ -178,6 +178,7 @@
                       class="text-button"
                       type="button"
                       data-testid="alert-detail-chip"
+                      :aria-label="viewDetailLabel(alert.code, null)"
                       @click="openAlertDetail(alert.code)"
                     >
                       查看详情
@@ -305,7 +306,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
 import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
-import { formatTime } from '@/modules/format';
+import { formatTime, viewDetailLabel } from '@/modules/format';
 import { effectiveTheme, toggleTheme } from '@/modules/theme';
 import { shortcutForView, toggleHelp } from '@/modules/shortcuts';
 import { useOverlayA11y } from '@/modules/overlayA11y';
