@@ -176,6 +176,8 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 - **网格回测假设保守且已披露**（T+1、100 股整数倍、最低佣金、股票卖出印花税、过户费、滑点、涨跌停限制、停牌；70/30 训练/验证拆分）。请勿将回测结果视为未来收益。
 - **通过 `classify_code()` 分类交易品种**（交易所 / 板块 / 证券类型）。涨跌幅限制因板块而异（北交所 30%，创业板/科创板 20%，其他 10%）。
 - **显式 `any` 是接受的约定**，用于前端 `frontend/src/` 中来自外部 API 的动态行情结构（`eslint.config.js` 设置了 `@typescript-eslint/no-explicit-any: 'off'`）。保持类型面尽可能窄；新代码优先使用精确类型。
+- **Pinia 解构纪律：** 响应式状态（ref/computed）绝**不可**直接从 store 解构——只会拿到挂载时快照，绑定写入也会落空；必须 `const { x, y } = storeToRefs(store)`，只有函数才直接解构。
+  已发生三处漏网：`App.vue` 的 `conflictVisible`（`conflictPolicy: 'ask'` 冲突横幅永不显示、忽略按钮写不回去）、`ViewMonitor.vue` 的 `monitorEnabled`/`watchlistCodes`（盯盘开关点不动 store、监控标的数不跟随）、`ViewOverview.vue` 的 `unreadAlerts`/`alerts`（提醒计数与动态列表冻结）。
 - **安全性：** XSS 敏感点为 `showToast`（必须使用 `textContent`）和 `chartSvg`（必须使用 `escapeHtml` 转义插值标签）。保持此纪律。
 - **前端轮询** 由 `armRefreshTimer()` 驱动，遵循 `settingsDraft.refreshInterval`；`refreshAll()` 通过 `refreshInFlight` 防止并发运行。
 - **工作区同步修订锁定：** `GET /api/workspace` 返回 `revision`；`PUT /api/workspace` 接受 `baseRevision`（冲突 → 409，`detail.workspace` 包含服务器快照）和 `force=true` 覆盖。前端在 `workspaceRevision` 中维护最新已知修订，**成功 PUT 后必须采用响应里的新 `revision`**（后端每次保存 +1，基线不跟进会让下一次 PUT 立即 409、并以服务器快照覆盖本地未落盘改动），通过 `settingsDraft.conflictPolicy` 解决 409：`server`（默认）自动采用服务器快照，`local` 自动强制保存本地版本，`ask` 显示冲突横幅"采用服务器版本" / "用本地覆盖"——绝不自动重试 409。

@@ -212,7 +212,8 @@ const strategy = useStrategyStore();
 const { errorMessage, selectedIndex, indices, loading, indexHistory } = storeToRefs(quotes);
 const { breadth, screenRows, filteredRows, presetName, presetHits } = storeToRefs(screener);
 const { strategyStats } = storeToRefs(strategy);
-const { unreadAlerts, alerts, refreshAll, renderIcons } = workspace;
+const { unreadAlerts, alerts } = storeToRefs(workspace);
+const { refreshAll, renderIcons } = workspace;
 const { applyPreset } = screener;
 const { switchView, selectStock } = quotes;
 

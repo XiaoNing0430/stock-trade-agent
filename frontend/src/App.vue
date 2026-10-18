@@ -328,7 +328,9 @@ const alerts = useAlertsStore();
 const assist = useAssistStore();
 const scan = useScanStore();
 
-const { conflictVisible, adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
+// 响应式状态必须经 storeToRefs 解构，直接解构只会拿到挂载时快照（函数才可直接解构）
+const { conflictVisible } = storeToRefs(workspace);
+const { adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
 const {
   view,
   dataState,
