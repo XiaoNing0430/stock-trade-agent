@@ -2004,8 +2004,8 @@ Task 1 的锁规则 `body.overlay-open .view-panel.is-active { overflow: hidden;
 `9162421`（2026-08-29）引入，**早于本批**。
 - **控制器裁定**：该 fail 违**本批自身验收准则**「浮层打开时背景不可滚动」，且 8 个视图中有 1 个静默失效 → 属本批范围，**授权修复**（记录为裁定，非实现者偏离）。
 - **修复（仅一处声明）**：`body.overlay-open .view-panel.is-active { overflow: hidden !important; }` —— 锁声明与
-  `.screener-view` 声明同为 `!important` 后由特异性裁决：`(0,3,0)`（`body.overlay-open` 类 + `.view-panel.is-active`
-  两类的后代组合，1 元素 + 2 类）**>** `(0,1,0)`（`.screener-view` 单类）→ 浮层打开时锁胜出；浮层关闭后
+  `.screener-view` 声明同为 `!important` 后由特异性裁决：`(0,3,1)`（`body` 元素 + `.overlay-open` / `.view-panel` /
+  `.is-active` 三类）**>** `(0,1,0)`（`.screener-view` 单类）→ 浮层打开时锁胜出；浮层关闭后
   `.screener-view` 的 `overflow:auto` 照常生效（页面单滚动模型不受损）。未触碰 `.screener-view`、未改规则位置、未加第二条规则。
 - **修复提交**：`4bc6606` `fix: 修复浮层滚动锁在选股器视图被 !important 覆盖`（1 file changed, +2 −1）。
 - **复验**：重跑真实浏览器验收（真后端）→ `.screener-view` 浮层打开 `overflow` 现为 `hidden`，**29 pass / 0 fail / 0 not-exercised**；其余 28 条（含 1440/1060/900/680 四档）无回归。CSS 变更影响的门禁复跑：`npx vitest run` 33 files / 359 tests 全绿、`npx vue-tsc --noEmit` exit 0；CSS-only 变更**未**重跑 pytest（`npm run verify` 全量非必需，此处如实说明）。
@@ -2026,15 +2026,27 @@ Task 1 的锁规则 `body.overlay-open .view-panel.is-active { overflow: hidden;
 - Task 9：`isTypingTarget` 用 `??` 回退（brief 逐字版在 jsdom 不可通过）；`/` 的 `preventDefault` 改为仅有搜索框时执行。
 - Task 10/11/12：见账本（`X` 图标早已注册、`.dialog-head` 新增面板作用域样式、Task 11 `padding` 惰性声明按 brief 逐字交付、Task 12 name-present 用例落在 `ViewPortfolio.test.ts:381-383`）。
 
+### 8. 终审复验轮 —— 三项 Important 修复 + 规格测试补口（控制器裁定，非偏离）
+两支全分支终审回评（产品码「需修」/ 测试与约束「基本成立、有 nit」）。三项 Important 均判定为**违本批自身规格**，控制器裁定修复；其余 minor 保持延期。
+- **Important-1（产品）组合风险首屏净值区误报空态**：首次 `/api/portfolio/risk` 在飞时 `store.loading===true` 且 `hasNavPoints===false` → 渲染结论式空态「暂无计划持仓」（违规格 §7.1「没有数据」须**请求成功且结果集为空」）。修复：在既有净值分支前插入 `store.loading && !hasNavPoints` 的 `.loading-state`（`data-testid="portfolio-nav-loading"`，`role="status"`，文案「正在计算组合净值」），原空态降级为 `v-else-if`（链连续，图表分支条件不动）。守卫含 `!hasNavPoints` → 有数据时重算仍显示真实曲线（同 KPI 槽纪律）。确定性用例落 `ViewPortfolio.test.ts`（`holdRequest()` 悬挂请求 → loading 在、空态不在；已有 payload + loading 在 → 曲线在、二者皆无）。
+- **Important-2（产品）帮助浮层缺规格要求的 `Enter` 行**：规格 §9.3 要求键表覆盖 `/`、`1`–`7`、`?`、`Esc` **+ `Enter` 在搜索框/回测参数框的提交语义**。修复：`ShortcutHelpDialog.vue` 的 `rows` 末尾补 `{ keys: 'Enter', label: '在搜索框 / 回测参数框提交' }`；`ShortcutHelpDialog.test.ts` 新增该行渲染断言。
+- **Important-3（证据）滚动锁修复无仓内守卫**：本批唯一产品修复（`4bc6606`）仅一处 CSS 声明，其证明只存在于 gitignored 的 `visual/`。修复：新增 `tests/frontend/stylesContract.test.ts`（node `fs` 读 `frontend/src/styles.css`，手法照 `lucideIcons.test.ts`）：归一化空白、剥注释、**按选择器文本**匹配规则块，断言锁规则存在且 `overflow: hidden !important`、竞争 `.screener-view` 仍 `overflow: auto !important`（同为 `!important`）、且锁选择器特异性严格更大（实测并断言 `(0,3,1)` **>** `(0,1,0)`，注释内报告数字）。同时更正 `styles.css` 陈旧注释 `(0,3,0)` → `(0,3,1)`。
+- **规格 §11 测试缺口一并补口**：`overlayA11y.test.ts` 增 `display:none` 与 `inert` 元素的 `focusableWithin` 用例（规格 §11 列 `disabled / display:none / tabindex=-1`）；`toastQueue.test.ts` 上限改**字面 `3`**（不再导入 `TOAST_CAP`，防 1–2 上限蒙混）、增 `.toast-pulse` 去重重放高亮（§8.2-1）、增 `focusin` 暂停 / `focusout` 重计时、增真实 `resetToasts` 用例（原被同 `beforeEach` 的 `innerHTML` 重置掩盖）；`ViewScreener.test.ts` 增 `enableAutoUnmount(afterEach)`（本文件挂载会打开 `custom-strategy` 浮层的组件，不卸载会残留同 id 陈旧实例；同 Task 2 在 `PlanDraftDialog.test.ts` 的处理）。
+- **复验**：`npx vitest run` **34 files / 369 tests** 全绿（原 33/359）；`npx vue-tsc --noEmit` **exit 0**。真实浏览器验收（真后端）重跑 → **31 pass / 0 fail / 0 not-exercised**（脚本外置；帮助行断言由 `rows>=9` 扩为 `rows>=9 && hasEnter`，并新增 2 条 NAV 首屏加载态探针：`page.route` 延迟 `/api/portfolio/risk` → `loading=1 / empty=0`，放行后加载态归零）。`visual/report.json` 与 12 张截图已刷新。机械断言 **C1 复跑仍为 0**（新增 `loading-state` 块不含 `empty-state` 类，不触发）。
+- **已接受的证据缺口（显式记录，不静默）**：`app.ts` 键盘分发器的**接线**（`1`–`7` → 视图切换、`/` 聚焦、`?` 切换、浮层抑制）**无仓内集成测试**；其行为由真机浏览器验收 + 决策级单元测试（`shortcuts.ts` / `overlayA11y.ts`）覆盖。
+- **规格文档漂移（§6.3）**：桌面端被隐藏的元素是 `.bottom-nav`，而非 more-sheet 背板；结论「无键盘风险」仍成立。
+
 ---
 
 ## 批次最终状态
 
 - **分支**：`feature/ui-interaction-consistency`（截至 `2d2384a` + 本收口提交）。
-- **门禁**：`npx vitest run` 33 files / **359 tests** 全绿；`npx vue-tsc --noEmit` **exit 0**；`python -m pytest tests/` **679 passed**；后端覆盖率 **93.23% ≥ 80%**；`git diff --stat develop...HEAD -- backend/` **空**。（滚动锁修复为 **CSS-only**，仅复跑 vitest + vue-tsc，未重跑 pytest。）
-- **真实验收**：**29 pass / 0 fail / 0 not-exercised**（修复后复验；选股器滚动锁断言已由 fail → pass，其余 28 条无回归，四档宽度均复跑）。
-- **机械断言**：C1/C3/C4/C6/C7 符合；C2/C5/C8/C9 计划期望写错（§3，非产品缺陷）。
-- **已修复（本批 · 控制器裁定）**：选股器滚动锁失效（`styles.css` 锁声明加 `!important` + 特异性裁决，§4；提交 `4bc6606`）。
-- **发现（上报，未修 · 本批不触碰）**：`/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1；§5）。**早于本批**，属既有工作区同步缺陷。
-- **收口提交**：`docs: 勾选第③b批计划步骤并补记执行期裁定与最终状态`；滚动锁修复 `4bc6606` `fix: 修复浮层滚动锁在选股器视图被 !important 覆盖`；本次文档更正 `docs: 补记选股器滚动锁修复与第③b批最终状态`（`.superpowers/` 证据与账本按 `.gitignore:46` 不入库）。
+- **门禁**：`npx vitest run` **34 files / 369 tests** 全绿（终审复验轮由 33/359 增至 34/369）；`npx vue-tsc --noEmit` **exit 0**；`python -m pytest tests/` **679 passed**；后端覆盖率 **93.23% ≥ 80%**；`git diff --stat develop...HEAD -- backend/` **空**，`-- tests/` 非空但全部落在 `tests/frontend/`（无后端测试改动）。（滚动锁修复为 **CSS-only**，仅复跑 vitest + vue-tsc，未重跑 pytest；终审复验轮新增测试同样只涉及前端。）
+- **真实验收**：**31 pass / 0 fail / 0 not-exercised**（终审复验轮重跑；含选股器滚动锁断言、帮助浮层 Enter 行断言、新增 2 条 NAV 首屏加载态探针；1440/1060/900/680 四档均复跑，12 张截图刷新）。
+- **机械断言**：C1/C3/C4/C6/C7 符合；C2/C5/C8/C9 计划期望写错（§3，非产品缺陷）。C1 在终审复验轮复跑仍为 **0**。
+- **已修复（本批 · 控制器裁定）**：① 选股器滚动锁失效（`styles.css` 锁声明加 `!important` + 特异性裁决 `(0,3,1)`>`(0,1,0)`，§4；提交 `4bc6606`）；② 组合风险首屏净值区误报空态（§8 Important-1）；③ 帮助浮层缺 `Enter` 提交语义行（§8 Important-2）。
+- **已补守卫（本批 · 控制器裁定）**：滚动锁修复的仓内契约测试 `tests/frontend/stylesContract.test.ts`（§8 Important-3）+ 规格 §11 列明的浮层/Toast 测试缺口。
+- **已接受的证据缺口（显式记录，不静默）**：`app.ts` 键盘分发器接线（`1`–`7` 视图切换、`/` 聚焦、`?` 切换、浮层抑制）无仓内集成测试，由真机浏览器验收 + 决策级单测覆盖（§8）。
+- **发现（上报，未修 · 本批不触碰）**：`/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1；§5）。**早于本批**，属既有工作区同步缺陷。规格 §6.3 文档漂移（桌面隐藏元素为 `.bottom-nav` 而非 more-sheet 背板；结论仍成立，§8）。
+- **收口提交**：`docs: 勾选第③b批计划步骤并补记执行期裁定与最终状态`；滚动锁修复 `4bc6606` `fix: 修复浮层滚动锁在选股器视图被 !important 覆盖`；文档更正 `09b20ff`；终审复验轮 `ba27199` `fix: 组合风险净值区加载中不再显示空态并补帮助浮层 Enter 行` + `6a65c2e` `test: 补滚动锁 CSS 契约与规格要求的浮层/Toast 用例` + 本次 `docs: 补记终审裁定与复验结果`（`.superpowers/` 证据与账本按 `.gitignore:46` 不入库）。
 - **③ 批次收口**：①③ 子批已完成，②③b 本批 13 个任务全部 complete，无阻塞项。
