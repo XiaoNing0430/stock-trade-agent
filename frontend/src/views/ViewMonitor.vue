@@ -131,7 +131,8 @@ const plans = usePlansStore();
 
 const { monitorStatusLabel, hasWatchTargets, monitorNextScan, providerLabel, fetchedLabel, watchlistQuotes } =
   storeToRefs(quotes);
-const { monitorEnabled, watchlistCodes, renderIcons } = workspace;
+const { monitorEnabled, watchlistCodes } = storeToRefs(workspace);
+const { renderIcons } = workspace;
 const { selectStock, toggleWatch, switchView } = quotes;
 const { scanNow } = screener;
 const { planFor: planForRaw, signalText, signalClass } = plans;
