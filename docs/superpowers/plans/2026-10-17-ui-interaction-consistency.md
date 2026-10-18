@@ -1997,12 +1997,20 @@ Task 13（所有任务完成后）
   要求**的 inert 子树过滤；`skeleton` 零命中。
 - 裁定：四者均为**计划期望写错**（非产品缺陷），按纪律不改期望、只上报。
 
-### 4. 真实浏览器验收唯一 fail（既有缺陷，**未修复**）
-选股器视图滚动锁失效：`body.overlay-open` 下 `.view-panel.is-active.screener-view` 的 computed `overflow` 仍为
-`auto`（期望 `hidden`）。根因 `frontend/src/styles.css:604 .screener-view { overflow: auto !important; }` 压过
-`:600` 的锁规则；由 `9162421`（2026-08-29）引入，**早于本批**。总览视图同条件正确为 `hidden`。按纪律不改产品码，上报。
+### 4. 浮层滚动锁在选股器视图失效 —— **控制器裁定：本批范围内修复**（执行期裁定，非偏离）
+首轮真实验收唯一 fail：`body.overlay-open` 下 `.view-panel.is-active.screener-view` 的 computed `overflow` 仍为
+`auto`（期望 `hidden`）。根因 `frontend/src/styles.css` 的 `.screener-view { overflow: auto !important; }` 压过
+Task 1 的锁规则 `body.overlay-open .view-panel.is-active { overflow: hidden; }`；该 `.screener-view !important` 由
+`9162421`（2026-08-29）引入，**早于本批**。
+- **控制器裁定**：该 fail 违**本批自身验收准则**「浮层打开时背景不可滚动」，且 8 个视图中有 1 个静默失效 → 属本批范围，**授权修复**（记录为裁定，非实现者偏离）。
+- **修复（仅一处声明）**：`body.overlay-open .view-panel.is-active { overflow: hidden !important; }` —— 锁声明与
+  `.screener-view` 声明同为 `!important` 后由特异性裁决：`(0,3,0)`（`body.overlay-open` 类 + `.view-panel.is-active`
+  两类的后代组合，1 元素 + 2 类）**>** `(0,1,0)`（`.screener-view` 单类）→ 浮层打开时锁胜出；浮层关闭后
+  `.screener-view` 的 `overflow:auto` 照常生效（页面单滚动模型不受损）。未触碰 `.screener-view`、未改规则位置、未加第二条规则。
+- **修复提交**：`4bc6606` `fix: 修复浮层滚动锁在选股器视图被 !important 覆盖`（1 file changed, +2 −1）。
+- **复验**：重跑真实浏览器验收（真后端）→ `.screener-view` 浮层打开 `overflow` 现为 `hidden`，**29 pass / 0 fail / 0 not-exercised**；其余 28 条（含 1440/1060/900/680 四档）无回归。CSS 变更影响的门禁复跑：`npx vitest run` 33 files / 359 tests 全绿、`npx vue-tsc --noEmit` exit 0；CSS-only 变更**未**重跑 pytest（`npm run verify` 全量非必需，此处如实说明）。
 
-### 5. 环境取证：`/api/workspace` PUT 200/409 交替（既有缺陷，**未修复**）
+### 5. 环境取证：`/api/workspace` PUT 200/409 交替（既有缺陷，**未修复 · 本批不触碰**）
 前端 `useWorkspaceStore.ts` 的 `scheduleWorkspaceSync`(:137-140)/`syncNow`(:181-184) 成功 PUT 后**不**用响应中的新
 `revision` 更新本地基线；后端 `storage.py:_bump_workspace_revision`(:1246-1251) 每次保存 +1 → 基线永久落后。取证探针
 实测 **4×200 / 4×409 交替**。该缺陷产生杂散 toast「检测到其他页面更新，已自动采用服务器版本」曾插入 Toast 上限观测
@@ -2023,9 +2031,10 @@ Task 13（所有任务完成后）
 ## 批次最终状态
 
 - **分支**：`feature/ui-interaction-consistency`（截至 `2d2384a` + 本收口提交）。
-- **门禁**：`npx vitest run` 33 files / **359 tests** 全绿；`npx vue-tsc --noEmit` **exit 0**；`python -m pytest tests/` **679 passed**；后端覆盖率 **93.23% ≥ 80%**；`git diff --stat develop...HEAD -- backend/` **空**。
-- **真实验收**：**28 pass / 1 fail / 0 not-exercised**；唯一 fail 为既有缺陷（选股器滚动锁，§4）。
+- **门禁**：`npx vitest run` 33 files / **359 tests** 全绿；`npx vue-tsc --noEmit` **exit 0**；`python -m pytest tests/` **679 passed**；后端覆盖率 **93.23% ≥ 80%**；`git diff --stat develop...HEAD -- backend/` **空**。（滚动锁修复为 **CSS-only**，仅复跑 vitest + vue-tsc，未重跑 pytest。）
+- **真实验收**：**29 pass / 0 fail / 0 not-exercised**（修复后复验；选股器滚动锁断言已由 fail → pass，其余 28 条无回归，四档宽度均复跑）。
 - **机械断言**：C1/C3/C4/C6/C7 符合；C2/C5/C8/C9 计划期望写错（§3，非产品缺陷）。
-- **发现（上报，未修）**：① 选股器滚动锁失效（`styles.css:604`，`9162421`）；② `/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1）。二者均**早于本批**。
-- **收口提交**：`docs: 勾选第③b批计划步骤并补记执行期裁定与最终状态`（仅提交本计划文档；`.superpowers/` 证据与账本按 `.gitignore:46` 不入库）。
+- **已修复（本批 · 控制器裁定）**：选股器滚动锁失效（`styles.css` 锁声明加 `!important` + 特异性裁决，§4；提交 `4bc6606`）。
+- **发现（上报，未修 · 本批不触碰）**：`/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1；§5）。**早于本批**，属既有工作区同步缺陷。
+- **收口提交**：`docs: 勾选第③b批计划步骤并补记执行期裁定与最终状态`；滚动锁修复 `4bc6606` `fix: 修复浮层滚动锁在选股器视图被 !important 覆盖`；本次文档更正 `docs: 补记选股器滚动锁修复与第③b批最终状态`（`.superpowers/` 证据与账本按 `.gitignore:46` 不入库）。
 - **③ 批次收口**：①③ 子批已完成，②③b 本批 13 个任务全部 complete，无阻塞项。
