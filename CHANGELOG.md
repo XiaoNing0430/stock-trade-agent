@@ -47,7 +47,14 @@ All notable changes to this project. 版本更新清单。
 - ≤1060px 图标条隐藏侧栏主题开关文字标签（仅留图标 + `aria-label`），避免 82px 宽图标条内文字溢出。
 - 修复：浮层滚动锁在**选股器视图**失效——既有 `.screener-view { overflow: auto !important }` 压过锁规则，为锁声明补 `!important`（特异性 (0,3,1) 胜出）后压回；真浏览器复验该视图 `overflow` 由 `auto` 变 `hidden`，并新增 `stylesContract` 测试守卫此契约。
 - 验收与门禁：真 chromium + 真后端四档宽（1440 / 1060 / 900 / 680）**31 条断言全通过、0 未验证**（Esc 四浮层、面板内 12 次 Tab 循环、滚动锁锁定与恢复、Toast 去重与上限、快捷键切换与全部抑制路径、≤1060 标签隐藏）；`npm run verify` 全绿（vitest 34 文件 / 369 项、`vue-tsc` 0 error、pytest 679 通过、覆盖率 93.23%）。**后端零改动。**
-- 如实披露：快捷键派发器（`app.ts`）的端到端接线无仓库内集成测试，由浏览器验收 + 决策级单测承担；另发现**既有**缺陷 `/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1），本批未触碰，已另开修复分支处理。
+- 如实披露：快捷键派发器（`app.ts`）的端到端接线无仓库内集成测试，由浏览器验收 + 决策级单测承担；另发现**既有**缺陷 `/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1），本批未触碰，已另开修复分支修复（见下节）。
+
+### 修复 — 工作区同步 PUT 200/409 交替（F1）
+
+- 现象：单标签页内定时同步连续 PUT 出现「成功 / 409」交替（真浏览器探针实测 **4×200 / 4×409**），并伴随杂散 toast「检测到其他页面更新，已自动采用服务器版本」。
+- 根因：后端 `storage._bump_workspace_revision` 每次保存 **+1**；前端 `useWorkspaceStore` 的 `scheduleWorkspaceSync` / `syncNow` 成功 PUT 后**丢弃**响应里的新 `revision`，本地 `workspaceRevision` 永久落后一格。下一次 PUT 必带过期 `baseRevision` → 409；默认 `server` 冲突策略随即用服务器快照覆盖本地，**丢弃尚未落盘的本地改动**。
+- 修复：两条写路径成功时采用响应 `revision`（`adoptWorkspaceRevision`）；响应缺该字段时保持原值，绝不清零。
+- 验证：同一真浏览器探针 + 真后端 A/B —— 修复前 4×200 / 4×409，修复后 **8×200 / 0×409** 且 `baseRevision` 逐次跟进（1674→1675→…）；新增 3 条 store 用例（实现回退即红）。
 
 ## [v0.7.1] - 2026-10-03
 
