@@ -141,7 +141,7 @@ describe('顶栏行情状态控件与页脚（spec §6/§7）', () => {
     expect(footer.text()).toContain('研究工具不构成投资建议');
     expect(footer.text()).not.toContain('行情接口');
     // 侧栏版本号真实文案
-    expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.1');
+    expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.2');
     wrapper.unmount();
   });
 });
