@@ -143,7 +143,7 @@ describe('快捷键派发器（createShortcutHandler）', () => {
     dispose();
   });
 
-  it('斜杠：无 .global-search input 时不抛错、不 preventDefault（本轮刻意改变的契约）', () => {
+  it('斜杠：无 .global-search input 时不抛错、不 preventDefault（③b 批确立的既有契约）', () => {
     const dispose = attach({ switchView: vi.fn() });
     const event = press('/');
     expect(event.defaultPrevented).toBe(false);
@@ -249,20 +249,30 @@ describe('真实 appOptions.setup 的监听器注册与注销', () => {
     expect(stores.quotes.switchView).not.toHaveBeenCalled();
   });
 
-  it('初始化链未走完即卸载：链尾仍会补摘监听器（卸载后再按键不生效）', async () => {
+  it('初始化链未走完即卸载：链尾仍会补摘监听器并补清刷新计时器', async () => {
     // 首个 await 卡住，模拟「组件在异步初始化链中途被卸载」
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     stores.workspace.loadWorkspace = vi.fn(() => gate);
+    // 链尾 armRefreshTimer() 真的起一个 interval（真实计时器，仅为拿到可断言的 id）
+    stores.workspace.armRefreshTimer = vi.fn(() => {
+      stores.workspace.refreshTimer = setInterval(() => {}, 1000);
+    });
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
 
     const wrapper = mountHost();
     await Promise.resolve(); // 让 onMounted 进入链并停在 gate（此时尚未注册监听器）
-    wrapper.unmount(); // onBeforeUnmount 此时 keydownDisposer 仍为 null
+    wrapper.unmount(); // onBeforeUnmount 此时 keydownDisposer 仍为 null、refreshTimer 仍为旧值
 
     release();
-    await flushPromises(); // 链继续跑完 → 补摘守护在此生效
+    await flushPromises(); // 链继续跑完 → 补摘/补清守护在此生效
+
+    const timerId = stores.workspace.refreshTimer;
+    expect(timerId).not.toBeNull(); // 链尾确实建了计时器（否则本用例空转）
+    expect(clearSpy).toHaveBeenCalledWith(timerId); // 补清的是链尾新建的那一个
+    clearSpy.mockRestore();
 
     press('2');
     expect(stores.quotes.switchView).not.toHaveBeenCalled();

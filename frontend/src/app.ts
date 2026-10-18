@@ -132,12 +132,14 @@ export const appOptions = {
       const onShortcutKeydown = createShortcutHandler({ switchView: (view) => quotes.switchView(view) });
       document.addEventListener('keydown', onShortcutKeydown);
       keydownDisposer = () => document.removeEventListener('keydown', onShortcutKeydown);
-      // 监听器挂在 onMounted 的异步链末尾：若组件在链跑完前就卸载，onBeforeUnmount 已执行过、
-      // keydownDisposer 当时仍为 null（没摘到东西），这条刚挂上的监听器就永远摘不掉。
-      // 补摘一次即可闭合这个窗口，且不改变初始化顺序。
+      // 监听器与刷新计时器都在 onMounted 异步链的末尾才建立：若组件在链跑完前就卸载，
+      // onBeforeUnmount 早已执行过，keydownDisposer 当时为 null、workspace.refreshTimer 当时也还是旧值，
+      // 于是链尾刚新建的这两项副作用都无人再清。此处各补一次即可闭合本文件在链尾建立的两项；
+      // 其余 store 自建的计时器不在此窗口（也不由本文件负责），初始化顺序不变。
       if (disposed) {
         keydownDisposer();
         keydownDisposer = null;
+        clearInterval(workspace.refreshTimer);
       }
     });
 

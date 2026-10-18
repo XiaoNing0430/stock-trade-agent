@@ -253,17 +253,22 @@ describe('useOverlayA11y 行为', () => {
     wrapper.unmount();
   });
 
-  it('归还目标已脱离 DOM（isConnected=false）时跳过聚焦且不抛错', async () => {
+  it('归还目标已脱离 DOM（isConnected=false）时跳过聚焦（不调用 focus）且不抛错', async () => {
     const onClose = vi.fn();
     const trigger = document.getElementById('trigger') as HTMLButtonElement;
     trigger.focus();
     const wrapper = mount(Harness, { props: { id: 'x', open: false, onClose }, attachTo: document.body });
     await wrapper.setProps({ open: true });
     await nextTick();
+    // restoreTarget（open() 处捕获的 document.activeElement）此刻仍指向 trigger，但 trigger 已断开
     trigger.remove();
+    // 断言「focus 是否被调用」而非「focus 的效果」：jsdom 对已断开节点调用 focus()
+    // 是静默 no-op，只比较 activeElement 在守卫缺失时同样通过（用例无力）。
+    const focusSpy = vi.spyOn(trigger, 'focus');
     await wrapper.setProps({ open: false });
-    await nextTick(); // 若延迟归还对已断开节点调用 focus 会在此抛错 → 用例失败
-    expect(document.activeElement).not.toBe(trigger);
+    await nextTick(); // 延迟归还：守卫 `if (target.isConnected && …)` 生效即不触达 focus
+    expect(focusSpy).not.toHaveBeenCalled();
+    expect(document.activeElement?.closest('[data-testid="panel-x"]')).toBeNull(); // 焦点未被移入浮层
     wrapper.unmount();
   });
 
