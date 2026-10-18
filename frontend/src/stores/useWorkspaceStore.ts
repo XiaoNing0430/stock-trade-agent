@@ -122,6 +122,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let workspaceSyncInFlight = false;
   let workspaceSyncQueued = false;
 
+  /** 成功 PUT 后采用响应携带的新修订号。后端 storage._bump_workspace_revision 每次保存都 +1，
+   *  本地基线不跟进则下一次 PUT 必带落后 baseRevision → 立刻 409，而默认 `server` 策略会
+   *  用服务器快照覆盖本地（丢未保存改动）。响应缺 revision 时保持原值，绝不清零。 */
+  function adoptWorkspaceRevision(result: any) {
+    const next = Number(result?.revision);
+    if (Number.isFinite(next)) workspaceRevision.value = next;
+  }
+
   function scheduleWorkspaceSync() {
     if (!workspaceSynced.value) return;
     if (workspaceSyncInFlight) {
@@ -134,10 +142,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (workspaceSyncInFlight) return;
       workspaceSyncInFlight = true;
       try {
-        await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
+        const result = await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
           method: 'PUT',
           body: JSON.stringify(workspacePayload()),
         });
+        adoptWorkspaceRevision(result);
       } catch (error: any) {
         if (error.status === 409) {
           workspaceSyncQueued = false;
@@ -178,10 +187,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (workspaceSyncInFlight) return { ok: false, message: '同步超时（定时同步长时间占用），请稍后重试' };
     workspaceSyncInFlight = true;
     try {
-      await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
+      const result = await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
         method: 'PUT',
         body: JSON.stringify(workspacePayload()),
       });
+      adoptWorkspaceRevision(result);
       return { ok: true };
     } catch (error: any) {
       if (error.status === 409) return { ok: false, conflict: true };
