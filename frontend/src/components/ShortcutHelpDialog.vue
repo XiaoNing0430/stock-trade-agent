@@ -39,6 +39,7 @@ const rows = computed(() => [
   })),
   { keys: '?', label: '打开 / 关闭帮助' },
   { keys: 'Esc', label: '关闭当前浮层' },
+  { keys: 'Enter', label: '在搜索框 / 回测参数框提交' },
 ]);
 
 function close(): void {

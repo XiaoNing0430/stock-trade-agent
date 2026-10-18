@@ -125,7 +125,16 @@
         </div>
         <span v-if="store.loading" class="muted">计算中…</span>
       </div>
-      <div v-if="!hasNavPoints" class="empty-state" data-testid="portfolio-empty">
+      <div
+        v-if="store.loading && !hasNavPoints"
+        class="loading-state"
+        data-testid="portfolio-nav-loading"
+        role="status"
+      >
+        <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在计算组合净值</strong
+        ><span>回放窗口内的计划交易后显示毛/净净值曲线。</span>
+      </div>
+      <div v-else-if="!hasNavPoints" class="empty-state" data-testid="portfolio-empty">
         <i data-lucide="chart-line" aria-hidden="true"></i>
         <strong>暂无计划持仓</strong>
         <span>窗口内还没有可回放的买入计划——先创建并触发买入计划，再回到这里查看毛/净净值曲线。</span>
