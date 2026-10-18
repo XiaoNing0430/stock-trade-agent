@@ -88,6 +88,16 @@ describe('手机底部栏与更多抽屉（spec §5）', () => {
     wrapper.unmount();
   });
 
+  it('抽屉项沿侧栏同一快捷键映射渲染 aria-keyshortcuts（策略 3 / 组合风险 6 / 个人中心 7）', async () => {
+    // 7 个视图均有快捷键，且抽屉只收未进底部栏的 grid/portfolio/settings —— 故今日不存在
+    // 「抽屉项无快捷键」的合法样例，`shortcutForView(id) || undefined` 的「不渲染属性」分支不可达，无法断言。
+    const wrapper = mount(App, { global: viewStubs });
+    await wrapper.find('.bottom-nav button[aria-label="更多"]').trigger('click');
+    const items = wrapper.findAll('.more-sheet-item');
+    expect(items.map((node) => node.attributes('aria-keyshortcuts'))).toEqual(['3', '6', '7']);
+    wrapper.unmount();
+  });
+
   it('点击抽屉项切视图并关闭抽屉', async () => {
     const wrapper = mount(App, { global: viewStubs });
     await wrapper.find('.bottom-nav button[aria-label="更多"]').trigger('click');
@@ -149,12 +159,13 @@ describe('顶栏行情状态控件与页脚（spec §6/§7）', () => {
 describe('快捷键帮助浮层入口（spec §9.3）', () => {
   it('顶栏唯一致的一个「键盘快捷键」入口，点击打开帮助浮层', async () => {
     const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
-    const help = wrapper
+    const helpButtons = wrapper
       .findAll('.topbar-actions button')
-      .find((node) => node.attributes('aria-label') === '键盘快捷键');
-    expect(help).toBeTruthy();
-    expect(help!.attributes('aria-keyshortcuts')).toBe('?');
-    await help!.trigger('click');
+      .filter((node) => node.attributes('aria-label') === '键盘快捷键');
+    expect(helpButtons).toHaveLength(1); // 唯一性：第二颗同 aria-label 的按钮即让本用例变红
+    const help = helpButtons[0];
+    expect(help.attributes('aria-keyshortcuts')).toBe('?');
+    await help.trigger('click');
     await flushPromises();
     expect(wrapper.find('.shortcut-help-panel').exists()).toBe(true);
     helpOpen.value = false;
@@ -181,15 +192,19 @@ describe('浮层键盘行为（spec §6）', () => {
     wrapper.unmount();
   });
 
-  it('更多抽屉 Esc 关闭并摘掉滚动锁', async () => {
+  it('更多抽屉 Esc 关闭并摘掉滚动锁，焦点归还「更多」按钮', async () => {
     const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
-    await wrapper.find('.bottom-nav button[aria-label="更多"]').trigger('click');
+    const more = wrapper.find('.bottom-nav button[aria-label="更多"]');
+    // jsdom 不会在 dispatchEvent('click') 时移动焦点，显式聚焦以还原真实点击后的焦点归位前置条件
+    (more.element as HTMLElement).focus();
+    await more.trigger('click');
     expect(wrapper.find('.more-sheet').exists()).toBe(true);
     expect(document.body.classList.contains('overlay-open')).toBe(true);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await flushPromises();
     expect(wrapper.find('.more-sheet').exists()).toBe(false);
     expect(document.body.classList.contains('overlay-open')).toBe(false);
+    expect(document.activeElement).toBe(more.element);
     wrapper.unmount();
   });
 });

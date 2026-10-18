@@ -36,7 +36,9 @@ const FOCUSABLE_SELECTOR = [
 ].join(',');
 
 function isVisible(el: HTMLElement): boolean {
-  if (el.hasAttribute('inert')) return false;
+  // 自身或任一祖先带 inert：`closest('[inert]')` 命中自身即涵盖原 hasAttribute 检查，
+  // 且能拦下「祖先子树被 inert」的元素（同属可聚焦树的剔除范围）。
+  if (el.closest('[inert]')) return false;
   const style = window.getComputedStyle(el);
   return style.display !== 'none' && style.visibility !== 'hidden';
 }
@@ -80,10 +82,11 @@ export function useOverlayA11y(options: OverlayA11yOptions): void {
       return;
     }
     if (event.key !== 'Tab') return;
+    // 浮层已开即吞掉 Tab：即便面板尚未/不再挂载（一帧窗口），焦点也不得落到浮层背后的页面。
+    event.preventDefault();
     const panel = panelRef.value;
     if (!panel) return;
     const focusables = focusableWithin(panel);
-    event.preventDefault();
     if (!focusables.length) return;
     const active = document.activeElement as HTMLElement | null;
     if (!active || !panel.contains(active)) {
@@ -101,6 +104,7 @@ export function useOverlayA11y(options: OverlayA11yOptions): void {
     if (lockCount === 1) document.body.classList.add('overlay-open');
     restoreTarget = (document.activeElement as HTMLElement | null) ?? null;
     void nextTick(() => {
+      if (!opened) return; // 同一 tick 内已关闭：延迟聚焦不得把焦点抢回已关闭的浮层
       const panel = panelRef.value;
       if (!panel) return;
       const preferred = panel.querySelector<HTMLElement>('[data-autofocus]');

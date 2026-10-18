@@ -16,10 +16,17 @@ const Harness = defineComponent({
     id: { type: String, required: true },
     open: { type: Boolean, required: true },
     onClose: { type: Function, required: true },
+    closeOnEsc: { type: Boolean, default: true },
   },
   setup(props) {
     const panel = ref<HTMLElement | null>(null);
-    useOverlayA11y({ id: props.id, isOpen: () => props.open, panelRef: panel, onClose: () => props.onClose() });
+    useOverlayA11y({
+      id: props.id,
+      isOpen: () => props.open,
+      panelRef: panel,
+      onClose: () => props.onClose(),
+      closeOnEsc: props.closeOnEsc,
+    });
     return () =>
       props.open
         ? h('section', { ref: panel, 'data-testid': `panel-${props.id}` }, [
@@ -56,6 +63,16 @@ describe('overlayA11y 纯函数', () => {
       '<button class="hidden" style="display:none">H</button>' +
       '<button class="inert" inert>I</button>' +
       '<span tabindex="-1">T</span>';
+    document.body.appendChild(root);
+    expect(focusableWithin(root).map((el) => el.className || el.tagName)).toEqual(['a']);
+  });
+
+  it('focusableWithin 过滤祖先子树带 inert 的元素（closest 沿祖链判定）', () => {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '<div inert><button class="ancestor-inert">I</button></div>' +
+      '<div><span inert><button class="nested-inert">N</button></span></div>' +
+      '<button class="a">A</button>';
     document.body.appendChild(root);
     expect(focusableWithin(root).map((el) => el.className || el.tagName)).toEqual(['a']);
   });
@@ -181,5 +198,112 @@ describe('useOverlayA11y 行为', () => {
     expect(topOverlayId()).toBe('a');
     a.unmount();
     b.unmount();
+  });
+
+  it('closeOnEsc:false 时 Esc 不关闭，但同一浮层的 Tab 焦点陷阱仍生效', async () => {
+    const onClose = vi.fn();
+    const wrapper = mount(Harness, {
+      props: { id: 'noesc', open: true, onClose, closeOnEsc: false },
+      attachTo: document.body,
+    });
+    await nextTick();
+    press('Escape');
+    expect(onClose).not.toHaveBeenCalled();
+    // 同一实例：Tab 仍应回绕（末 → 首），证明关不掉 Esc 不影响陷阱接线
+    (document.querySelector('.c') as HTMLElement).focus();
+    press('Tab');
+    expect(document.activeElement?.className).toBe('a');
+    wrapper.unmount();
+  });
+
+  it('[data-autofocus] 元素优先于 DOM 首个可聚焦元素', async () => {
+    const AutofocusHarness = defineComponent({
+      setup() {
+        const panel = ref<HTMLElement | null>(null);
+        const open = ref(true);
+        useOverlayA11y({ id: 'af', isOpen: () => open.value, panelRef: panel, onClose: () => {} });
+        return () =>
+          open.value
+            ? h('section', { ref: panel, 'data-testid': 'panel-af' }, [
+                h('button', { class: 'first' }, '1'),
+                h('button', { class: 'preferred', 'data-autofocus': '' }, '2'),
+              ])
+            : null;
+      },
+    });
+    const wrapper = mount(AutofocusHarness, { attachTo: document.body });
+    await nextTick();
+    expect(document.activeElement?.className).toBe('preferred');
+    wrapper.unmount();
+  });
+
+  it('面板无可聚焦子元素：面板自身补 tabindex=-1 并接管焦点', async () => {
+    const EmptyPanelHarness = defineComponent({
+      setup() {
+        const panel = ref<HTMLElement | null>(null);
+        useOverlayA11y({ id: 'empty', isOpen: () => true, panelRef: panel, onClose: () => {} });
+        return () => h('section', { ref: panel, 'data-testid': 'panel-empty' }, [h('span', '不可聚焦')]);
+      },
+    });
+    const wrapper = mount(EmptyPanelHarness, { attachTo: document.body });
+    await nextTick();
+    const panelEl = document.querySelector('[data-testid="panel-empty"]') as HTMLElement;
+    expect(panelEl.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(panelEl);
+    wrapper.unmount();
+  });
+
+  it('归还目标已脱离 DOM（isConnected=false）时跳过聚焦且不抛错', async () => {
+    const onClose = vi.fn();
+    const trigger = document.getElementById('trigger') as HTMLButtonElement;
+    trigger.focus();
+    const wrapper = mount(Harness, { props: { id: 'x', open: false, onClose }, attachTo: document.body });
+    await wrapper.setProps({ open: true });
+    await nextTick();
+    trigger.remove();
+    await wrapper.setProps({ open: false });
+    await nextTick(); // 若延迟归还对已断开节点调用 focus 会在此抛错 → 用例失败
+    expect(document.activeElement).not.toBe(trigger);
+    wrapper.unmount();
+  });
+
+  it('栈顶但面板 ref 为空时 Tab 被吞掉（defaultPrevented），焦点不落回背景页', async () => {
+    const NoPanelHarness = defineComponent({
+      setup() {
+        const panel = ref<HTMLElement | null>(null);
+        useOverlayA11y({ id: 'nopanel', isOpen: () => true, panelRef: panel, onClose: () => {} });
+        return () => h('span', '面板尚未挂载');
+      },
+    });
+    const wrapper = mount(NoPanelHarness, { attachTo: document.body });
+    await nextTick();
+    expect(topOverlayId()).toBe('nopanel');
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('同一 tick 内开→关：延迟自动聚焦不得把焦点抢回面板', async () => {
+    const trigger = document.getElementById('trigger') as HTMLButtonElement;
+    trigger.focus();
+    const openRef = ref(false);
+    // 面板常驻 DOM（v-show 风格）：关闭后 panelRef 仍非空，守卫缺失时延迟回调会抢回焦点
+    const PersistentHarness = defineComponent({
+      setup() {
+        const panel = ref<HTMLElement | null>(null);
+        useOverlayA11y({ id: 'persist', isOpen: () => openRef.value, panelRef: panel, onClose: () => {} });
+        return () => h('section', { ref: panel, 'data-testid': 'panel-persist' }, [h('button', { class: 'p1' }, 'P')]);
+      },
+    });
+    const wrapper = mount(PersistentHarness, { attachTo: document.body });
+    const p1 = document.querySelector('.p1') as HTMLButtonElement;
+    const focusSpy = vi.spyOn(p1, 'focus');
+    openRef.value = true; // 同步打开：排队延迟聚焦
+    openRef.value = false; // 同 tick 立即关闭
+    await nextTick();
+    expect(focusSpy).not.toHaveBeenCalled(); // 守卫 `if (!opened) return` 生效即不触达面板
+    expect(document.activeElement?.closest('[data-testid="panel-persist"]')).toBeNull();
+    wrapper.unmount();
   });
 });

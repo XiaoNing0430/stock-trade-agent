@@ -401,6 +401,18 @@ describe('ViewScreener 自定义策略编辑器', () => {
     expect(wrapper.text()).toContain('粗筛区间');
   });
 
+  it('Esc 关闭编辑器（overlayA11y 接线：栈顶响应并把 strategyEditorOpen 置否）', async () => {
+    // 该浮层经 ViewScreener 常驻挂载的 CustomStrategyDialog 接线（AppShell.test.ts 把 view-screener 做了 stub，
+    // 故只有在本文件才能驱动真实触发器 + 真实 store 旗标）。
+    const { screener, wrapper } = await openEditor();
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(true);
+    expect(screener.strategyEditorOpen).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(screener.strategyEditorOpen).toBe(false);
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(false);
+  });
+
   it('从内置策略复制预填表单（名称加副本后缀）', async () => {
     const { wrapper } = await openEditor();
     await wrapper.find('select[aria-label="从内置策略复制"]').setValue('oversold_bounce');

@@ -2781,6 +2781,7 @@ body.overlay-open .view-panel.is-active {
   box-shadow: var(--shadow-sm);
   color: var(--ink-soft);
   font-size: var(--fs-sm);
+  cursor: pointer;
   animation: toast-in 180ms ease both;
 }
 
@@ -2793,10 +2794,6 @@ body.overlay-open .view-panel.is-active {
 
 .toast.error svg {
   color: var(--red);
-}
-
-.toast {
-  cursor: pointer;
 }
 
 .toast-close {
@@ -2924,7 +2921,7 @@ body.overlay-open .view-panel.is-active {
     display: none;
   }
 
-  .sidebar-theme-toggle {
+  .sidebar .sidebar-theme-toggle {
     justify-content: center;
     padding: var(--space-2) 0;
   }
@@ -3378,14 +3375,14 @@ body.overlay-open .view-panel.is-active {
   border-collapse: collapse;
 }
 
-.shortcut-table th {
+.shortcut-help-panel .shortcut-table th {
   width: 84px;
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
   text-align: left;
   vertical-align: top;
 }
 
-.shortcut-table td {
+.shortcut-help-panel .shortcut-table td {
   padding: var(--space-2) 0;
   color: var(--ink-soft);
   font-size: var(--fs-sm);
