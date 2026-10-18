@@ -87,17 +87,10 @@ export function showToast(message: string, tone = 'success', deps: { renderIcons
   deps.renderIcons?.();
   arm(entry);
 
-  // 上限按 DOM 子节点数计（spec §8.2）：remove() 会立刻让条目出队，但节点要淡出 120ms
-  // 才真正摘除；若按 entries 长度淘汰，淡出窗口内的突发入队会让子节点数冲到 4–5。
-  // 故按子节点数逐个摘掉最旧的：有对应条目走既有 remove() 语义（出队/清计时器/挂 .toast-leaving），
-  // 已在淡出的孤儿（条目早已出队）直接摘除、不再二次淡出。两种情况都立即摘除节点以守住上限。
-  while (host.children.length > TOAST_CAP) {
-    const oldest = host.firstElementChild as HTMLElement | null;
-    if (!oldest) break;
-    const entry = entries.find((candidate) => candidate.el === oldest);
-    if (entry) remove(entry);
-    oldest.remove();
-  }
+  // 上限按「存活条数」计（spec §8.2）：remove() 立刻让条目出队，但被淘汰的节点要先淡出 120ms
+  // 才真正摘除——同一句规格既要求淡出，就意味着淡出窗内 DOM 子节点会短暂多出 1 个（4 个过桥）。
+  // 故上限只能数存活条目（entries，即未在淡出的 toast），被淘汰的最旧条目照常走完整淡出。
+  while (entries.length > TOAST_CAP) remove(entries[0]);
 }
 
 export function resetToasts(): void {
