@@ -126,6 +126,25 @@ describe('手机底部栏与更多抽屉（spec §5）', () => {
   });
 });
 
+describe('工作区冲突横幅（store 响应性回归）', () => {
+  it('store 打开冲突后横幅出现，点「忽略」关闭并复位 store 标志', async () => {
+    const workspace = useWorkspaceStore();
+    const wrapper = mount(App, { global: viewStubs });
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+    workspace.conflictVisible = true;
+    await flushPromises();
+    const banner = wrapper.find('.conflict-banner');
+    expect(banner.exists()).toBe(true);
+    expect(banner.attributes('role')).toBe('alert');
+    expect(banner.text()).toContain('检测到其他页面更新了工作区数据');
+    await banner.find('button[aria-label="忽略冲突提示"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.conflict-banner').exists()).toBe(false);
+    expect(workspace.conflictVisible).toBe(false);
+    wrapper.unmount();
+  });
+});
+
 describe('标题唯一化（spec §8）', () => {
   it('顶栏无英文 eyebrow，视图区无 section-kicker 残留类', () => {
     const wrapper = mount(App, { global: viewStubs });

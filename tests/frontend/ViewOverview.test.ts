@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewOverview from '@/views/ViewOverview.vue';
 import { useQuotesStore } from '@/stores/useQuotesStore';
@@ -43,6 +44,30 @@ describe('总览状态带（spec §7）', () => {
     expect(quotes.view).toBe('grid');
     await items[3].trigger('click');
     expect(quotes.view).toBe('settings');
+    wrapper.unmount();
+  });
+
+  it('挂载后替换 alerts，提醒计数与动态列表随之更新（store 响应性回归）', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [];
+    const wrapper = mount(ViewOverview);
+    const alertCount = () => wrapper.findAll('.desk-status-strip .desk-status-item')[3].text().replace(/\s+/g, '');
+    expect(alertCount()).toBe('提醒0');
+    expect(wrapper.findAll('.activity-item')).toHaveLength(0);
+    workspace.alerts = [
+      {
+        id: 'a-late',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        read: false,
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    await nextTick();
+    expect(alertCount()).toBe('提醒1');
+    expect(wrapper.findAll('.activity-item')).toHaveLength(1);
+    expect(wrapper.find('.activity-item').text()).toContain('触及止损');
     wrapper.unmount();
   });
 
