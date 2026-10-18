@@ -49,6 +49,17 @@ describe('overlayA11y 纯函数', () => {
     expect(focusableWithin(root).map((el) => el.className || el.tagName)).toEqual(['a']);
   });
 
+  it('focusableWithin 过滤 display:none 与 inert 元素（spec §11：disabled / display:none / tabindex=-1）', () => {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '<button class="a">A</button>' +
+      '<button class="hidden" style="display:none">H</button>' +
+      '<button class="inert" inert>I</button>' +
+      '<span tabindex="-1">T</span>';
+    document.body.appendChild(root);
+    expect(focusableWithin(root).map((el) => el.className || el.tagName)).toEqual(['a']);
+  });
+
   it('nextFocusTarget 空集返回 null，越界回绕', () => {
     const a = document.createElement('button');
     const b = document.createElement('button');

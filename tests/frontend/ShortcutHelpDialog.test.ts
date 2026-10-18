@@ -30,6 +30,18 @@ describe('快捷键帮助浮层（spec §9.3）', () => {
     helpOpen.value = false;
   });
 
+  it('覆盖 spec §9.3 的 Enter 提交语义行', () => {
+    const wrapper = mount(ShortcutHelpDialog, { attachTo: document.body });
+    const rows = wrapper.findAll('.shortcut-table tr');
+    const enterRow = rows.find((row) => row.find('kbd').text() === 'Enter');
+    expect(enterRow).toBeTruthy();
+    expect(enterRow!.text()).toContain('搜索框');
+    expect(enterRow!.text()).toContain('回测参数框');
+    expect(enterRow!.text()).toContain('提交');
+    wrapper.unmount();
+    helpOpen.value = false;
+  });
+
   it('Esc 关闭（写回 helpOpen=false）', async () => {
     const wrapper = mount(ShortcutHelpDialog, { attachTo: document.body });
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

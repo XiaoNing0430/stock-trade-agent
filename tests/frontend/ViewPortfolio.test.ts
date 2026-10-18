@@ -413,10 +413,31 @@ describe('ViewPortfolio', () => {
     expect(wrapper.find('[data-testid="portfolio-kpis"]').text()).not.toContain('计算中');
   });
 
-  it('无净值空态按钮跳转交易计划（spec §7.4）', async () => {
+  it('首次加载中（请求悬挂）→ 净值区显示「正在计算组合净值」而非空态（spec §7.1）', async () => {
     holdRequest();
     const wrapper = mount(ViewPortfolio);
     await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-nav-loading"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="portfolio-nav-loading"]').text()).toContain('正在计算组合净值');
+    // 请求未回、结论未知 → 绝不渲染「暂无计划持仓」这一断言式空态
+    expect(wrapper.find('[data-testid="portfolio-empty"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-nav-chart"]').exists()).toBe(false);
+  });
+
+  it('已有净值数据时重算 → 仍显示真实曲线（既不显示加载态也不显示空态）', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.payload = makePayload();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-nav-loading"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-empty"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-nav-chart"]').exists()).toBe(true);
+  });
+
+  it('无净值空态按钮跳转交易计划（spec §7.4）', async () => {
+    const wrapper = await mountWith(makePayload({ nav: { dates: [], gross: [], net: [], feeCum: [], feeSum: null } }));
     const quotes = useQuotesStore();
     await wrapper.find('[data-testid="portfolio-empty"] button').trigger('click');
     expect(quotes.view).toBe('plans');
