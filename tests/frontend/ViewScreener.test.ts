@@ -357,7 +357,13 @@ describe('ViewScreener', () => {
     const wrapper = mount(ViewScreener);
     await flushPromises();
     const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('没有找到符合条件的股票'));
-    await empty!.find('button').trigger('click');
+    const button = empty!.find('button');
+    expect(button.text()).toBe('重新读取行情'); // 文案（模板现状，未改）
+    // `:disabled="loading"` 在此分支不可达：v-else-if 渲染时 `loading && !filteredRows.length` 为假，
+    // 又因本分支 `!filteredRows.length` 为真 ⇒ loading 必为 false。删绑定与绑定恒假在此处不可区分，
+    // 故「未禁用」这一可达侧照常断言，但不把它当作绑定存在的证据（见收口报告）。
+    expect(button.attributes('disabled')).toBeUndefined();
+    await button.trigger('click');
     expect(spy).toHaveBeenCalledTimes(1);
   });
 });

@@ -474,10 +474,6 @@ function barWidth(pct: number | null | undefined): string {
   if (pct === null || pct === undefined || Number.isNaN(Number(pct))) return '0%';
   return `${Math.min(100, Math.max(0, Number(pct)))}%`;
 }
-const feeRateText = computed(() => {
-  const rate = payload.value?.meta?.feeRate;
-  return rate === null || rate === undefined ? '--' : ratioPct(rate);
-});
 const planText = computed(() => {
   const k = kpis.value?.planCount;
   if (!k) return '-- / -- / -- / --';
@@ -491,6 +487,14 @@ const kpiLoading = computed(() => store.loading && !kpis.value);
 function kpiText(rendered: string): string {
   return kpiLoading.value ? '计算中' : rendered;
 }
+
+// KPI 费率脚注同受加载态门控：首次计算中（有请求飞行且尚无结果）不显示裸 `--`，
+// 与 11 个值槽一致；已加载后字段仍缺失 → 由 ratioPct 给 `--`（不造数）。
+const feeRateText = computed(() => {
+  const rate = payload.value?.meta?.feeRate;
+  if (rate === null || rate === undefined) return kpiLoading.value ? '计算中' : '--';
+  return ratioPct(rate);
+});
 
 // —— 预热空卡（终审 R3）：有成分但行业零识别 → 整卡预热文案，不误导为「全是未知行业」；
 // concentration 整体 null（store 注释 = 预热态）同样走预热。 ——

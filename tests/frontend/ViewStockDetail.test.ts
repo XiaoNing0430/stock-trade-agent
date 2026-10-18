@@ -202,6 +202,38 @@ describe('ViewStockDetail', () => {
     const wrapper = mount(ViewStockDetail);
     await flushPromises();
     expect(wrapper.find('[data-testid="detail-loading"]').text()).toContain('正在读取行情');
+    wrapper.unmount();
+  });
+
+  // ── Task 7（延后 minor 收口）：加载态守卫的「已有缓存」半边
+  // 既有加载用例的 fixture 里 selectedStock 恒 null，删掉 `&& !selectedStock` 不会变红。
+  // 本用例种入真实报价（selectedStock 非 null）且 loading=true，钉死「刷新不得掩盖真实值」。
+  it('已有缓存报价时刷新（loading=true）不得被加载态掩盖，仍显示真实值', async () => {
+    const quotes = useQuotesStore();
+    quotes.selectedCode = '600519';
+    quotes.loading = true;
+    // 注意：必须就地改 `market.quotes`——`quoteFor` 闭包持有 store 初始化时的 reactive 对象，
+    // 整体重赋 `quotes.market` 不会改变该闭包读到的数组（会让 selectedStock 仍为 null）。
+    quotes.market.quotes = [
+      {
+        code: '600519',
+        name: '贵州茅台',
+        exchange: '上交所',
+        board: '主板',
+        market: '沪市主板',
+        price: 1700,
+        change: 2.5,
+      },
+    ];
+    const wrapper = mount(ViewStockDetail);
+    await flushPromises();
+    // 有真实值 → 走 summary 分支，绝不显示加载态（`&& !selectedStock` 被删即在此变红）
+    expect(wrapper.find('[data-testid="detail-loading"]').exists()).toBe(false);
+    const summary = wrapper.find('.selected-stock-summary');
+    expect(summary.exists()).toBe(true);
+    expect(summary.text()).toContain('贵州茅台');
+    expect(summary.text()).toContain('1,700.00');
+    wrapper.unmount();
   });
 
   it('分钟线请求在途显示加载态（spec §7.3-9）', async () => {

@@ -394,13 +394,51 @@ describe('ViewPortfolio', () => {
       .mockReturnValue(new Promise<never>(() => {}));
   }
 
-  it('加载中且无数据时 KPI 显示「计算中」而非裸 --（spec §7.3-10）', async () => {
+  it('加载中且无数据时每个 KPI 值槽都显示「计算中」而非裸 --（spec §7.3-10）', async () => {
     const store = usePortfolioStore();
     holdRequest();
     store.loading = true;
     const wrapper = mount(ViewPortfolio);
     await flushPromises();
-    expect(wrapper.find('[data-testid="portfolio-kpis"]').text()).toContain('计算中');
+    // 逐槽断言：11 个值槽齐备（防空容器真空通过）+ 全为「计算中」+ 无一裸 --。
+    // 旧断言只 toContain('计算中')——11 槽中仅 1 槽包装即可通过，抽查不到包漏的槽。
+    const slots = wrapper.findAll('[data-testid="portfolio-kpis"] .kpi b');
+    expect(slots).toHaveLength(11);
+    expect(slots.map((s) => s.text())).toEqual(Array.from({ length: 11 }, () => '计算中'));
+    expect(slots.some((s) => s.text().includes('--'))).toBe(false);
+  });
+
+  // ── Task 6（延后 minor 收口）：费率脚注与 11 值槽同受加载态门控，但已加载缺字段仍 `--` ──
+  it('首次加载中（请求悬挂）→ 费率脚注显示「计算中」且不含裸 --', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    const note = wrapper.find('[data-testid="portfolio-fee-note"]');
+    expect(note.text()).toContain('计算中');
+    expect(note.text()).not.toContain('--');
+  });
+
+  it('已加载：meta.feeRate 存在 → 脚注显示百分比；缺失 → 显示 --（不造数）', async () => {
+    // (a) 已加载且字段存在 → 百分比（0.0015 → 0.15%）
+    const withRate = await mountWith(makePayload());
+    expect(withRate.find('[data-testid="portfolio-fee-note"]').text()).toContain('0.15%');
+    expect(withRate.find('[data-testid="portfolio-fee-note"]').text()).not.toContain('计算中');
+    // (b) 已加载但 meta.feeRate 缺失 → `--`（加载态已结束，绝不用「计算中」掩盖缺失、也不造数）
+    const withoutRate = await mountWith(
+      makePayload({
+        meta: {
+          layer: 'core',
+          windowStart: '2026-06-14',
+          industryCoverage: { known: 3, total: 4, staleCount: 0 },
+          equity: 100000,
+        },
+      })
+    );
+    const note = withoutRate.find('[data-testid="portfolio-fee-note"]');
+    expect(note.text()).toContain('--');
+    expect(note.text()).not.toContain('计算中');
   });
 
   it('已有数据时重算不清空旧值', async () => {

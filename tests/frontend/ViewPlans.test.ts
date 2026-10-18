@@ -584,6 +584,39 @@ describe('ViewPlans', () => {
     expect(wrapper.find('[data-testid="review-kpis"]').exists()).toBe(false);
   });
 
+  it('扫描留痕加载中显示加载态（review-trace-loading，spec §7.3-7）', async () => {
+    // 来源分组含 scan: 行 → fetchReview 成功后 syncTrace 触发 fetchTrace；让留痕请求悬挂，
+    // traceLoading 保持 true 且 trace 仍 null —— 这才是 review-trace-loading 的真实到达路径。
+    const withScan = {
+      ...reviewPayload,
+      groups: {
+        ...reviewPayload.groups,
+        source: [
+          {
+            key: 'scan:trend_breakout',
+            label: '扫描·趋势突破',
+            decided: 2,
+            flatCount: 0,
+            wins: 1,
+            winRate: 0.5,
+            expectancyR: 0.4,
+            smallSample: false,
+          },
+        ],
+      },
+    };
+    vi.mocked(requestJson).mockImplementation((url: unknown) =>
+      String(url).includes('/api/plans/review') ? Promise.resolve(withScan) : new Promise<never>(() => {})
+    );
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const loading = wrapper.find('[data-testid="review-trace-loading"]');
+    expect(loading.exists()).toBe(true);
+    expect(loading.text()).toContain('正在读取扫描记录');
+    expect(wrapper.find('[data-testid="review-trace"]').exists()).toBe(false); // 加载中不渲染半截留痕
+  });
+
   it('无计划空态按钮跳转选股器（spec §7.4）', async () => {
     const wrapper = mount(ViewPlans);
     await flushPromises();
@@ -593,7 +626,7 @@ describe('ViewPlans', () => {
     expect(quotes.view).toBe('screener');
   });
 
-  // ── Task 12 下钻控件逐行可访问名 ──
+  // ── Task 12 下钻控件逐行可访问名（收口：夹具内该代码无行情 → 逐字「查看 <code> 的详情」） ──
   it('计划行与复盘行下钻控件带逐行可访问名', async () => {
     vi.mocked(requestJson).mockResolvedValue(reviewPayload);
     const workspace = useWorkspaceStore();
@@ -601,9 +634,11 @@ describe('ViewPlans', () => {
     const wrapper = mount(ViewPlans);
     await flushPromises();
     const link = wrapper.find('[data-testid="plan-code-link"]');
-    expect(link.attributes('aria-label')).toMatch(/^查看 .*600519 的详情$/);
+    // 精确相等（非通配正则）：丢弃 name 参数、塞事件标题、多一个空格都会红；
+    // name-present 路径另由 ViewPortfolio.test.ts 覆盖（本夹具无该代码行情 → 名称必缺省）。
+    expect(link.attributes('aria-label')).toBe('查看 600519 的详情');
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
     await flushPromises();
-    expect(wrapper.find('[data-testid="review-code-link"]').attributes('aria-label')).toMatch(/^查看 .*300750 的详情$/);
+    expect(wrapper.find('[data-testid="review-code-link"]').attributes('aria-label')).toBe('查看 300750 的详情');
   });
 });

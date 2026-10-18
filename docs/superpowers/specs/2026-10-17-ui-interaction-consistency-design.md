@@ -133,8 +133,10 @@ export function nextFocusTarget(elements: HTMLElement[], active: Element | null,
 | `PlanDraftDialog.vue` | 加 `panelRef`（`:112` 的 `<section>`）+ `useOverlayA11y({ id:'plan-draft', isOpen:()=>assist.visible, onClose:assist.close })` |
 | `CustomStrategyDialog.vue` | 同上，`onClose: screener.closeStrategyEditor` |
 | 通知面板 `App.vue:93` | 同上（`id:'notif'`）+ **补 `aria-modal="true"`**；`:92` 遮罩 `@click` → `@click.self`（功能等价，字面统一） |
-| 「更多」抽屉 `App.vue:260` | 同上（`id:'more-sheet'`）。**不加媒体门控**：桌面端它由 `display:none` 隐藏，`display:none` 元素不可聚焦，无键盘风险（记入报告） |
+| 「更多」抽屉 `App.vue:260` | 同上（`id:'more-sheet'`）。**不加媒体门控**：桌面端其触发者（`.bottom-nav`）由 `display:none` 隐藏、不可触达，抽屉背板本身 `position: fixed` 各宽度均存在但无入口，故无键盘风险（记入报告） |
 | 帮助浮层（新增 `components/ShortcutHelpDialog.vue`） | 同上（`id:'shortcut-help'`），见 §9 |
+
+> **2026-10-18 更正：** 上一行原文写作「桌面端它由 `display:none` 隐藏」有误——被 `display:none` 隐藏的是底部导航 `.bottom-nav`（`styles.css:3635`；仅 ≤680px 媒体块内 `display:flex` 复现），而「更多」抽屉背板是 `.more-sheet-backdrop`（`styles.css:3640`，`position: fixed`，各宽度下同样适用，仅在 `moreSheetOpen` 时渲染）。桌面端下该抽屉的**触发者**不可达，故「不加媒体门控 / 无键盘风险」的结论不变。此处仅更正附带的描述性依据，§6.2/§6.3 的任何行为要求（不加媒体门控、`@click.self`、`aria-modal` 等）均未改变。
 
 ### 6.4 已知行为（记录，不修）
 

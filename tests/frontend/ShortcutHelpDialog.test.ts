@@ -60,4 +60,14 @@ describe('快捷键帮助浮层（spec §9.3）', () => {
     expect(helpOpen.value).toBe(false);
     wrapper.unmount();
   });
+
+  it('点击面板内部不关闭（@click.self 只认遮罩自身）', async () => {
+    const wrapper = mount(ShortcutHelpDialog, { attachTo: document.body });
+    // 显式冒泡：确保事件真的从面板冒泡到遮罩，只是 target≠currentTarget 而被 .self 挡下。
+    wrapper.find('.dialog-panel').element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushPromises();
+    expect(helpOpen.value).toBe(true);
+    wrapper.unmount();
+    helpOpen.value = false;
+  });
 });
