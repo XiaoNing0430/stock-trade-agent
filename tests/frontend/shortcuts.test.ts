@@ -22,9 +22,16 @@ describe('shortcuts 键表与抑制', () => {
     expect(shortcutFor(key('Escape'), ctx)).toBeNull();
   });
 
+  it('原型链继承键不算视图（constructor / toString 等自有属性判定）', () => {
+    expect(shortcutFor(key('constructor'), ctx)).toBeNull();
+    expect(shortcutFor(key('toString'), ctx)).toBeNull();
+    expect(shortcutFor(key('hasOwnProperty'), ctx)).toBeNull();
+  });
+
   it('抑制矩阵：输入控件内不触发', () => {
     for (const node of [
       document.createElement('input'),
+      document.createElement('textarea'),
       document.createElement('select'),
       document.createElement('div'),
     ]) {
@@ -42,6 +49,8 @@ describe('shortcuts 键表与抑制', () => {
 
   it('抑制矩阵：修饰键 / 输入法组合中 / 浮层打开', () => {
     expect(shortcutFor(key('2', { ctrlKey: true }), ctx)).toBeNull();
+    expect(shortcutFor(key('2', { metaKey: true }), ctx)).toBeNull();
+    expect(shortcutFor(key('2', { altKey: true }), ctx)).toBeNull();
     const composing = key('2');
     Object.defineProperty(composing, 'isComposing', { value: true });
     expect(shortcutFor(composing, ctx)).toBeNull();

@@ -51,6 +51,9 @@ export function shortcutFor(event: KeyboardEvent, ctx: ShortcutContext): Shortcu
   if (ctx.overlayOpen) return null; // 浮层打开时其余键不穿透（Esc 由浮层栈独占处理）
 
   if (event.key === '/') return { type: 'search' };
+  // 自有属性判定：普通对象会从 Object.prototype 继承 'constructor' / 'toString' 等键，
+  // 绑定键若是 'constructor'（合成事件可构造）会取到函数（truthy），被误当视图 id。
+  if (!Object.prototype.hasOwnProperty.call(VIEW_SHORTCUTS, event.key)) return null;
   const view = VIEW_SHORTCUTS[event.key];
   return view ? { type: 'view', view } : null;
 }
