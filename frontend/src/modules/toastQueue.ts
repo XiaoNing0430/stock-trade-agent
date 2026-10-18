@@ -87,6 +87,10 @@ export function showToast(message: string, tone = 'success', deps: { renderIcons
   deps.renderIcons?.();
   arm(entry);
 
+  // 上限按「存活条数」计（spec §8.2 及其 2026-10-18 说明）：remove() 立刻让条目出队，但被淘汰的节点要先淡出
+  // 120ms 才真正摘除。判断依据只能是存活条目（entries）——正因规格要求了淡出，淡出窗内区域会有超出上限的
+  // 子节点，且**可能多条同时在淡出**（连续突发时瞬时子节点数并无固定上界）；淡出结束后自然回落至 ≤3。
+  // 被淘汰的最旧条目照常走完整淡出。
   while (entries.length > TOAST_CAP) remove(entries[0]);
 }
 

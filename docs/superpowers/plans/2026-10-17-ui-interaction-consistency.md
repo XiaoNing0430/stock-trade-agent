@@ -2050,3 +2050,68 @@ Task 1 的锁规则 `body.overlay-open .view-panel.is-active { overflow: hidden;
 - **发现（上报，未修 · 本批不触碰）**：`/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1；§5）。**早于本批**，属既有工作区同步缺陷。规格 §6.3 文档漂移（桌面隐藏元素为 `.bottom-nav` 而非 more-sheet 背板；结论仍成立，§8）。
 - **收口提交**：`docs: 勾选第③b批计划步骤并补记执行期裁定与最终状态`；滚动锁修复 `4bc6606` `fix: 修复浮层滚动锁在选股器视图被 !important 覆盖`；文档更正 `09b20ff`；终审复验轮 `ba27199` `fix: 组合风险净值区加载中不再显示空态并补帮助浮层 Enter 行` + `6a65c2e` `test: 补滚动锁 CSS 契约与规格要求的浮层/Toast 用例` + 本次 `docs: 补记终审裁定与复验结果`（`.superpowers/` 证据与账本按 `.gitignore:46` 不入库）。
 - **③ 批次收口**：①③ 子批已完成，②③b 本批 13 个任务全部 complete，无阻塞项。
+
+---
+
+## ③b 延后 minor 收口（2026-10-18 · 分支 `feature/ui-deferred-cleanup`）
+
+终审与验收共登记 **45 条**延后 minor（账本 `progress.md` 逐条在案），另 3 条 ③a 遗留（`ViewSettings.test.ts` 未 mock fetch、`useWorkspaceStoreSyncNow.test.ts` 时序脆弱、`--demo-line` 令牌无引用）。本收口批口径：**值得修且能写出可判别断言的修**；**不可测 / 无生产调用方 / 被计划逐字要求锁死的显式记录理由后关闭**（不静默丢弃）。零后端改动（`git diff --stat develop...HEAD -- backend/` 空），全部落在 `frontend/src/**`、`tests/frontend/**` 与一处规格注记。
+
+### 轮次与提交
+
+| 轮 | 内容 | 提交 |
+|---|---|---|
+| 1 | 浮层焦点边界硬化（Tab 无面板时仍吞键、延迟聚焦补 `opened` 守卫、`isVisible` 拒 `inert` 祖先）+ 三处样式形式/特异性收敛（`.toast` 规则合并、`.shortcut-table th/td` 加面板作用域、≤1060 主题开关 `padding` 由 `.sidebar .sidebar-theme-toggle` 提特异性后**真正生效**）+ 浮层接线用例 | `d245b5a` |
+| 2 | Toast 上限改按 DOM 子节点计 | `b42baa7` |
+| 2′ | **控制器推翻第 2 轮**：严格「子节点 ≤ 3」会吃掉规格 §8.2 同句要求的 120ms 淡出（被淘汰条瞬消、看不到淡出）→ 回退为**按存活条数计**并保留淡出；用例改为断言「最旧条进入淡出且节点数 ≤ 存活+1」 | `429b3a9` |
+| 3 | 抽出可测的快捷键派发器工厂 `createShortcutHandler` + 初始化期卸载泄漏守卫（监听器与刷新计时器）+ 派发/抑制/继承键用例（新 `appShortcuts.test.ts`） | `e987418` |
+| 4 | 视图层锁定：组合风险费率槽加载态（消灭首屏最后一处裸 `--`）、详情页「有缓存刷新不得掩盖真实值」、网格加载态被结果替换、复盘扫描加载态、帮助浮层 `.self` 负向、精选空态按钮文案；并更正规格 §6.3 桌面隐藏元素漂移 | `a690293` |
+| 5 | ③a 遗留：删无用 `--demo-line` 令牌（浅/深两处定义）、`ViewSettings.test.ts` 统一 fetch 桩、放宽时序脆弱用例超时（不改生产逻辑） | `821e553` |
+| 6 | 整分支复核修正：`isConnected` 焦点归还改真断言（spy 判别，删守卫即红）、初始化期刷新计时器一并闸住、Toast 上限口径写入规格 §8.2 注记、两处注释更正 | `84ef385` |
+
+### 逐条结果
+
+**修（可判别断言 / 真缺陷）**
+- Task 1：Tab 无面板分支补 `preventDefault`；`nextTick` 聚焦补「已关闭」守卫；`isVisible` 拒 `inert` 祖先；`closeOnEsc:false`／`[data-autofocus]`／空面板 `tabindex=-1`／`isConnected` 四条分支补用例（`isConnected` 用例在复核后由「无效断言」改为 spy 真断言）。
+- Task 2：`custom-strategy` 浮层 Esc/关闭接线用例；`more-sheet` 补焦点归还断言；`PlanDraftDialog.test.ts` 的 `enableAutoUnmount` 已存在（无需动作）。
+- Task 3/4/5：精选空态按钮文案与可达的 `:disabled` 侧断言；`ViewOverview.test.ts` 补 `unmount()`；网格加载态 `true→false` 被结果替换用例；复盘扫描加载态 `review-trace-loading` 用例。
+- Task 6：`feeRateText` 接入 `kpiLoading` → 首屏 KPI 容器内零裸 `--`（字段确实缺失的**已加载**态仍如实 `--`）。
+- Task 7：「有缓存时刷新不得掩盖真实值」补锁定断言（同时使 `&& !selectedStock` 半侧可判别）；用例 1 补 `unmount()`。
+- Task 8：120ms 淡出窗可观测；去重确实重挂计时；上限于突发期成立；直接点 `.toast-close`；`.toast` 规则块合并。
+- Task 9：派发器抽出可测 + 初始化期泄漏闸住（监听器 + 刷新计时器）；抑制矩阵补 `metaKey`/`altKey`/`TEXTAREA`；`shortcuts.ts` 继承键改 own-property 查找；抽屉项 `aria-keyshortcuts` 绑定断言。
+- Task 10：`AppShell.test.ts` 唯一性命中改计数相等（不再 `.find()+toBeTruthy()`）；帮助浮层 `.self` 负向用例；`.shortcut-table th/td` 面板作用域。
+- Task 11：≤1060 主题开关 `padding` 惰性声明**已修（提特异性，未用 `!important`）**，桌面/窄屏均无溢出（探针 1 条）。
+- Task 12：`ViewPlans.test.ts` 下钻可访问名改为**精确串**断言（丢弃名称参数不再能通过）。
+
+**关闭（记录理由，非丢弃）**
+- Task 1：`resetOverlayStack()` 不清 per-instance `opened`（仅测试影响，用例均 `unmount()`）；同 `id` 双活实例 desync（当前无生产调用方）。
+- Task 2：`PlanDraftDialog.test.ts` 的 `enableAutoUnmount` 静止改写既有 teardown（复核为安全：Vue `app.unmount()` 幂等 + vitest per-file isolate）。
+- Task 3/4：精选空态与网格的 `:disabled` 绑定在对应分支**构造上不可达**（计划逐字要求）→ 只断言可达侧。
+- Task 4：`ViewGrid` 网格加载文案在回测/优化期复用同一 `gridLoading` 旗标（修需拆分旗标，超本收口范围）；断言选择器风格不一（计划逐字如此）。
+- Task 5：两处 `.loading-state` 标记重复（两实例不值得抽组件）。
+- Task 6：净值空态与标题「计算中…」同屏（规格 §7.4 未要求加载门控）。
+- Task 8：淡出期冗余定时器（`arm()` 幂等、`el.remove()` 幂等，无害）。
+- Task 9：抽屉 `aria-keyshortcuts` 的 `|| undefined`「不渲染属性」分支**今日不可达**（7 个导航项含抽屉项全有快捷键；账本原「仅抽屉可触发」之说不成立）→ 改为断言「绑定存在」。
+- Task 12：`review-toggle` 展开前置（为正确必要步骤，非缺陷）。
+- 浮层 `isVisible` 的**祖先 `display:none`** 检测：jsdom 不跑样式级联 → 会写成不可测代码，明确不做（`inert` 祖先已覆盖）。
+
+### 规格注记（受控文档）
+
+- **§8.2 上限口径**：补「2026-10-18 说明」——「子节点数」指**存活** toast 数（不含淡出中者），淡出期内瞬态第 4 个子节点属设计；严格 ≤3 子节点会删掉同句要求的淡出。`toastQueue.ts` 注释同步指向该注记。
+- **§6.3 更正**：桌面端被隐藏的是 `.bottom-nav`，more-sheet 背板全宽 `position: fixed`（触发器桌面不可达，结论「无键盘风险」仍成立）。
+
+### 门禁与验收（final tree `84ef385`）
+
+- `npm run verify` **exit 0**：vitest **35 files / 402 tests** 全绿；`vue-tsc --noEmit` **0 error**；pytest **679 passed**；覆盖率 **93.23% ≥ 80%**。
+- 真实浏览器（真 chromium + 真后端，1440/1060/900/680）：**31 pass / 0 fail / 0 not-exercised**，12 张截图；`http409` **0**（F1 修复在浏览器侧独立佐证）、`consoleErrors` **0**。
+- **探针口径修正（仅 harness，仓库外）**：Toast 上限断言此前靠 F1 缺陷产生的杂散 toast 凑齐「4 条同存」才可观测淘汰；F1 修好后噪声消失 → 改为**显式触发 4 条不同文案且逐条等其真出现**（无匹配搜索 / 命中搜索 / 保存设置 / 网格空代码），断言改为「**存活 3 条** + 最新在 + 最旧处于淡出或已摘除 + 节点数 ≤ 4」，与规格 §8.2 淡出口径一致。原先的「清空已读」触发点在无未读时静默 → 已弃用。
+
+### 过程中新发现的既有缺陷（**上报**；另开修复分支处理）
+
+排查「第 4 条 toast 触发点」时在真机实测中发现同一类缺陷三处——**从 Pinia store 解构响应式状态（ref/computed）而未用 `storeToRefs`**，解构得到的是快照，视图不再响应（其余 6 处视图/App 解构的全是函数，已全仓 grep 分类，无此问题）：
+
+1. `App.vue:331` `conflictVisible`（ref）→ 工作区冲突横幅 `v-if` 恒假：`conflictPolicy: ask` 下用户看不到冲突提示（AGENTS.md 记录的横幅行为实际不可达）。
+2. `ViewMonitor.vue:134` `monitorEnabled`（ref）/ `watchlistCodes`（ref）→ 盯盘开关只翻 DOM：store 标志不变、状态标签不变、无 toast（真机实测连点 6 次标签恒为「盯盘已开启」）。
+3. `ViewOverview.vue:215` `unreadAlerts`（computed）/ `alerts`（ref）→ 总览「提醒」计数与动态列表停在挂载瞬间。
+
+三者均**早于③b批**且本批未触碰 → 另开 `fix/store-destructure-reactive`（见 CHANGELOG v0.7.2 与 AGENTS.md 新约定）。

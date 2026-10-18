@@ -113,6 +113,8 @@ describe('useWorkspaceStore syncNow', () => {
   });
 
   it('syncNow 等待上限 3s：锁始终被持有时返回 { ok:false, message }（不可让 UI 假死；收尾硬化 L2 补文案）', async () => {
+    // shouldAdvanceTime 让 3s 等待循环按真实时间推进 → 本用例本身约 3s，默认 5s 超时过窄（曾 flake 一次）；
+    // 显式放宽而不是改生产逻辑（③a 遗留：时序脆弱项）。
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const workspace = useWorkspaceStore();
@@ -131,7 +133,7 @@ describe('useWorkspaceStore syncNow', () => {
       vi.useRealTimers();
       vi.unstubAllGlobals();
     }
-  });
+  }, 15000);
 });
 
 /** 后端每次保存都 +1（storage._bump_workspace_revision）；本地基线不跟进的话，

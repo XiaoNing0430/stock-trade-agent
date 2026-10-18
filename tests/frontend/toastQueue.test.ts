@@ -114,4 +114,82 @@ describe('toastQueue 策略', () => {
     expect(close.getAttribute('aria-label')).toBe('关闭提示');
     expect(renderIcons).toHaveBeenCalled();
   });
+
+  it('到期先挂 .toast-leaving、淡出窗内仍在 DOM，窗满才摘除（spec §8.2 的 120ms）', () => {
+    showToast('淡出我', 'success');
+    const node = region().firstElementChild as HTMLElement;
+
+    vi.advanceTimersByTime(3200);
+    // 时长刚满：节点必须仍在 DOM，且已进入淡出态（LEAVE_MS 若被清零，此处已无子节点）
+    expect(region().children).toHaveLength(1);
+    expect(region().firstElementChild).toBe(node);
+    expect(node.classList.contains('toast-leaving')).toBe(true);
+
+    // 淡出窗未满（119ms）时不得摘除（LEAVE_MS 若被改小，此处必红）
+    vi.advanceTimersByTime(119);
+    expect(region().children).toHaveLength(1);
+
+    vi.advanceTimersByTime(1);
+    expect(region().children).toHaveLength(0);
+  });
+
+  it('同文案去重会重置整段计时，而非仅重新入队', () => {
+    showToast('同步失败', 'error');
+    const node = region().firstElementChild as HTMLElement;
+
+    // 未到期前再弹一次同文案（t=5900），触发去重重置
+    vi.advanceTimersByTime(5900);
+    expect(region().children).toHaveLength(1);
+    expect(node.classList.contains('toast-leaving')).toBe(false);
+    showToast('同步失败', 'error');
+    expect(region().children).toHaveLength(1);
+    expect(region().firstElementChild).toBe(node);
+
+    // 推进越过「原到期点」（t=6000，即二次弹出后 100ms）：若计时未重置，节点早已淡出消失
+    vi.advanceTimersByTime(5999); // t=11899
+    expect(region().children).toHaveLength(1);
+    expect(node.classList.contains('toast-leaving')).toBe(false);
+
+    // 二次弹出起的满 6000ms 才到期（t=11900）
+    vi.advanceTimersByTime(1);
+    expect(node.classList.contains('toast-leaving')).toBe(true);
+    vi.advanceTimersByTime(LEAVE_GRACE_MS);
+    expect(region().children).toHaveLength(0);
+  });
+
+  it('上限淘汰保留淡出：入队第 4 条时最旧挂 .toast-leaving 仍在 DOM（淡出窗内短暂 4 子节点属设计），淡出毕回 3', () => {
+    showToast('一');
+    showToast('二');
+    showToast('三');
+    const oldest = region().firstElementChild as HTMLElement;
+
+    showToast('四');
+    // 淡出窗内：最旧一条仍占位（共 4 个子节点）——这是规格要求的 120ms 淡出，属设计
+    expect(region().children).toHaveLength(4);
+    expect(oldest.classList.contains('toast-leaving')).toBe(true);
+    expect(region().textContent).toContain('一');
+    // 存活的是最新三条
+    expect(region().textContent).toContain('二');
+    expect(region().textContent).toContain('三');
+    expect(region().textContent).toContain('四');
+
+    // 淡出毕：最旧摘除，DOM 回到上限 3
+    vi.advanceTimersByTime(LEAVE_GRACE_MS);
+    expect(region().children).toHaveLength(3);
+    expect(region().textContent).not.toContain('一');
+  });
+
+  it('直接点击 .toast-close 按钮只关闭该条，其余不受影响', () => {
+    showToast('甲');
+    showToast('乙');
+    const first = region().children[0] as HTMLElement;
+    const close = first.querySelector('.toast-close') as HTMLElement;
+    // 真实点击落在按钮上（唯一监听器挂在整行，事件冒泡到行）——不经由直接点击整行
+    close.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    vi.advanceTimersByTime(LEAVE_GRACE_MS);
+    expect(region().children).toHaveLength(1);
+    expect(region().textContent).toContain('乙');
+    expect(region().textContent).not.toContain('甲');
+  });
 });

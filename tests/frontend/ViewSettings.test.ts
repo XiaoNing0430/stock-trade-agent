@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewSettings from '@/views/ViewSettings.vue';
@@ -15,6 +15,21 @@ describe('ViewSettings', () => {
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());
+    // 本文件不再逐用例 mock fetch：挂载路径可能触发请求，统一挡在本地避免真实网络噪声
+    // （本文件全部用例均在 store 层打桩，不依赖 fetch 失败/成功语义）。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({}),
+      }))
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('默认展示提醒中心', () => {
@@ -92,7 +107,7 @@ describe('ViewSettings', () => {
   });
 
   // ── Task 12 下钻控件逐行可访问名 ──
-  it('提醒行下钻控件（本文件无 fetch mock）带代码式可访问名', () => {
+  it('提醒行下钻控件带代码式可访问名（不依赖 quoteFor 是否有名称）', () => {
     const workspace = useWorkspaceStore();
     workspace.alerts = [
       {

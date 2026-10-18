@@ -104,7 +104,6 @@
   --scroll-thumb: rgba(0, 0, 0, 0.18);
   --scroll-thumb-soft: rgba(0, 0, 0, 0.1);
   --topbar-bg: rgba(255, 255, 255, 0.84);
-  --demo-line: #d8ece4;
   --footer-line: rgba(148, 163, 184, 0.18);
   --knob: #ffffff;
   --knob-shadow: 0 1px 3px rgba(21, 32, 51, 0.24);
@@ -2781,6 +2780,7 @@ body.overlay-open .view-panel.is-active {
   box-shadow: var(--shadow-sm);
   color: var(--ink-soft);
   font-size: var(--fs-sm);
+  cursor: pointer;
   animation: toast-in 180ms ease both;
 }
 
@@ -2793,10 +2793,6 @@ body.overlay-open .view-panel.is-active {
 
 .toast.error svg {
   color: var(--red);
-}
-
-.toast {
-  cursor: pointer;
 }
 
 .toast-close {
@@ -2924,7 +2920,7 @@ body.overlay-open .view-panel.is-active {
     display: none;
   }
 
-  .sidebar-theme-toggle {
+  .sidebar .sidebar-theme-toggle {
     justify-content: center;
     padding: var(--space-2) 0;
   }
@@ -3378,14 +3374,14 @@ body.overlay-open .view-panel.is-active {
   border-collapse: collapse;
 }
 
-.shortcut-table th {
+.shortcut-help-panel .shortcut-table th {
   width: 84px;
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
   text-align: left;
   vertical-align: top;
 }
 
-.shortcut-table td {
+.shortcut-help-panel .shortcut-table td {
   padding: var(--space-2) 0;
   color: var(--ink-soft);
   font-size: var(--fs-sm);
@@ -4608,7 +4604,6 @@ html[data-theme='dark'] {
   --scroll-thumb: rgba(255, 255, 255, 0.16);
   --scroll-thumb-soft: rgba(255, 255, 255, 0.08);
   --topbar-bg: rgba(16, 17, 19, 0.85);
-  --demo-line: #2a3a34;
   --footer-line: #2c3138;
   --knob: #f2f4f7;
   --knob-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);

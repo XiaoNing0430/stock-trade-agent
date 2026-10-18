@@ -357,7 +357,13 @@ describe('ViewScreener', () => {
     const wrapper = mount(ViewScreener);
     await flushPromises();
     const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('没有找到符合条件的股票'));
-    await empty!.find('button').trigger('click');
+    const button = empty!.find('button');
+    expect(button.text()).toBe('重新读取行情'); // 文案（模板现状，未改）
+    // `:disabled="loading"` 在此分支不可达：v-else-if 渲染时 `loading && !filteredRows.length` 为假，
+    // 又因本分支 `!filteredRows.length` 为真 ⇒ loading 必为 false。删绑定与绑定恒假在此处不可区分，
+    // 故「未禁用」这一可达侧照常断言，但不把它当作绑定存在的证据（见收口报告）。
+    expect(button.attributes('disabled')).toBeUndefined();
+    await button.trigger('click');
     expect(spy).toHaveBeenCalledTimes(1);
   });
 });
@@ -399,6 +405,18 @@ describe('ViewScreener 自定义策略编辑器', () => {
     expect(wrapper.find('input[aria-label="策略名称"]').exists()).toBe(true);
     expect(wrapper.find('select[aria-label="从内置策略复制"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('粗筛区间');
+  });
+
+  it('Esc 关闭编辑器（overlayA11y 接线：栈顶响应并把 strategyEditorOpen 置否）', async () => {
+    // 该浮层经 ViewScreener 常驻挂载的 CustomStrategyDialog 接线（AppShell.test.ts 把 view-screener 做了 stub，
+    // 故只有在本文件才能驱动真实触发器 + 真实 store 旗标）。
+    const { screener, wrapper } = await openEditor();
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(true);
+    expect(screener.strategyEditorOpen).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(screener.strategyEditorOpen).toBe(false);
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(false);
   });
 
   it('从内置策略复制预填表单（名称加副本后缀）', async () => {

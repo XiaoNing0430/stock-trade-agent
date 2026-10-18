@@ -60,6 +60,7 @@ describe('总览状态带（spec §7）', () => {
     const wrapper = mount(ViewOverview);
     await flushPromises();
     expect(wrapper.find('.loading-state[role="status"]').text()).toContain('正在读取指数');
+    wrapper.unmount();
   });
 
   it('执行跟踪不再渲染与状态带重复的指标行', () => {

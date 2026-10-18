@@ -99,6 +99,21 @@ describe('ViewGrid 结果区加载态与空态动作', () => {
     expect(wrapper.text()).not.toContain('系统会基于历史日线按参数模拟买卖');
   });
 
+  it('策略回测旗标 true→false 后加载态被结果区替换（非仅挂载期互斥）（spec §7.3-4）', async () => {
+    const strategy = useStrategyStore();
+    strategy.strategyType = 'ma_cross';
+    strategy.strategyLoading = true; // 挂载时为真 → 加载态
+    const wrapper = mount(ViewGrid, { global: { plugins: [] } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="strategy-loading"]').exists()).toBe(true);
+    expect(wrapper.findAll('.empty-state').some((n) => n.text().includes('运行'))).toBe(false);
+    strategy.strategyLoading = false; // 经真实 store 路径翻转
+    await flushPromises();
+    // 加载态被替换：既不再是加载态，也不再停留在互斥的旧分支，而是回落空态动作区。
+    expect(wrapper.find('[data-testid="strategy-loading"]').exists()).toBe(false);
+    expect(wrapper.findAll('.empty-state').some((n) => n.text().includes('运行'))).toBe(true);
+  });
+
   it('策略空态带「运行回测」按钮并调用 backtestStrategy（spec §7.4）', async () => {
     const strategy = useStrategyStore();
     strategy.strategyType = 'ma_cross';
