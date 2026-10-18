@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from importlib.util import find_spec
@@ -36,9 +37,13 @@ from backend.grid_scheduler import (
     stop_scheduler,
     unschedule_strategy,
 )
-from backend.grid_strategy import backtest_grid, optimize_grid, suggest_grid
-from backend.industry_map import get_industry_map, refresh_industry_map
+from backend.grid_strategy import backtest_grid, buy_and_hold_benchmark, optimize_grid, suggest_grid
+from backend.industry_map import get_industry_map, industry_health, last_refresh_complete, refresh_industry_map
 from backend.schemas import (
+    CompareRunIn,
+    CompareRunOut,
+    CompareSavedIn,
+    CompareSavedOut,
     CustomStrategyIn,
     DeleteOut,
     GridBacktestIn,
@@ -74,6 +79,7 @@ from backend.schemas import (
 )
 from backend.settings import get_settings
 from backend.sources import build_router, get_all_sources_info
+from backend.sources.base import Capability
 from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     CustomStrategyConflict,
@@ -127,6 +133,18 @@ review_logger = logging.getLogger("atlas.review")  # 计划复盘独立通道：
 industry_logger = logging.getLogger("atlas.industry")  # 行业映射后台预热独立通道（Task 2）
 screener_logger = logging.getLogger("atlas.screener")  # 自定义选股策略写路径与删除快照通道
 
+compare_logger = logging.getLogger("atlas.compare")  # 多策略对比端点结构化日志（2026-10-11 spec §3.7）
+_COMPARE_ALLOWED_TYPES = {"grid", *STRATEGY_ENGINES.keys()}
+
+
+def _compare_label(strategy_type: str) -> str:
+    return "网格" if strategy_type == "grid" else str(STRATEGY_ENGINES[strategy_type]["label"])
+
+
+def _engine_default_config(engine: dict[str, Any]) -> dict[str, Any]:
+    """按 configSchema 的 default 生成引擎默认参数（与 /api/strategy/preview 补齐逻辑一致）。"""
+    return {field["key"]: field.get("default") for field in engine["configSchema"]}
+
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
     """统一错误构造：detail = {"error": message, "code": code, **extras}。"""
@@ -169,6 +187,39 @@ def _validation_error_message(exc: RequestValidationError) -> str:
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
+
+
+def _call_with_source_fallback(
+    capability: Capability,
+    preferred_id: str,
+    fallback_enabled: bool,
+    call: Callable[[Any], Any],
+) -> tuple[Any, str, list[str]]:
+    """按降级链逐个源调用 `call(source)`，返回 (payload, provider, failed_source_ids)。
+
+    首选源**运行时**失败（连接被重置 / 上游异常）时，依 `fallbackEnabled` 继续尝试链上的下一个
+    **真实源**；全部失败则抛最后一次异常（路由层 502）。失败源逐个落 warning，绝不静默。
+    """
+    from backend.sources import build_router
+
+    chain = build_router().source_chain(preferred_id, capability, fallback_enabled)
+    failed: list[str] = []
+    last_exc: Exception | None = None
+    for source in chain:
+        try:
+            payload = call(source)
+        except Exception as exc:
+            failed.append(source.id)
+            last_exc = exc
+            logger.warning(
+                "source.runtime_fallback",
+                extra={"capability": capability, "source": source.id, "error": str(exc)[:200]},
+            )
+            continue
+        return payload, str(source.provider_label), failed
+    if last_exc is None:  # pragma: no cover - source_chain 保证非空
+        raise ValueError(f"No available source for capability {capability}")
+    raise last_exc
 
 
 def _load_history_with_fallback(
@@ -313,12 +364,38 @@ def _snapshot_loader(as_of_date: str):
     return load, state
 
 
+# 行业映射整轮刷新不完整时的提前补跑间隔（分钟）：不完整 ≠ 无数据，但绝不该陈旧到 24h 后
+_INDUSTRY_RETRY_MINUTES = 30
+
+
 def _industry_warmup_job() -> None:
-    """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。"""
+    """行业映射预热/每日刷新 job：吞异常并记 atlas.industry，job 崩溃绝不波及 API。
+
+    整轮刷新不完整（如上游连接被重置、中途页失败）时**提前重排一次**，避免行业映射
+    一直陈旧到下一个 24h 周期才被发现。
+    """
     try:
         refresh_industry_map()
     except Exception:
         industry_logger.warning("行业映射全市场刷新失败（已跳过，不影响 API）", exc_info=True)
+    _reschedule_industry_on_incomplete()
+
+
+def _reschedule_industry_on_incomplete() -> None:
+    """不完整 → `_INDUSTRY_RETRY_MINUTES` 分钟后补跑一次；完整 → 清掉可能残留的补跑 job。"""
+    try:
+        if last_refresh_complete() is False:
+            scheduler.add_job(
+                _industry_warmup_job,
+                "date",
+                run_date=datetime.now(scheduler.timezone) + timedelta(minutes=_INDUSTRY_RETRY_MINUTES),
+                id="industry-warmup-retry",
+                replace_existing=True,
+            )
+        elif scheduler.get_job("industry-warmup-retry") is not None:
+            scheduler.remove_job("industry-warmup-retry")
+    except Exception:
+        industry_logger.warning("行业映射补跑任务调度失败（已跳过，不影响 API）", exc_info=True)
 
 
 def create_app() -> FastAPI:
@@ -414,6 +491,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> HealthOut:
+        from backend.sources import source_circuits
+
         return HealthOut(
             ok=True,
             provider="Tencent public quote API",
@@ -425,6 +504,8 @@ def create_app() -> FastAPI:
             redisCache=facade_state(),
             minuteCache=facade_state(),
             minuteCircuit=minute_path.breaker_state(),
+            industry=industry_health(),
+            sourceCircuits=source_circuits(),
         )
 
     @app.get("/api/minute", response_model=MinuteOut)
@@ -546,14 +627,17 @@ def create_app() -> FastAPI:
     @app.get("/api/market")
     def market(codes: str = Query(default="")) -> MarketOut:
         try:
-            from backend.sources import build_router
-
             settings = get_workspace_settings("default")
-            source = build_router().route_with_fallback(
-                settings.get("realtimeSource", "tencent"), "realtime", settings.get("fallbackEnabled", True)
+            payload, provider, failed = _call_with_source_fallback(
+                "realtime",
+                str(settings.get("realtimeSource", "tencent")),
+                bool(settings.get("fallbackEnabled", True)),
+                lambda source: source.load_market(codes.split(",") if codes else []),
             )
-            payload = source.load_market(codes.split(",") if codes else [])
-            payload["provider"] = source.provider_label
+            payload["provider"] = provider
+            if failed:
+                payload["fallbackUsed"] = True
+                payload["failedSources"] = failed
             return MarketOut.model_validate(payload)
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
@@ -580,15 +664,18 @@ def create_app() -> FastAPI:
         market: str = Query(default="全部"), pageSize: int = Query(default=300, alias="pageSize")
     ) -> ScreenerOut:
         try:
-            from backend.sources import build_router
-
             settings = get_workspace_settings("default")
-            source = build_router().route_with_fallback(
-                settings.get("screenerSource", "tencent"), "screener", settings.get("fallbackEnabled", True)
+            payload, provider, failed = _call_with_source_fallback(
+                "screener",
+                str(settings.get("screenerSource", "tencent")),
+                bool(settings.get("fallbackEnabled", True)),
+                lambda source: source.load_screener(market, pageSize),
             )
-            payload = source.load_screener(market, pageSize)
-            payload["provider"] = source.provider_label
+            payload["provider"] = provider
             payload["fetchedAt"] = int(time.time() * 1000)
+            if failed:
+                payload["fallbackUsed"] = True
+                payload["failedSources"] = failed
             return ScreenerOut.model_validate(payload)
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
@@ -601,14 +688,22 @@ def create_app() -> FastAPI:
         sortDir: str = Query(default="desc", alias="sortDir"),
     ):
         try:
-            from backend.sources import build_router
-
             settings = get_workspace_settings("default")
-            source = build_router().route_with_fallback(
-                settings.get("screenerSource", "tencent"), "paged_screener", settings.get("fallbackEnabled", True)
+            payload, provider, failed = _call_with_source_fallback(
+                "paged_screener",
+                str(settings.get("screenerSource", "tencent")),
+                bool(settings.get("fallbackEnabled", True)),
+                lambda source: source.load_screener_paged(
+                    page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir
+                ),
             )
-            payload = source.load_screener_paged(page=page, page_size=pageSize, sort_by=sortBy, sort_dir=sortDir)
             payload["fetchedAt"] = int(time.time() * 1000)
+            # v2 既有契约：provider 由适配器 payload 自带（如 "Tencent rank API"）；仅在缺失时兜底，
+            # 不覆写既有值（AGENTS：保留现有 API 字段值）
+            payload.setdefault("provider", provider)
+            if failed:
+                payload["fallbackUsed"] = True
+                payload["failedSources"] = failed
             return payload
         except Exception as exc:
             raise api_error(502, ERR_UPSTREAM_UNAVAILABLE, str(exc), provider="upstream")
@@ -1382,6 +1477,8 @@ def create_app() -> FastAPI:
             lookback = max(20, min(payload.lookback, 240))
             history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
             config = payload.config
+            # tradesLimit 属引擎内部键，客户端不得穿透（否则 null 即得全量成交并随保存落库，spec §2 契约不变）
+            config.pop("tradesLimit", None)
             config.update(
                 {
                     "capital": payload.capital,
@@ -1423,6 +1520,255 @@ def create_app() -> FastAPI:
                 schedule_strategy(strategy)
                 response["strategy"] = get_strategy(strategy["id"])
             return StrategyBacktestOut.model_validate(response)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+
+    @app.post("/api/strategy/compare")
+    def strategy_compare(payload: CompareRunIn) -> CompareRunOut:
+        """同标的横向对比：一次取数，同一份 bars 重放全部勾选策略（只读，零写库）。"""
+        started = time.monotonic()
+        try:
+            code = payload.code
+            profile = classify_code(code)
+            lookback = max(20, min(payload.lookback, 240))
+            # 白名单 + 去重保序（≤8 由白名单与去重结构性保证，无需独立检查）
+            seen: list[str] = []
+            for strategy_type in payload.strategyTypes:
+                if strategy_type not in _COMPARE_ALLOWED_TYPES:
+                    raise api_error(422, ERR_VALIDATION_ERROR, f"未知策略类型：{strategy_type}")
+                if strategy_type not in seen:
+                    seen.append(strategy_type)
+            if not seen:
+                raise api_error(422, ERR_VALIDATION_ERROR, "至少勾选一个策略类型")
+            history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+            limit_pct = price_limit_ratio(code)
+            benchmark_curve = buy_and_hold_benchmark(
+                history, payload.capital, payload.feeBps, profile["securityType"], profile["exchange"]
+            )["curve"]
+            results: list[dict[str, Any]] = []
+            failed_types: list[str] = []
+            for strategy_type in seen:
+                try:
+                    if strategy_type == "grid":
+                        suggestion = suggest_grid(history, 8, payload.capital, "classic")
+                        result = backtest_grid(
+                            history,
+                            suggestion["lower"],
+                            suggestion["upper"],
+                            8,
+                            payload.capital,
+                            payload.feeBps,
+                            "classic",
+                            profile["securityType"],
+                            profile["exchange"],
+                            1,
+                            5,
+                            limit_pct,
+                            trades_limit=None,  # 对比端点取全量成交（spec §3.1）；单策略端点保持 -100 截断
+                        )
+                        config = {
+                            "lower": suggestion["lower"],
+                            "upper": suggestion["upper"],
+                            "gridCount": 8,
+                            "mode": "classic",
+                            "capital": payload.capital,
+                            "feeBps": payload.feeBps,
+                            "lookback": lookback,
+                            "settlementDays": 1,
+                            "slippageBps": 5,
+                            "priceLimitPct": limit_pct * 100,
+                            "rangeMode": "auto",
+                        }
+                    else:
+                        engine = STRATEGY_ENGINES[strategy_type]
+                        config = _engine_default_config(engine)
+                        config.update(
+                            {
+                                "capital": payload.capital,
+                                "feeBps": payload.feeBps,
+                                "securityType": profile["securityType"],
+                                "exchange": profile["exchange"],
+                                "lookback": lookback,
+                                "capitalAllocation": 1.0,
+                            }
+                        )
+                        # tradesLimit 仅经临时 dict 传入引擎，回显 config 不含该键（spec §3.1 全量成交）
+                        result = engine["backtest"](history, {**config, "tradesLimit": None})
+                    result.pop("benchmarkCurve", None)  # 基准曲线顶层仅一份
+                    results.append(
+                        {
+                            "strategyType": strategy_type,
+                            "label": _compare_label(strategy_type),
+                            "config": config,
+                            **result,
+                            "error": None,
+                        }
+                    )
+                except Exception as exc:  # 单策略失败不拖垮整单（spec §3.1）
+                    failed_types.append(strategy_type)
+                    results.append(
+                        {
+                            "strategyType": strategy_type,
+                            "label": _compare_label(strategy_type),
+                            "error": f"回测失败：{exc}",
+                        }
+                    )
+            compare_logger.info(
+                "strategy.compare",
+                extra={
+                    "code": code,
+                    "strategyTypes": seen,
+                    "lookback": lookback,
+                    "capital": payload.capital,
+                    "feeBps": payload.feeBps,
+                    "elapsedMs": int((time.monotonic() - started) * 1000),
+                    "resultStatus": "partial_failure" if failed_types else "success",
+                    "dataSource": data_source_flag,
+                    "failedTypes": failed_types,
+                },
+            )
+            return CompareRunOut.model_validate(
+                {
+                    "code": code,
+                    "profile": profile,
+                    "dataSource": data_source_flag,
+                    "dataAsOf": data_as_of,
+                    "barCount": len(history),
+                    "benchmarkCurve": benchmark_curve,
+                    "results": results,
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise api_error(422, ERR_VALIDATION_ERROR, str(exc)) from exc
+
+    @app.post("/api/strategy/compare-saved")
+    def strategy_compare_saved(
+        payload: CompareSavedIn, workspace_id: str = Query(default="default", alias="workspace")
+    ) -> CompareSavedOut:
+        """已保存策略对比：snapshot 纯读库 / rerun 按各自参数现跑（只读，零写库，不调度）。"""
+        started = time.monotonic()
+        try:
+            if payload.mode not in {"snapshot", "rerun"}:
+                raise api_error(422, ERR_VALIDATION_ERROR, "mode 必须为 snapshot 或 rerun")
+            ids: list[str] = []
+            for item in payload.ids:
+                if item and item not in ids:
+                    ids.append(item)
+            if not ids:
+                raise api_error(422, ERR_VALIDATION_ERROR, "至少选择一个已保存策略")
+            if len(ids) > 10:
+                raise api_error(422, ERR_VALIDATION_ERROR, "最多同时对比 10 个已保存策略")
+            results: list[dict[str, Any]] = []
+            failed_ids: list[str] = []
+            missing_count = 0
+            for strategy_id in ids:
+                grid_row = get_grid_strategy(strategy_id)
+                generic_row = None if grid_row else get_strategy(strategy_id)
+                source = "grid" if grid_row else ("strategy" if generic_row else None)
+                row = grid_row or generic_row
+                if row is None or row.get("workspaceId") != workspace_id:
+                    missing_count += 1
+                    results.append({"id": strategy_id, "found": False, "missingReason": "不存在或不属于当前工作区"})
+                    continue
+                base = {
+                    "id": strategy_id,
+                    "found": True,
+                    "source": source,
+                    "name": row.get("name", ""),
+                    "strategyType": "grid" if source == "grid" else str(row.get("strategyType", "")),
+                    "code": row.get("code", ""),
+                }
+                if payload.mode == "snapshot":
+                    latest = row.get("latestMetrics")
+                    results.append(
+                        {
+                            **base,
+                            "status": row.get("status", ""),
+                            "schedule": row.get("schedule", ""),
+                            "capital": row.get("capital"),
+                            "feeBps": row.get("feeBps"),
+                            "lastBacktestAt": row.get("lastBacktestAt"),
+                            "latestMetrics": latest,
+                            "missingReason": None if latest else "从未回测",
+                        }
+                    )
+                    continue
+                # rerun：按各自保存的参数在各自 code 上现跑（不落库不调度）
+                try:
+                    code = str(row["code"])
+                    profile = classify_code(code)
+                    if source == "grid":
+                        lookback = max(20, min(int(row.get("lookback") or 120), 240))
+                        history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+                        limit_pct = price_limit_ratio(code)
+                        result = backtest_grid(
+                            history,
+                            float(row["lower"]),
+                            float(row["upper"]),
+                            int(row["gridCount"]),
+                            float(row["capital"]),
+                            float(row["feeBps"]),
+                            str(row.get("mode") or "classic"),
+                            profile["securityType"],
+                            profile["exchange"],
+                            # 显式判空：用户合法保存的 0（T+0 / 0 滑点）不得被 or 兜底改写为默认值（spec §3.2）
+                            int(row["settlementDays"]) if row.get("settlementDays") is not None else 1,
+                            float(row["slippageBps"]) if row.get("slippageBps") is not None else 5.0,
+                            limit_pct,
+                            trades_limit=None,  # rerun 同样取全量成交（spec §3.1）
+                        )
+                        config = {
+                            "lower": row["lower"],
+                            "upper": row["upper"],
+                            "gridCount": row["gridCount"],
+                            "mode": row.get("mode"),
+                            "capital": row["capital"],
+                            "feeBps": row["feeBps"],
+                            "lookback": lookback,
+                            "settlementDays": row.get("settlementDays"),
+                            "slippageBps": row.get("slippageBps"),
+                            "priceLimitPct": limit_pct * 100,
+                        }
+                    else:
+                        config = dict(row.get("config") or {})
+                        lookback = max(20, min(int(config.get("lookback") or 120), 240))
+                        history, data_source_flag, data_as_of, _ = _load_history_with_fallback(code, lookback)
+                        engine = STRATEGY_ENGINES.get(str(row["strategyType"]))
+                        if engine is None:
+                            raise ValueError(f"未知策略类型：{row['strategyType']}")
+                        # tradesLimit 仅经临时 dict 传入引擎，回显 config 保持原样（spec §3.1 全量成交）
+                        result = engine["backtest"](history, {**config, "tradesLimit": None})
+                    results.append(
+                        {
+                            **base,
+                            "config": config,
+                            "metrics": result["metrics"],
+                            "trades": result["trades"],
+                            "assumptions": result["assumptions"],
+                            "dataSource": data_source_flag,
+                            "dataAsOf": data_as_of,
+                            "error": None,
+                        }
+                    )
+                except Exception as exc:  # 单策略失败逐项披露（spec §3.2）
+                    failed_ids.append(strategy_id)
+                    results.append({**base, "error": f"回测失败：{exc}"})
+            compare_logger.info(
+                "strategy.compare_saved",
+                extra={
+                    "mode": payload.mode,
+                    "idCount": len(ids),
+                    "elapsedMs": int((time.monotonic() - started) * 1000),
+                    "resultStatus": "partial_failure" if failed_ids or missing_count else "success",
+                    "failedIds": failed_ids,
+                    "missingCount": missing_count,
+                },
+            )
+            return CompareSavedOut.model_validate({"rerun": payload.mode == "rerun", "results": results})
         except HTTPException:
             raise
         except Exception as exc:

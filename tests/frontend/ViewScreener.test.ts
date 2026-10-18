@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
@@ -14,6 +14,10 @@ vi.mock('@/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/client')>();
   return { ...actual, requestJson: vi.fn() };
 });
+
+// overlayA11y 的模块级栈/锁跨实例共享：本文件挂载的组件会打开 custom-strategy 浮层，
+// 若不卸载会留下同 id 陈旧实例，抢占后续用例的 Esc（同 Task 2 在 PlanDraftDialog.test.ts 的处理）。
+enableAutoUnmount(afterEach);
 
 const makeRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
   code: '600519',
@@ -335,6 +339,33 @@ describe('ViewScreener', () => {
     expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
     expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
   });
+
+  it('精选列表加载中显示 .loading-state[role="status"] 而非 .empty-state（spec §7）', async () => {
+    const quotes = useQuotesStore();
+    quotes.loading = true;
+    const wrapper = mount(ViewScreener);
+    await flushPromises();
+    const loadingNode = wrapper.find('.loading-state[role="status"]');
+    expect(loadingNode.exists()).toBe(true);
+    expect(loadingNode.text()).toContain('正在读取真实行情');
+    expect(wrapper.findAll('.empty-state').some((node) => node.text().includes('正在读取真实行情'))).toBe(false);
+  });
+
+  it('精选无结果时空态带「重新读取行情」按钮并调用 fetchScreener（spec §7.4）', async () => {
+    const screener = useScreenerStore();
+    const spy = vi.spyOn(screener, 'fetchScreener').mockResolvedValue(undefined as any);
+    const wrapper = mount(ViewScreener);
+    await flushPromises();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('没有找到符合条件的股票'));
+    const button = empty!.find('button');
+    expect(button.text()).toBe('重新读取行情'); // 文案（模板现状，未改）
+    // `:disabled="loading"` 在此分支不可达：v-else-if 渲染时 `loading && !filteredRows.length` 为假，
+    // 又因本分支 `!filteredRows.length` 为真 ⇒ loading 必为 false。删绑定与绑定恒假在此处不可区分，
+    // 故「未禁用」这一可达侧照常断言，但不把它当作绑定存在的证据（见收口报告）。
+    expect(button.attributes('disabled')).toBeUndefined();
+    await button.trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('ViewScreener 自定义策略编辑器', () => {
@@ -374,6 +405,18 @@ describe('ViewScreener 自定义策略编辑器', () => {
     expect(wrapper.find('input[aria-label="策略名称"]').exists()).toBe(true);
     expect(wrapper.find('select[aria-label="从内置策略复制"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('粗筛区间');
+  });
+
+  it('Esc 关闭编辑器（overlayA11y 接线：栈顶响应并把 strategyEditorOpen 置否）', async () => {
+    // 该浮层经 ViewScreener 常驻挂载的 CustomStrategyDialog 接线（AppShell.test.ts 把 view-screener 做了 stub，
+    // 故只有在本文件才能驱动真实触发器 + 真实 store 旗标）。
+    const { screener, wrapper } = await openEditor();
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(true);
+    expect(screener.strategyEditorOpen).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(screener.strategyEditorOpen).toBe(false);
+    expect(wrapper.find('.custom-strategy-panel').exists()).toBe(false);
   });
 
   it('从内置策略复制预填表单（名称加副本后缀）', async () => {

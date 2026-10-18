@@ -18,78 +18,49 @@
         </div>
       </div>
 
-      <div class="market-switcher" aria-label="市场">
-        <div class="market-switcher-copy">
-          <span class="live-dot"></span>
-          <div>
-            <strong>A股市场</strong>
-            <span>实时行情代理</span>
-          </div>
-        </div>
-        <span class="market-state">{{ marketStatus }}</span>
-      </div>
-
       <nav class="primary-nav" aria-label="主导航">
-        <button
-          v-for="item in navItems"
-          :key="item.id"
-          class="nav-item"
-          :class="{ 'is-active': view === item.id }"
-          type="button"
-          :aria-label="item.label"
-          @click="switchView(item.id)"
-        >
-          <i :data-lucide="item.icon" aria-hidden="true"></i>
-          <span>{{ item.label }}</span>
-          <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
-            unreadTotalCount > 99 ? '99+' : unreadTotalCount
-          }}</em>
-        </button>
+        <template v-for="section in navSections" :key="section.key">
+          <div v-if="section.group" class="sidebar-section-label">{{ section.group.label }}</div>
+          <button
+            v-for="item in section.items"
+            :key="item.id"
+            class="nav-item"
+            :class="{ 'is-active': view === item.id }"
+            type="button"
+            :aria-label="item.label"
+            :aria-keyshortcuts="shortcutForView(item.id) || undefined"
+            @click="switchView(item.id)"
+          >
+            <i :data-lucide="item.icon" aria-hidden="true"></i>
+            <span>{{ item.label }}</span>
+            <em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
+              unreadTotalCount > 99 ? '99+' : unreadTotalCount
+            }}</em>
+          </button>
+        </template>
       </nav>
-
-      <div class="sidebar-section-label">数据连接</div>
-      <div class="sidebar-data-note">
-        <span class="status-dot" :class="dataState"></span>
-        <div>
-          <strong>{{ providerLabel }}</strong>
-          <span>{{ dataStatusText }}</span>
-        </div>
-      </div>
 
       <div class="sidebar-spacer"></div>
 
-      <div class="sidebar-note">
-        <div class="sidebar-note-icon">
-          <i data-lucide="shield-check" aria-hidden="true"></i>
-        </div>
-        <div>
-          <strong>先计划，再执行</strong>
-          <span>真实行情只负责触发规则，不替你做决定。</span>
-        </div>
-      </div>
+      <button
+        :key="currentTheme"
+        class="sidebar-theme-toggle"
+        type="button"
+        :aria-label="currentTheme === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+        @click="onToggleTheme"
+      >
+        <i :data-lucide="currentTheme === 'dark' ? 'sun' : 'moon'" aria-hidden="true"></i>
+        <span>{{ currentTheme === 'dark' ? '浅色模式' : '深色模式' }}</span>
+      </button>
 
-      <div class="user-profile">
-        <div class="avatar">林</div>
-        <div class="user-copy">
-          <strong>林默</strong>
-          <span>个人工作区</span>
-        </div>
-        <button class="icon-button icon-button-dark" type="button" aria-label="打开用户菜单" data-tooltip="用户菜单">
-          <i data-lucide="more-horizontal" aria-hidden="true"></i>
-        </button>
-      </div>
+      <span class="sidebar-version">v{{ APP_VERSION }}</span>
     </aside>
 
     <main class="main-area">
       <header class="topbar">
         <div class="topbar-context">
-          <span class="topbar-eyebrow">A-SHARE / REAL QUOTES</span>
           <div class="topbar-title-row">
             <h1>{{ currentViewMeta.title }}</h1>
-            <span class="demo-badge" :class="{ 'demo-badge-stale': dataState !== 'live' }">
-              <span class="live-dot"></span
-              >{{ dataState === 'live' ? '真实行情' : dataState === 'stale' ? '缓存行情' : '行情连接中' }}
-            </span>
           </div>
           <p>{{ currentViewMeta.subtitle }}</p>
         </div>
@@ -102,10 +73,21 @@
               type="search"
               placeholder="搜索股票代码或名称"
               aria-label="搜索股票代码或名称"
+              aria-keyshortcuts="/"
               @keydown.enter="searchSymbol"
             />
             <kbd>/</kbd>
           </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="键盘快捷键"
+            aria-keyshortcuts="?"
+            data-tooltip="键盘快捷键"
+            @click="toggleHelp"
+          >
+            <i data-lucide="circle-question-mark" aria-hidden="true"></i>
+          </button>
           <div class="notif-wrap">
             <button
               class="icon-button"
@@ -119,8 +101,15 @@
                 unreadTotalCount > 99 ? '99+' : unreadTotalCount
               }}</span>
             </button>
-            <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
-            <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
+            <div v-if="notifOpen" class="notif-backdrop" @click.self="notifOpen = false"></div>
+            <div
+              v-if="notifOpen"
+              ref="notifPanel"
+              class="notif-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="通知中心"
+            >
               <div class="notif-head">
                 <strong>通知中心</strong
                 ><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
@@ -184,6 +173,16 @@
                     >
                       {{ alert.code }} 生成草案
                     </button>
+                    <button
+                      v-if="alert.code"
+                      class="text-button"
+                      type="button"
+                      data-testid="alert-detail-chip"
+                      :aria-label="viewDetailLabel(alert.code, null)"
+                      @click="openAlertDetail(alert.code)"
+                    >
+                      查看详情
+                    </button>
                     <div class="alert-meta">
                       <span>{{ alert.time || formatTime(alert.createdAtMs) }}</span
                       ><!-- 扫描项已读走 markScanSeen（面板打开即批量标记），workspace.alerts.find 必然落空 → 隐藏失效按钮 -->
@@ -218,9 +217,20 @@
               </div>
             </div>
           </div>
-          <button class="topbar-date" type="button" data-tooltip="刷新行情" @click="refreshAll()">
+          <button
+            class="topbar-date market-status-control"
+            type="button"
+            :data-state="dataState"
+            data-testid="market-status-control"
+            data-tooltip="刷新行情"
+            :title="`${providerLabel} · ${dataStatusText}`"
+            :aria-label="`${marketStatusLabel}，${marketStatusTimeLabel}，点击刷新行情`"
+            @click="refreshAll()"
+          >
+            <span class="status-dot" :class="dataState"></span>
+            <span class="market-status-label">{{ marketStatusLabel }}</span>
+            <span class="market-status-time">{{ marketStatusTimeLabel }}</span>
             <i data-lucide="refresh-cw" aria-hidden="true" :class="{ spinning: loading }"></i>
-            <span>{{ lastUpdatedLabel }}</span>
           </button>
         </div>
       </header>
@@ -230,35 +240,15 @@
         <view-screener v-else-if="view === 'screener'"></view-screener>
         <view-stock-detail v-else-if="view === 'stock-detail'"></view-stock-detail>
         <view-grid v-else-if="view === 'grid'"></view-grid>
-        <section v-else-if="view === 'exec'" class="mobile-exec-tabs" role="tablist" aria-label="执行分组">
-          <button
-            type="button"
-            role="tab"
-            :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'plans' }]"
-            :aria-selected="mobileExecTab === 'plans'"
-            @click="mobileExecTab = 'plans'"
-          >
-            交易计划
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :class="['mobile-exec-tab', { 'is-active': mobileExecTab === 'alerts' }]"
-            :aria-selected="mobileExecTab === 'alerts'"
-            @click="mobileExecTab = 'alerts'"
-          >
-            盯盘
-          </button>
-        </section>
 
-        <view-plans v-else-if="view === 'plans' || execShowsPlans"></view-plans>
-        <view-monitor v-else-if="view === 'monitor' || execShowsAlerts"></view-monitor>
+        <view-plans v-else-if="view === 'plans'"></view-plans>
+        <view-monitor v-else-if="view === 'monitor'"></view-monitor>
         <view-portfolio v-else-if="view === 'portfolio'"></view-portfolio>
         <view-settings v-else-if="view === 'settings'"></view-settings>
 
         <footer class="app-footer">
           <span>Atlas Trading Desk · A 股真实行情工作台</span>
-          <span>行情接口：{{ providerLabel }} · 研究工具不构成投资建议</span>
+          <span>研究工具不构成投资建议</span>
         </footer>
       </div>
     </main>
@@ -266,35 +256,63 @@
     <plan-draft-dialog></plan-draft-dialog>
 
     <nav class="bottom-nav" aria-label="手机端主导航">
-      <button type="button" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')">
-        <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
+      <button
+        v-for="slot in mobileBarItems"
+        :key="slot.id"
+        type="button"
+        :class="{ 'is-active': view === slot.id }"
+        @click="switchView(slot.id)"
+      >
+        <i :data-lucide="slot.icon" aria-hidden="true"></i><span>{{ slot.shortLabel }}</span>
       </button>
-      <button type="button" :class="{ 'is-active': view === 'screener' }" @click="switchView('screener')">
-        <i data-lucide="scan-search" aria-hidden="true"></i><span>选股</span>
-      </button>
-      <button type="button" :class="{ 'is-active': view === 'grid' }" @click="switchView('grid')">
-        <i data-lucide="grid-3x3" aria-hidden="true"></i><span>网格</span>
-      </button>
-      <button type="button" :class="{ 'is-active': view === 'exec' }" @click="switchView('exec')">
-        <i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>执行</span>
-      </button>
-      <button type="button" :class="{ 'is-active': view === 'settings' }" @click="switchView('settings')">
-        <i data-lucide="user-round" aria-hidden="true"></i><span>我的</span
+      <button
+        type="button"
+        :class="{ 'is-active': moreSheetOpen || isMoreView }"
+        aria-label="更多"
+        @click="openMoreSheet"
+      >
+        <i data-lucide="more-horizontal" aria-hidden="true"></i><span>更多</span
         ><em v-if="unreadTotalCount" class="nav-count">{{ unreadTotalCount > 99 ? '99+' : unreadTotalCount }}</em>
       </button>
     </nav>
+
+    <div v-if="moreSheetOpen" class="more-sheet-backdrop" @click.self="moreSheetOpen = false">
+      <section ref="moreSheetPanel" class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
+        <template v-for="section in moreSections" :key="section.key">
+          <div class="more-sheet-group">{{ section.group?.label }}</div>
+          <button
+            v-for="item in section.items"
+            :key="item.id"
+            class="more-sheet-item"
+            type="button"
+            :aria-keyshortcuts="shortcutForView(item.id) || undefined"
+            @click="goFromMoreSheet(item.id)"
+          >
+            <i :data-lucide="item.icon" aria-hidden="true"></i><span>{{ item.label }}</span
+            ><em v-if="item.id === 'settings' && unreadTotalCount" class="nav-count">{{
+              unreadTotalCount > 99 ? '99+' : unreadTotalCount
+            }}</em>
+          </button>
+        </template>
+      </section>
+    </div>
   </div>
-  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <ShortcutHelpDialog />
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
-import { NAV_ITEMS } from '@/modules/constants';
-import { formatTime } from '@/modules/format';
+import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
+import { formatTime, viewDetailLabel } from '@/modules/format';
+import { effectiveTheme, toggleTheme } from '@/modules/theme';
+import { shortcutForView, toggleHelp } from '@/modules/shortcuts';
+import { useOverlayA11y } from '@/modules/overlayA11y';
 import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
+import ShortcutHelpDialog from '@/components/ShortcutHelpDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
@@ -310,26 +328,100 @@ const alerts = useAlertsStore();
 const assist = useAssistStore();
 const scan = useScanStore();
 
-const { conflictVisible, adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
+// 响应式状态必须经 storeToRefs 解构，直接解构只会拿到挂载时快照（函数才可直接解构）
+const { conflictVisible } = storeToRefs(workspace);
+const { adoptServerWorkspace, forceSaveWorkspace, refreshAll, renderIcons } = workspace;
 const {
   view,
-  marketStatus,
   dataState,
   providerLabel,
   dataStatusText,
   currentViewMeta,
   globalSearch,
-  lastUpdatedLabel,
+  marketStatusLabel,
+  marketStatusTimeLabel,
   loading,
-  mobileExecTab,
-  execShowsPlans,
-  execShowsAlerts,
 } = storeToRefs(quotes);
 const { switchView, searchSymbol } = quotes;
 const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);
 const { toggleNotifCenter, clearReadAlerts, markAlertRead, markScanSeen, goAlertCenter, requestNotifications } = alerts;
 
-const navItems = NAV_ITEMS;
+/** 侧栏分区：置顶项（group === null）在前，随后按 NAV_GROUPS 顺序展开。 */
+const navSections = computed(() => [
+  {
+    key: 'top',
+    group: null as { id: string; label: string } | null,
+    items: NAV_ITEMS.filter((item) => item.group === null),
+  },
+  ...NAV_GROUPS.map((group) => ({
+    key: group.id,
+    group: group as { id: string; label: string } | null,
+    items: NAV_ITEMS.filter((item) => item.group === group.id),
+  })),
+]);
+
+/** 手机底部栏 4 个直达格（其余进「更多」抽屉）。短标签取自 NAV_ITEMS.shortLabel。 */
+const MOBILE_BAR_IDS = ['overview', 'screener', 'plans', 'monitor'] as const;
+const mobileBarItems = NAV_ITEMS.filter((item) => (MOBILE_BAR_IDS as readonly string[]).includes(item.id));
+
+const moreSheetOpen = ref(false);
+
+// 统一浮层键盘行为（spec §6）：Esc 关闭仅栈顶、Tab 焦点陷阱、body 滚动锁、焦点归还。
+const notifPanel = ref<HTMLElement | null>(null);
+const moreSheetPanel = ref<HTMLElement | null>(null);
+
+useOverlayA11y({
+  id: 'notif',
+  isOpen: () => notifOpen.value,
+  panelRef: notifPanel,
+  onClose: () => {
+    notifOpen.value = false;
+  },
+});
+
+useOverlayA11y({
+  id: 'more-sheet',
+  isOpen: () => moreSheetOpen.value,
+  panelRef: moreSheetPanel,
+  onClose: () => {
+    moreSheetOpen.value = false;
+  },
+});
+
+/** 抽屉分区：与桌面同一套分组，只保留未出现在底部栏的项。 */
+const moreSections = computed(() =>
+  NAV_GROUPS.map((group) => ({
+    key: group.id,
+    group,
+    items: NAV_ITEMS.filter(
+      (item) => item.group === group.id && !(MOBILE_BAR_IDS as readonly string[]).includes(item.id)
+    ),
+  })).filter((section) => section.items.length > 0)
+);
+
+const isMoreView = computed(() =>
+  moreSections.value.some((section) => section.items.some((item) => item.id === view.value))
+);
+
+/** 抽屉内图标同样需要 createIcons 渲染（lucide 按需注册表）。 */
+function openMoreSheet(): void {
+  moreSheetOpen.value = true;
+  nextTick(renderIcons);
+}
+
+function goFromMoreSheet(id: string): void {
+  moreSheetOpen.value = false;
+  switchView(id);
+}
+
+// 侧栏主题快捷开关：effectiveTheme 为 theme 模块级 computed，模板引用自动解包（useWorkspaceStore 复用既有 workspace 实例）
+const currentTheme = effectiveTheme;
+
+/** 切换主题后等 Vue 完成补丁，再重渲染 lucide 图标（sun/moon 随主题互换）。 */
+function onToggleTheme(): void {
+  toggleTheme();
+  nextTick(() => renderIcons());
+}
 
 /** 面板行未读态：工作区提醒看 read 标志；扫描项 read 恒 false（静态占位），已读语义走 scan 的 seen 时间戳。 */
 function isItemUnread(item: Alert): boolean {
@@ -344,10 +436,22 @@ function openScanDraft(item: Alert): void {
   markScanSeen(item.strategyId || '');
 }
 
+/** 通知面板下钻：保持「返回」回到用户当前所在视图（已在详情页时沿用它原本的来源）。 */
+function openAlertDetail(code: string): void {
+  const from = view.value === 'stock-detail' ? (quotes.detailReturnView as string) : view.value;
+  notifOpen.value = false;
+  quotes.selectStock(code, from);
+}
+
 // 打开通知面板即批量标记可见扫描策略已读（拉取新命中后打开面板 → 徽标归零）
 watch(notifOpen, (open) => {
   if (!open) return;
   scan.hits.forEach((hit) => markScanSeen(hit.strategyId));
+});
+
+// 视图切换（含底部栏直达格）即关闭「更多」抽屉，避免抽屉残留遮挡新视图
+watch(view, () => {
+  moreSheetOpen.value = false;
 });
 
 onMounted(() => renderIcons());

@@ -113,6 +113,8 @@ describe('useWorkspaceStore syncNow', () => {
   });
 
   it('syncNow 等待上限 3s：锁始终被持有时返回 { ok:false, message }（不可让 UI 假死；收尾硬化 L2 补文案）', async () => {
+    // shouldAdvanceTime 让 3s 等待循环按真实时间推进 → 本用例本身约 3s，默认 5s 超时过窄（曾 flake 一次）；
+    // 显式放宽而不是改生产逻辑（③a 遗留：时序脆弱项）。
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const workspace = useWorkspaceStore();
@@ -131,5 +133,64 @@ describe('useWorkspaceStore syncNow', () => {
       vi.useRealTimers();
       vi.unstubAllGlobals();
     }
+  }, 15000);
+});
+
+/** 后端每次保存都 +1（storage._bump_workspace_revision）；本地基线不跟进的话，
+ *  下一次 PUT 必带落后的 baseRevision → 立刻 409 → 默认 server 策略又会用服务器快照
+ *  覆盖本地（丢未保存改动）。既有缺陷 F1。 */
+describe('useWorkspaceStore 修订号跟进（F1）', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setActivePinia(createPinia());
+  });
+
+  it('syncNow 成功 PUT 后采用响应里的新 revision', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.workspaceSynced = true;
+    workspace.workspaceRevision = 5;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ revision: 6 }))
+    );
+    await workspace.syncNow();
+    expect(workspace.workspaceRevision).toBe(6);
+  });
+
+  it('定时同步成功后基线跟进：第二次 PUT 携带服务器返回的新 baseRevision', async () => {
+    vi.useFakeTimers();
+    try {
+      const workspace = useWorkspaceStore();
+      workspace.workspaceSynced = true;
+      workspace.workspaceRevision = 5;
+      let call = 0;
+      const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
+        call += 1;
+        return jsonResponse({ revision: 5 + call });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      workspace.scheduleWorkspaceSync();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(String(fetchMock.mock.calls[0][0])).toContain('baseRevision=5');
+      workspace.scheduleWorkspaceSync();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(String(fetchMock.mock.calls[1][0])).toContain('baseRevision=6');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('响应缺 revision 时不把基线清零（防御异常响应体）', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.workspaceSynced = true;
+    workspace.workspaceRevision = 9;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({}))
+    );
+    await workspace.syncNow();
+    expect(workspace.workspaceRevision).toBe(9);
   });
 });

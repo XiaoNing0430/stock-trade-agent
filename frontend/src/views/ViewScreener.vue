@@ -1,11 +1,6 @@
 <template>
   <section class="view-panel is-active screener-view">
     <div class="view-heading">
-      <div>
-        <span class="section-kicker">SCREENING LAB</span>
-        <h2>用真实行情筛出值得研究的标的</h2>
-        <p class="heading-note">筛选字段来自行情列表：涨跌幅、PE、PB、量比和换手率。</p>
-      </div>
       <div class="view-heading-actions">
         <span class="scan-time">行情列表 {{ screenerUpdatedLabel }}</span>
         <button class="button button-primary" type="button" @click="scanNow">
@@ -43,8 +38,7 @@
       <section class="filter-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">PIPELINE</span>
-            <h3>策略选股</h3>
+            <h2>策略选股</h2>
           </div>
           <i data-lucide="git-branch" class="heading-icon" aria-hidden="true"></i>
         </div>
@@ -148,18 +142,17 @@
       <div class="results-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">RESULTS</span>
-            <h3>
+            <h2>
               命中结果
               <span v-if="strategyReferenceDate" class="heading-note">基准日期 {{ strategyReferenceDate }}</span>
-            </h3>
+            </h2>
           </div>
           <span v-if="strategyCached" class="scan-time">{{
             strategyStale ? '⚠ 数据可能滞后（缓存降级）' : '缓存命中'
           }}</span>
         </div>
         <div v-if="strategyStale" class="empty-state">
-          <i data-lucide="alert-triangle" aria-hidden="true"></i><strong>数据可能滞后</strong
+          <i data-lucide="triangle-alert" aria-hidden="true"></i><strong>数据可能滞后</strong
           ><span>数据源暂时不可用，以下为上次缓存结果，请稍后强制刷新。</span>
         </div>
         <div class="table-responsive results-table-wrap">
@@ -239,7 +232,7 @@
             </tbody>
           </table>
         </div>
-        <div v-if="strategyLoading" class="empty-state">
+        <div v-if="strategyLoading" class="loading-state" role="status">
           <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在运行策略</strong
           ><span>{{ strategyRunMode === 'deep' ? '深度模式需逐票计算因子，请稍候。' : '极速模式筛选中…' }}</span>
         </div>
@@ -254,8 +247,7 @@
       <section class="filter-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">STRATEGY</span>
-            <h3>筛选策略</h3>
+            <h2>筛选策略</h2>
           </div>
           <i data-lucide="sparkles" class="heading-icon" aria-hidden="true"></i>
         </div>
@@ -336,10 +328,9 @@
       <section class="results-panel surface">
         <div class="surface-heading results-heading">
           <div>
-            <span class="section-kicker">RESULTS</span>
-            <h3>
+            <h2>
               <span>{{ filteredRows.length }}</span> 只股票符合条件
-            </h3>
+            </h2>
           </div>
           <div class="results-actions">
             <span class="muted-count">候选池 {{ screenTotal.toLocaleString() }} 只</span>
@@ -416,13 +407,16 @@
             </tbody>
           </table>
         </div>
-        <div v-if="loading && !filteredRows.length" class="empty-state">
+        <div v-if="loading && !filteredRows.length" class="loading-state" role="status">
           <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取真实行情</strong
           ><span>行情列表返回后会显示筛选结果。</span>
         </div>
         <div v-else-if="!filteredRows.length" class="empty-state">
           <i data-lucide="search-x" aria-hidden="true"></i><strong>没有找到符合条件的股票</strong
-          ><span>可以放宽 PE、PB 或涨幅条件再试一次。</span>
+          ><span>可以放宽 PE、PB 或涨幅条件再试一次。</span
+          ><button class="button button-secondary" type="button" :disabled="loading" @click="fetchScreener()">
+            重新读取行情
+          </button>
         </div>
       </section>
     </div>
@@ -430,10 +424,9 @@
     <div v-else class="all-market-panel surface">
       <div class="surface-heading results-heading">
         <div>
-          <span class="section-kicker">FULL MARKET</span>
-          <h3>
+          <h2>
             <span>{{ screenerAllTotal.toLocaleString() }}</span> 只沪深 A 股
-          </h3>
+          </h2>
         </div>
         <div class="results-actions">
           <span class="muted-count">第 {{ screenerPage }} 页 · 每页 50 只</span>
@@ -512,7 +505,7 @@
           </tbody>
         </table>
       </div>
-      <div v-if="screenerLoading" class="empty-state">
+      <div v-if="screenerLoading" class="loading-state" role="status">
         <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取全市场行情</strong
         ><span>腾讯排名接口返回后会显示结果。</span>
       </div>
@@ -584,6 +577,7 @@ const {
   strategyReferenceDate,
 } = storeToRefs(screener);
 const { loading } = storeToRefs(quotes);
+const { fetchScreener } = screener;
 const { signalClass, signalText } = plans;
 const {
   switchScreenerMode,

@@ -1,10 +1,12 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewSettings from '@/views/ViewSettings.vue';
 import { useAlertsStore } from '@/stores/useAlertsStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
+import type { Alert } from '@/types/models';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
@@ -13,6 +15,21 @@ describe('ViewSettings', () => {
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());
+    // 本文件不再逐用例 mock fetch：挂载路径可能触发请求，统一挡在本地避免真实网络噪声
+    // （本文件全部用例均在 store 层打桩，不依赖 fetch 失败/成功语义）。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({}),
+      }))
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('默认展示提醒中心', () => {
@@ -61,6 +78,52 @@ describe('ViewSettings', () => {
     const wrapper = mount(ViewSettings);
     expect(workspace.alerts.length).toBeGreaterThan(0);
     expect(wrapper.text()).toContain('真实行情连接已就绪');
+  });
+
+  // ── Task 8 入口可达性（R1）：收件箱行代码下钻，且不干扰既有标记已读 ──
+  it('通知收件箱的代码可下钻，且不改动标记已读行为', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a1',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        time: '刚刚',
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    const quotes = useQuotesStore();
+    const wrapper = mount(ViewSettings);
+    await wrapper.find('[data-testid="alert-detail-link"]').trigger('click');
+    await flushPromises();
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('settings');
+    // 既有行为不受影响
+    expect(wrapper.text()).toContain('标记已读');
+    wrapper.unmount();
+  });
+
+  // ── Task 12 下钻控件逐行可访问名 ──
+  it('提醒行下钻控件带代码式可访问名（不依赖 quoteFor 是否有名称）', () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a12',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        time: '刚刚',
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    const wrapper = mount(ViewSettings);
+    expect(wrapper.find('[data-testid="alert-detail-link"]').attributes('aria-label')).toBe('查看 600519 的详情');
+    wrapper.unmount();
   });
 
   it('数据分组渲染4个动态数据源下拉（实时/日线/选股/基本面）', () => {
@@ -264,5 +327,54 @@ describe('ViewSettings', () => {
     const select = wrapper.find('select[aria-label="跨源校验开关"]');
     expect(select.exists()).toBe(true);
     expect(wrapper.text()).toContain('对账偏差告警');
+  });
+
+  it('数据源状态措辞如实：已注册·未探测连通性 / 上游熔断中', () => {
+    const alerts = useAlertsStore();
+    const settings = useSettingsStore();
+    alerts.hubTab = 'settings';
+    settings.settingsTab = 'connection';
+    settings.dataSources = [
+      {
+        id: 'eastmoney',
+        name: '东方财富行情',
+        available: true,
+        circuit: 'closed',
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: true,
+      },
+      {
+        id: 'tencent',
+        name: '腾讯公开行情',
+        available: true,
+        circuit: 'open',
+        realtime: true,
+        history: true,
+        screener: true,
+        fundamental: false,
+      },
+    ];
+    const wrapper = mount(ViewSettings);
+    const text = wrapper.text();
+
+    // `available` 只是声明位 → 不再宣称「连接可用」
+    expect(text).not.toContain('连接可用');
+    expect(text).toContain('已注册 · 未探测连通性');
+    // 运行时熔断状态如实展示
+    expect(text).toContain('上游熔断中');
+  });
+
+  it('外观卡片：三态单选渲染，点击深色写 localStorage 并切 data-theme', async () => {
+    const alerts = useAlertsStore();
+    // 外观卡片位于网站设置 tab 的 workspace 分组（settingsTab 默认即 workspace）
+    alerts.hubTab = 'settings';
+    const wrapper = mount(ViewSettings);
+    const radios = wrapper.findAll('input[name="atlas-theme-option"]');
+    expect(radios.length).toBe(3);
+    await radios[1].setValue();
+    expect(window.localStorage.getItem('atlas-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 });

@@ -5,6 +5,8 @@ import { createPinia, setActivePinia } from 'pinia';
 import ViewPlans from '@/views/ViewPlans.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { usePlansStore } from '@/stores/usePlansStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
+import { useReviewStore } from '@/stores/useReviewStore';
 import type { Plan } from '@/types/models';
 import { requestJson } from '@/api/client';
 
@@ -174,6 +176,56 @@ describe('ViewPlans', () => {
     expect(wrapper.find('.plan-count strong').text()).toBe('1');
     expect(wrapper.text()).toContain('600519');
     expect(wrapper.text()).not.toContain('还没有交易计划');
+  });
+
+  // ── Task 8 入口可达性（R1）：计划列表代码下钻个股详情 ──
+  it('计划列表的代码可下钻个股详情并记录来源', async () => {
+    const quotes = useQuotesStore();
+    const workspace = useWorkspaceStore();
+    workspace.plans = [
+      {
+        id: 'p1',
+        code: '600519',
+        direction: 'buy',
+        entry: 1680,
+        stop: 1620,
+        target: 1800,
+        status: '执行中',
+      } as Plan,
+    ];
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="plan-code-link"]').trigger('click');
+    await flushPromises(); // selectStock 是 async（内部 ensureQuote + fetchHistory）
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('plans');
+    wrapper.unmount();
+  });
+
+  // ── Task 8 入口可达性（R1）：复盘明细表代码下钻个股详情（折叠区需先展开） ──
+  it('复盘明细表的代码可下钻个股详情并记录来源', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const quotes = useQuotesStore();
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    await wrapper.find('[data-testid="review-code-link"]').trigger('click');
+    await flushPromises();
+    expect(quotes.view).toBe('stock-detail');
+    expect(quotes.detailReturnView).toBe('plans');
+    wrapper.unmount();
+  });
+
+  it('复盘明细代码缺失 → 渲染 -- 且不产生可点链接（绝不造可点元素）', async () => {
+    vi.mocked(requestJson).mockResolvedValue({
+      ...reviewPayload,
+      items: [{ ...reviewPayload.items[0], code: '' }],
+    });
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-code-link"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="review-items-detail"] tbody tr td').text()).toBe('--');
+    wrapper.unmount();
   });
 
   it('展开绩效面板时首次拉取并渲染 testids', async () => {
@@ -518,5 +570,75 @@ describe('ViewPlans', () => {
         vi.unstubAllGlobals();
       }
     });
+  });
+
+  // ── Task 5 UI 交互一致性：复盘加载态 + 计划空态动作 ──
+  it('复盘首次加载显示加载态而非裸 --（spec §7.3-7）', async () => {
+    const review = useReviewStore();
+    review.loading = true;
+    review.review = null;
+    review.expanded = true;
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-loading"]').text()).toContain('正在回放复盘');
+    expect(wrapper.find('[data-testid="review-kpis"]').exists()).toBe(false);
+  });
+
+  it('扫描留痕加载中显示加载态（review-trace-loading，spec §7.3-7）', async () => {
+    // 来源分组含 scan: 行 → fetchReview 成功后 syncTrace 触发 fetchTrace；让留痕请求悬挂，
+    // traceLoading 保持 true 且 trace 仍 null —— 这才是 review-trace-loading 的真实到达路径。
+    const withScan = {
+      ...reviewPayload,
+      groups: {
+        ...reviewPayload.groups,
+        source: [
+          {
+            key: 'scan:trend_breakout',
+            label: '扫描·趋势突破',
+            decided: 2,
+            flatCount: 0,
+            wins: 1,
+            winRate: 0.5,
+            expectancyR: 0.4,
+            smallSample: false,
+          },
+        ],
+      },
+    };
+    vi.mocked(requestJson).mockImplementation((url: unknown) =>
+      String(url).includes('/api/plans/review') ? Promise.resolve(withScan) : new Promise<never>(() => {})
+    );
+    const wrapper = mount(ViewPlans);
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    const loading = wrapper.find('[data-testid="review-trace-loading"]');
+    expect(loading.exists()).toBe(true);
+    expect(loading.text()).toContain('正在读取扫描记录');
+    expect(wrapper.find('[data-testid="review-trace"]').exists()).toBe(false); // 加载中不渲染半截留痕
+  });
+
+  it('无计划空态按钮跳转选股器（spec §7.4）', async () => {
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    const quotes = useQuotesStore();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('还没有交易计划'));
+    await empty!.find('button').trigger('click');
+    expect(quotes.view).toBe('screener');
+  });
+
+  // ── Task 12 下钻控件逐行可访问名（收口：夹具内该代码无行情 → 逐字「查看 <code> 的详情」） ──
+  it('计划行与复盘行下钻控件带逐行可访问名', async () => {
+    vi.mocked(requestJson).mockResolvedValue(reviewPayload);
+    const workspace = useWorkspaceStore();
+    workspace.plans = [activePlan];
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    const link = wrapper.find('[data-testid="plan-code-link"]');
+    // 精确相等（非通配正则）：丢弃 name 参数、塞事件标题、多一个空格都会红；
+    // name-present 路径另由 ViewPortfolio.test.ts 覆盖（本夹具无该代码行情 → 名称必缺省）。
+    expect(link.attributes('aria-label')).toBe('查看 600519 的详情');
+    await wrapper.find('[data-testid="review-toggle"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-code-link"]').attributes('aria-label')).toBe('查看 300750 的详情');
   });
 });

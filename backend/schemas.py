@@ -146,6 +146,11 @@ class HealthOut(BaseModel):
     redisCache: str | None = None
     minuteCache: str = "down"
     minuteCircuit: str = "closed"
+    # 行业映射观测位（2026-10-03 韧性批）：{status, rows, oldestAgeSeconds}；
+    # 只读聚合、不触网；查询不可用 → status="unavailable"（不造假）
+    industry: dict[str, Any] | None = None
+    # 各源运行时熔断护栏状态（2026-10-03）：{sourceId: closed|open|half-open}
+    sourceCircuits: dict[str, str] | None = None
 
 
 class MinuteOut(BaseModel):
@@ -190,6 +195,9 @@ class MarketOut(BaseModel):
     fetchedAt: int = 0
     provider: str = ""
     errors: list[dict[str, Any]] = Field(default_factory=list)
+    # 运行时降级披露（2026-10-03）：首选源请求期失败而换源成功时如实标注
+    fallbackUsed: bool = False
+    failedSources: list[str] = Field(default_factory=list)
 
 
 class HistoryOut(BaseModel):
@@ -211,6 +219,9 @@ class ScreenerOut(BaseModel):
     universeSize: int = 0
     provider: str = ""
     fetchedAt: int = 0
+    # 运行时降级披露（2026-10-03）：与 MarketOut 同口径
+    fallbackUsed: bool = False
+    failedSources: list[str] = Field(default_factory=list)
 
 
 class GridPreviewOut(BaseModel):
@@ -384,3 +395,81 @@ class PlanDraftResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     data: PlanDraftOut
+
+
+class CompareResultItem(BaseModel):
+    """单策略对比项；error 行仅有 strategyType/label/error。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    strategyType: str
+    label: str = ""
+    config: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None
+    equityCurve: list[dict[str, Any]] | None = None
+    trades: list[dict[str, Any]] | None = None
+    assumptions: str | None = None
+    error: str | None = None
+
+
+class CompareRunIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    lookback: int = 120
+    capital: float = Field(default=100000, gt=0)
+    feeBps: float = Field(default=3, ge=0)
+    strategyTypes: list[str] = Field(default_factory=list)
+
+
+class CompareRunOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str
+    profile: dict[str, Any] = Field(default_factory=dict)
+    dataSource: str
+    dataAsOf: str | None = None
+    barCount: int = 0
+    benchmarkCurve: list[dict[str, Any]] = Field(default_factory=list)
+    results: list[CompareResultItem] = Field(default_factory=list)
+
+
+class CompareSavedItem(BaseModel):
+    """已保存策略对比项：snapshot / rerun / 缺失三种形状合一，缺省键为 None。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    found: bool = True
+    source: str | None = None  # "grid" | "strategy"
+    name: str | None = None
+    strategyType: str | None = None
+    code: str | None = None
+    status: str | None = None
+    schedule: str | None = None
+    capital: float | None = None
+    feeBps: float | None = None
+    lastBacktestAt: str | None = None
+    latestMetrics: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None
+    trades: list[dict[str, Any]] | None = None
+    assumptions: str | None = None
+    dataSource: str | None = None
+    dataAsOf: str | None = None
+    missingReason: str | None = None
+    error: str | None = None
+
+
+class CompareSavedIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    mode: str = "snapshot"  # snapshot（读库快照）| rerun（现跑回测）
+    ids: list[str] = Field(default_factory=list)
+
+
+class CompareSavedOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    rerun: bool = False
+    results: list[CompareSavedItem] = Field(default_factory=list)

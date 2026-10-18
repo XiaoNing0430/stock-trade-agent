@@ -2,8 +2,9 @@
   <section class="view-panel is-active">
     <div class="view-heading">
       <div>
-        <span class="section-kicker">STRATEGY LAB</span>
-        <h2>{{ strategyType === 'grid' ? '让区间交易有数据依据' : strategyTypeLabel + '策略回测' }}</h2>
+        <h2 class="surface-title">
+          {{ strategyType === 'grid' ? '让区间交易有数据依据' : strategyTypeLabel + '策略回测' }}
+        </h2>
         <p class="heading-note">
           {{
             strategyType === 'grid'
@@ -70,7 +71,9 @@
                         ? 'trending-up'
                         : item.id === 'momentum'
                           ? 'zap'
-                          : 'layers'
+                          : item.id === 'compare'
+                            ? 'git-compare'
+                            : 'layers'
           "
           aria-hidden="true"
         ></i
@@ -81,8 +84,7 @@
       <section class="grid-config-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">CONFIGURATION</span>
-            <h3>网格参数</h3>
+            <h2>网格参数</h2>
           </div>
           <span class="draft-status">{{ gridLoading ? '计算中' : '日线回测' }}</span>
         </div>
@@ -193,8 +195,7 @@
       <section class="grid-result-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">BACKTEST RESULT</span>
-            <h3>回测表现</h3>
+            <h2>回测表现</h2>
           </div>
           <button
             class="icon-button"
@@ -207,7 +208,11 @@
             <i data-lucide="play" aria-hidden="true"></i>
           </button>
         </div>
-        <div v-if="gridResult" class="grid-result-body">
+        <div v-if="gridLoading" class="loading-state" data-testid="grid-suggestion-loading" role="status">
+          <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在计算网格参数</strong
+          ><span>基于历史日线给出区间、每格资金与建议投入。</span>
+        </div>
+        <div v-else-if="gridResult" class="grid-result-body">
           <p v-if="gridProvenance" class="grid-provenance">
             <i data-lucide="database" aria-hidden="true"></i>{{ gridProvenance }}
           </p>
@@ -324,12 +329,11 @@
         </div>
       </section>
     </div>
-    <div v-else class="grid-strategy-layout">
+    <div v-else-if="strategyType !== 'compare'" class="grid-strategy-layout">
       <section class="grid-config-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">CONFIGURATION</span>
-            <h3>{{ strategyTypeLabel }}参数</h3>
+            <h2>{{ strategyTypeLabel }}参数</h2>
           </div>
           <span class="draft-status">{{ strategyLoading ? '计算中' : '日线回测' }}</span>
         </div>
@@ -416,8 +420,7 @@
       <section class="grid-result-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">BACKTEST RESULT</span>
-            <h3>回测表现</h3>
+            <h2>回测表现</h2>
           </div>
           <button
             v-if="hasStrategyResult"
@@ -429,7 +432,11 @@
             <i data-lucide="save" aria-hidden="true"></i>保存策略
           </button>
         </div>
-        <div v-if="strategyResult" class="grid-result-body">
+        <div v-if="strategyLoading" class="loading-state" data-testid="strategy-loading" role="status">
+          <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在回放回测</strong
+          ><span>日线逐笔重放完成后显示权益曲线与指标。</span>
+        </div>
+        <div v-else-if="strategyResult" class="grid-result-body">
           <p v-if="strategyProvenance" class="grid-provenance">
             <i data-lucide="database" aria-hidden="true"></i>{{ strategyProvenance }}
           </p>
@@ -503,16 +510,313 @@
         </div>
         <div v-else class="empty-state">
           <i data-lucide="activity" aria-hidden="true"></i><strong>运行{{ strategyTypeLabel }}回测</strong
-          ><span>系统会基于历史日线按参数模拟买卖并给出权益曲线与指标。</span>
+          ><span>系统会基于历史日线按参数模拟买卖并给出权益曲线与指标。</span
+          ><button
+            class="button button-secondary"
+            type="button"
+            :disabled="strategyLoading"
+            @click="backtestStrategy()"
+          >
+            运行回测
+          </button>
         </div>
+      </section>
+    </div>
+    <div v-else class="grid-strategy-layout">
+      <section class="grid-config-panel surface">
+        <div class="surface-heading">
+          <div>
+            <h2>多策略横向对比</h2>
+          </div>
+          <span class="draft-status">{{ compare.runLoading ? '计算中' : '日线回测' }}</span>
+        </div>
+        <div class="form-grid">
+          <label class="field field-wide"
+            ><span>股票或 ETF 代码</span
+            ><input
+              v-model.trim="compare.compareDraft.code"
+              inputmode="numeric"
+              maxlength="6"
+              placeholder="例如 600519"
+              @keydown.enter.prevent="compare.runCompare()"
+          /></label>
+          <label class="field"
+            ><span>历史窗口</span
+            ><select v-model.number="compare.compareDraft.lookback">
+              <option :value="60">60 个交易日</option>
+              <option :value="120">120 个交易日</option>
+              <option :value="240">240 个交易日</option>
+            </select></label
+          >
+          <label class="field"
+            ><span>投入资金</span>
+            <div class="number-input">
+              <input v-model.number="compare.compareDraft.capital" type="number" min="1000" step="1000" /><span
+                >元</span
+              >
+            </div></label
+          >
+          <label class="field"
+            ><span>双边费率</span>
+            <div class="number-input">
+              <input v-model.number="compare.compareDraft.feeBps" type="number" min="0" step="0.1" /><span>BP</span>
+            </div></label
+          >
+          <div class="field field-wide">
+            <span>参与策略（{{ compare.selectedTypes.length }}/8）</span>
+            <div class="compare-type-checks">
+              <label v-for="item in COMPARE_STRATEGY_TYPES" :key="item.id" class="compare-type-check">
+                <input
+                  type="checkbox"
+                  :checked="compare.selectedTypes.includes(item.id)"
+                  @change="compare.toggleType(item.id)"
+                /><span>{{ item.label }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="form-footer">
+          <span class="form-footnote"
+            ><i data-lucide="info" aria-hidden="true"></i>同一份日线在勾选策略间重放对比；引擎参数取默认值</span
+          ><button
+            class="button button-primary"
+            type="button"
+            :disabled="compare.runLoading"
+            @click="compare.runCompare()"
+          >
+            <i data-lucide="git-compare" aria-hidden="true"></i>运行对比
+          </button>
+        </div>
+      </section>
+      <section class="grid-result-panel surface">
+        <div class="surface-heading">
+          <div>
+            <h2>对比结果</h2>
+          </div>
+        </div>
+        <div v-if="compare.runLoading" class="loading-state" data-testid="compare-loading" role="status">
+          <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在对比</strong
+          ><span>勾选策略将在同一份日线上依次重放。</span>
+        </div>
+        <div v-else-if="compare.runResult" class="grid-result-body">
+          <p class="grid-provenance">
+            <i data-lucide="database" aria-hidden="true"></i>{{ compare.runResult.barCount }} 个交易日 ·
+            {{ compare.runResult.dataSource === 'local' ? '本地缓存' : '实时拉取' }} · 数据截止
+            {{ compare.runResult.dataAsOf || '--' }}
+          </p>
+          <p class="heading-note">
+            <span class="signal-chip signal-chip-watch">网格区间为样本内自动建议，结果偏乐观</span>
+          </p>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th class="text-end">区间收益</th>
+                  <th class="text-end">年化</th>
+                  <th class="text-end">超额</th>
+                  <th class="text-end">回撤</th>
+                  <th class="text-end">夏普</th>
+                  <th class="text-end">胜率</th>
+                  <th class="text-end">成交</th>
+                  <th class="text-end">费用</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in compare.runResult.results" :key="item.strategyType">
+                  <td>{{ item.label }}</td>
+                  <template v-if="!item.error">
+                    <td
+                      class="text-end"
+                      :class="[
+                        trendClass(item.metrics?.returnPct),
+                        { 'is-best': compare.isBest(item, 'returnPct', 'max') },
+                      ]"
+                    >
+                      {{ formatPct(item.metrics?.returnPct) }}
+                    </td>
+                    <td class="text-end" :class="{ 'is-best': compare.isBest(item, 'annualizedReturnPct', 'max') }">
+                      {{
+                        item.metrics?.annualizedReturnPct != null
+                          ? item.metrics.annualizedReturnPct.toFixed(2) + '%'
+                          : '--'
+                      }}
+                    </td>
+                    <td class="text-end" :class="trendClass(item.metrics?.excessReturnPct)">
+                      {{ formatPct(item.metrics?.excessReturnPct) }}
+                    </td>
+                    <td class="text-end" :class="{ 'is-best': compare.isBest(item, 'maxDrawdownPct', 'min') }">
+                      {{ item.metrics?.maxDrawdownPct != null ? item.metrics.maxDrawdownPct.toFixed(2) + '%' : '--' }}
+                    </td>
+                    <td class="text-end">
+                      {{ item.metrics?.sharpeRatio != null ? item.metrics.sharpeRatio.toFixed(2) : '--' }}
+                    </td>
+                    <td class="text-end">
+                      {{ item.metrics?.winRatePct != null ? item.metrics.winRatePct.toFixed(1) + '%' : '--' }}
+                    </td>
+                    <td class="text-end">{{ item.metrics?.tradeCount ?? '--' }}</td>
+                    <td class="text-end">{{ formatMoney(item.metrics?.totalFees) }}</td>
+                  </template>
+                  <td v-else colspan="8" class="compare-error-cell">失败：{{ item.error }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="grid-equity-chart" v-html="compare.runChartSvg"></div>
+          <p
+            v-for="item in compare.runResult.results"
+            :key="'a-' + item.strategyType"
+            class="heading-note grid-assumption"
+          >
+            {{ item.label }}：{{ item.error || item.assumptions }}
+          </p>
+          <div class="compare-exports">
+            <button class="text-button" type="button" @click="compare.exportRunCsv('metrics')">
+              <i data-lucide="download" aria-hidden="true"></i>导出指标 CSV</button
+            ><button class="text-button" type="button" @click="compare.exportRunCsv('curves')">
+              <i data-lucide="download" aria-hidden="true"></i>导出曲线 CSV</button
+            ><button class="text-button" type="button" @click="compare.exportRunCsv('trades')">
+              <i data-lucide="download" aria-hidden="true"></i>导出成交 CSV
+            </button>
+          </div>
+        </div>
+        <div v-else class="empty-state">
+          <i data-lucide="git-compare" aria-hidden="true"></i><strong>运行多策略对比</strong
+          ><span>同一份历史日线在勾选的策略间重放，对比收益、回撤与夏普。</span
+          ><button
+            class="button button-secondary"
+            type="button"
+            :disabled="compare.runLoading"
+            @click="compare.runCompare()"
+          >
+            开始对比
+          </button>
+        </div>
+      </section>
+    </div>
+    <div v-if="strategyType === 'compare'" class="grid-lists">
+      <section class="surface grid-candidates-panel">
+        <div class="surface-heading">
+          <div>
+            <h2>已保存策略对比</h2>
+          </div>
+          <div class="compare-saved-heading">
+            <span class="draft-status">已选 {{ compare.savedSelection.length }}/10</span>
+            <button class="text-button" type="button" @click="compare.selectAllSaved()">全选</button>
+            <button class="text-button" type="button" @click="compare.clearSavedSelection()">清空</button>
+          </div>
+        </div>
+        <div v-if="compare.savedOptions.length" class="strategy-list">
+          <div v-for="option in compare.savedOptions" :key="option.key" class="strategy-row">
+            <div class="compare-saved-row">
+              <input
+                type="checkbox"
+                :checked="compare.savedSelection.includes(option.key)"
+                :disabled="!compare.savedSelection.includes(option.key) && compare.savedSelection.length >= 10"
+                :aria-label="'选择 ' + option.name"
+                @change="compare.toggleSaved(option.key)"
+              />
+              <div>
+                <strong>{{ option.name }}</strong
+                ><span>{{ option.code }} · {{ option.typeLabel }} · {{ option.status }}</span
+                ><span v-if="option.lastBacktestAt">最近回测 {{ option.lastBacktestAt }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="form-footer">
+            <span class="form-footnote"
+              ><i data-lucide="info" aria-hidden="true"></i>对比为只读研究，不更新已存快照</span
+            ><span
+              ><button
+                class="button button-secondary"
+                type="button"
+                :disabled="compare.savedLoading"
+                @click="compare.compareSaved('snapshot')"
+              >
+                对比快照</button
+              ><button
+                class="button button-primary"
+                type="button"
+                :disabled="compare.savedLoading"
+                @click="compare.compareSaved('rerun')"
+              >
+                {{ compare.savedLoading ? '正在回测，最长可能数十秒…' : '重新回测并对比' }}
+              </button></span
+            >
+          </div>
+          <div v-if="compare.savedResult" class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th>类型</th>
+                  <th>代码</th>
+                  <th class="text-end">区间收益</th>
+                  <th class="text-end">超额</th>
+                  <th class="text-end">回撤</th>
+                  <th class="text-end">夏普</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in compare.savedResult.results" :key="item.id">
+                  <td>{{ item.name || item.id }}</td>
+                  <td>{{ item.strategyType || '--' }}</td>
+                  <td>{{ item.code || '--' }}</td>
+                  <template v-if="item.found && !item.error">
+                    <td class="text-end">
+                      {{ formatPct(item.metrics?.returnPct ?? item.latestMetrics?.returnPct ?? null) }}
+                    </td>
+                    <td class="text-end">
+                      {{ formatPct(item.metrics?.excessReturnPct ?? item.latestMetrics?.excessReturnPct ?? null) }}
+                    </td>
+                    <td class="text-end">
+                      {{
+                        savedMetric(item, 'maxDrawdownPct') != null
+                          ? savedMetric(item, 'maxDrawdownPct').toFixed(2) + '%'
+                          : '--'
+                      }}
+                    </td>
+                    <td class="text-end">
+                      {{
+                        (item.metrics ?? item.latestMetrics)?.sharpeRatio != null
+                          ? (item.metrics ?? item.latestMetrics).sharpeRatio.toFixed(2)
+                          : '--'
+                      }}
+                    </td>
+                    <td>
+                      <span v-if="item.missingReason" class="signal-chip signal-chip-watch">{{
+                        item.missingReason
+                      }}</span
+                      ><span v-else class="signal-chip signal-chip-neutral">已载入</span>
+                    </td>
+                  </template>
+                  <td v-else colspan="5">失败：{{ item.error || item.missingReason }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="compare.savedResult" class="compare-exports">
+            <button class="text-button" type="button" @click="compare.exportSavedCsv('metrics')">
+              <i data-lucide="download" aria-hidden="true"></i>导出指标 CSV</button
+            ><button
+              v-if="compare.savedResult.rerun"
+              class="text-button"
+              type="button"
+              @click="compare.exportSavedCsv('trades')"
+            >
+              <i data-lucide="download" aria-hidden="true"></i>导出成交 CSV
+            </button>
+          </div>
+        </div>
+        <div v-else class="empty-state"><strong>暂无已保存策略</strong><span>先到上方运行回测并保存策略。</span></div>
       </section>
     </div>
     <div v-if="strategyType !== 'grid' && strategies.length" class="grid-lists">
       <section class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">SAVED STRATEGIES</span>
-            <h3>已保存策略</h3>
+            <h2>已保存策略</h2>
           </div>
         </div>
         <div class="strategy-list">
@@ -541,8 +845,7 @@
       <section v-if="gridCandidates.length" class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">OPTIMIZATION</span>
-            <h3>候选参数</h3>
+            <h2>候选参数</h2>
           </div>
         </div>
         <div class="table-responsive">
@@ -583,8 +886,7 @@
       <section v-if="gridStrategies.length" class="surface grid-candidates-panel">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">SAVED STRATEGIES</span>
-            <h3>已保存策略</h3>
+            <h2>已保存策略</h2>
           </div>
         </div>
         <div class="strategy-list">
@@ -621,14 +923,23 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { compareChartSvg } from '@/modules/chart';
+import { COMPARE_STRATEGY_TYPES } from '@/modules/constants';
 import { formatNullable, formatNumber, formatPct, formatMoney, trendClass } from '@/modules/format';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useGridStore } from '@/stores/useGridStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
+import { useCompareStore } from '@/stores/useCompareStore';
 
 const workspace = useWorkspaceStore();
 const grid = useGridStore();
 const strategy = useStrategyStore();
+const compare = useCompareStore();
+
+// 已保存对比行指标取值：metrics 优先、latestMetrics 兜底、null 显示 --
+// （brief 行内三元 `a ?? b != null ? ...` 有优先级陷阱，等价改写为显式 helper）
+function savedMetric(item: any, key: string): any {
+  return item?.metrics?.[key] ?? item?.latestMetrics?.[key];
+}
 
 const {
   strategyType,

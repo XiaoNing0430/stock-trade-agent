@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, nextTick, ref } from 'vue';
 import { createIcons } from 'lucide';
 import { UI_ICONS } from '@/modules/lucideIcons';
+import { showToast as showToastEntry } from '@/modules/toastQueue';
 import type { Alert, Plan } from '@/types/models';
 import { DEFAULT_ALERTS, DEFAULT_WATCHLIST, STORAGE_KEY } from '@/modules/constants';
 import { useQuotesStore } from './useQuotesStore';
@@ -71,23 +72,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function showToast(message: string, tone = 'success') {
-    const region = document.getElementById('toast-region');
-    if (!region) return;
-    const messageText = String(message ?? '');
-    const toast = document.createElement('div');
-    toast.className = `toast ${tone === 'error' ? 'error' : ''}`;
-    const icon = document.createElement('i');
-    icon.setAttribute('data-lucide', tone === 'error' ? 'triangle-alert' : 'check-circle-2');
-    icon.setAttribute('aria-hidden', 'true');
-    const text = document.createElement('span');
-    text.textContent = messageText;
-    toast.appendChild(icon);
-    toast.appendChild(text);
-    region.appendChild(toast);
-    renderIcons();
-    setTimeout(() => {
-      toast.remove();
-    }, 3200);
+    showToastEntry(message, tone, { renderIcons });
   }
 
   function persistLocal() {
@@ -97,9 +82,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          view: quotes.view.value,
-          selectedCode: quotes.selectedCode.value,
-          presetName: screener.presetName.value,
+          // Pinia 会把 setup store 的 ref 解包：view/selectedCode/presetName 已是普通值，写成
+          // `.value` 只会把 undefined 存进 localStorage（刷新即丢视图、选中标的与选股预设）。
+          view: quotes.view,
+          selectedCode: quotes.selectedCode,
+          presetName: screener.presetName,
           watchlist: watchlistCodes.value,
           plans: plans.value,
           alerts: alerts.value,
@@ -135,6 +122,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let workspaceSyncInFlight = false;
   let workspaceSyncQueued = false;
 
+  /** 成功 PUT 后采用响应携带的新修订号。后端 storage._bump_workspace_revision 每次保存都 +1，
+   *  本地基线不跟进则下一次 PUT 必带落后 baseRevision → 立刻 409，而默认 `server` 策略会
+   *  用服务器快照覆盖本地（丢未保存改动）。响应缺 revision 时保持原值，绝不清零。 */
+  function adoptWorkspaceRevision(result: any) {
+    const next = Number(result?.revision);
+    if (Number.isFinite(next)) workspaceRevision.value = next;
+  }
+
   function scheduleWorkspaceSync() {
     if (!workspaceSynced.value) return;
     if (workspaceSyncInFlight) {
@@ -147,10 +142,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (workspaceSyncInFlight) return;
       workspaceSyncInFlight = true;
       try {
-        await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
+        const result = await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
           method: 'PUT',
           body: JSON.stringify(workspacePayload()),
         });
+        adoptWorkspaceRevision(result);
       } catch (error: any) {
         if (error.status === 409) {
           workspaceSyncQueued = false;
@@ -191,10 +187,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (workspaceSyncInFlight) return { ok: false, message: '同步超时（定时同步长时间占用），请稍后重试' };
     workspaceSyncInFlight = true;
     try {
-      await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
+      const result = await requestJson(`/api/workspace?baseRevision=${encodeURIComponent(workspaceRevision.value)}`, {
         method: 'PUT',
         body: JSON.stringify(workspacePayload()),
       });
+      adoptWorkspaceRevision(result);
       return { ok: true };
     } catch (error: any) {
       if (error.status === 409) return { ok: false, conflict: true };

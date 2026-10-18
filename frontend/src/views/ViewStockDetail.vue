@@ -2,8 +2,7 @@
   <section class="view-panel is-active">
     <div class="view-heading">
       <div>
-        <span class="section-kicker">STOCK DETAIL</span>
-        <h2>{{ selectedStock?.name || '个股详情' }}</h2>
+        <h2 class="surface-title">{{ selectedStock?.name || '个股详情' }}</h2>
         <p class="heading-note">
           {{
             selectedStock
@@ -16,13 +15,17 @@
         <button class="button button-secondary" type="button" data-testid="generate-draft" @click="openDraft">
           <i data-lucide="file-pen-line" aria-hidden="true"></i>生成草案
         </button>
-        <button class="button button-secondary" type="button" @click="backFromDetail">
-          <i data-lucide="arrow-left" aria-hidden="true"></i>返回
+        <button class="button button-secondary" type="button" data-testid="back-from-detail" @click="backFromDetail">
+          <i data-lucide="arrow-left" aria-hidden="true"></i>返回{{ returnViewLabel }}
         </button>
       </div>
     </div>
     <section class="selected-stock-panel surface">
-      <div class="selected-stock-summary">
+      <div v-if="loading && !selectedStock" class="loading-state" data-testid="detail-loading" role="status">
+        <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取行情</strong
+        ><span>行情返回后显示报价、指标与操作入口。</span>
+      </div>
+      <div v-else class="selected-stock-summary">
         <div class="selected-stock-identity">
           <div class="stock-avatar">{{ selectedStock?.name?.slice(0, 1) || '—' }}</div>
           <div>
@@ -75,7 +78,7 @@
         v-html="
           chartSvg(
             selectedHistory.map((item: any) => item.close),
-            '#3b6fb6',
+            'var(--blue)',
             (selectedStock?.name || '股票') + '近期走势'
           )
         "
@@ -89,6 +92,9 @@
         <button v-for="period in minutePeriods" :key="period" type="button" @click="loadMinute(period)">
           {{ period }}
         </button>
+      </div>
+      <div v-if="minuteLoading" class="loading-state" data-testid="minute-loading" role="status">
+        <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取分钟线</strong>
       </div>
       <div v-if="minuteSvg" class="stock-detail-chart minute-chart" data-testid="minute-chart" v-html="minuteSvg"></div>
       <div v-if="minuteCacheText" class="chart-source-row">
@@ -107,6 +113,7 @@ import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { chartSvg } from '@/modules/chart';
 import { formatNullable, formatPctNullable, formatAmount, trendClass } from '@/modules/format';
+import { VIEW_META } from '@/modules/constants';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useGridStore } from '@/stores/useGridStore';
@@ -120,7 +127,8 @@ const grid = useGridStore();
 const plans = usePlansStore();
 const assist = useAssistStore();
 
-const { selectedStock, selectedCode, selectedHistory, chartDataSource } = storeToRefs(quotes);
+const { selectedStock, selectedCode, selectedHistory, chartDataSource, detailReturnView, loading } =
+  storeToRefs(quotes);
 const { backFromDetail, toggleWatch, isWatched } = quotes;
 const { openGridStrategy } = grid;
 const { createPlan } = plans;
@@ -133,6 +141,7 @@ const minuteDegraded = ref(false);
 const minuteUpdatedAtMs = ref<number | null>(null);
 const minuteBars = ref<any[]>([]);
 const minuteChartPeriod = ref('');
+const minuteLoading = ref(false);
 
 // spec §6 逐字文案：state→黄标/灰条映射，429 走 toast 不进状态条
 const MINUTE_STRIP_TEXT: Record<string, string> = {
@@ -153,15 +162,26 @@ const minuteSvg = computed(() =>
   minuteState.value === 'ok' && minuteBars.value.length
     ? chartSvg(
         minuteBars.value.map((bar: any) => bar.close),
-        '#3b6fb6',
+        'var(--blue)',
         `分钟线 ${minuteChartPeriod.value}`
       )
     : ''
 );
 
+/**
+ * 「返回」带来源名（VIEW_META[from][0]）；来源缺失/未知时退回泛化文案。
+ * VIEW_META 无索引签名，逐 key 取值需先断言为 Record（`VIEW_META[from]` 直接下标会挂 vue-tsc）。
+ */
+const returnViewLabel = computed(() => {
+  const from = detailReturnView.value;
+  const label = (VIEW_META as Record<string, string[]>)[from]?.[0];
+  return from === 'stock-detail' || !label ? '上一页' : label;
+});
+
 async function loadMinute(period: string) {
   minutePeriod.value = period;
   if (!selectedCode.value) return;
+  minuteLoading.value = true;
   try {
     const res = await fetchMinute(selectedCode.value, period);
     minuteState.value = res.state;
@@ -180,6 +200,8 @@ async function loadMinute(period: string) {
     minuteDegraded.value = true;
     minuteUpdatedAtMs.value = null;
     minuteBars.value = [];
+  } finally {
+    minuteLoading.value = false;
   }
 }
 

@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import './styles.css';
+import { initTheme } from './modules/theme';
 
 // 全局注册视图组件（App.vue 模板使用 <view-overview> 等 kebab-case 标签）
 import ViewOverview from './views/ViewOverview.vue';
@@ -13,6 +14,8 @@ import ViewMonitor from './views/ViewMonitor.vue';
 import ViewPortfolio from './views/ViewPortfolio.vue';
 import ViewSettings from './views/ViewSettings.vue';
 
+// 首帧应用主题（防 FOUC）——必须在 createApp 之前
+initTheme();
 const app = createApp(App);
 app.use(createPinia());
 app.component('view-overview', ViewOverview);

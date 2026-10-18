@@ -110,6 +110,7 @@ def backtest_grid(
     settlement_days: int = 1,
     slippage_bps: float = 5,
     price_limit_pct: float = 0.1,
+    trades_limit: int | None = 100,
 ) -> dict[str, Any]:
     if len(bars) < 2 or capital <= 0:
         raise ValueError("历史数据或本金无效")
@@ -250,7 +251,7 @@ def backtest_grid(
     )
     return {
         "levels": levels,
-        "trades": trades[-100:],
+        "trades": trades if trades_limit is None else trades[-trades_limit:],
         "equityCurve": equity_curve_normalized,
         "benchmarkCurve": benchmark["curve"],
         "metrics": metrics,

@@ -1,12 +1,5 @@
 <template>
   <section class="view-panel is-active">
-    <div class="view-heading">
-      <div>
-        <span class="section-kicker">PERSONAL HUB</span>
-        <h2>个人中心</h2>
-        <p class="heading-note">提醒中心与网站设置的统一入口。</p>
-      </div>
-    </div>
     <div class="settings-tabs settings-tabs-primary" role="tablist" aria-label="个人中心分组">
       <button
         type="button"
@@ -32,8 +25,7 @@
       <section class="alerts-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">NOTIFICATIONS</span>
-            <h3>通知收件箱</h3>
+            <h2>通知收件箱</h2>
           </div>
           <button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
         </div>
@@ -80,6 +72,15 @@
               ><span>{{ alert.message }}</span>
               <div class="alert-meta">
                 <span>{{ alert.time }}</span
+                ><button
+                  v-if="alert.code"
+                  class="text-button"
+                  type="button"
+                  data-testid="alert-detail-link"
+                  :aria-label="viewDetailLabel(alert.code, null)"
+                  @click="selectStock(alert.code, 'settings')"
+                >
+                  查看详情</button
                 ><button class="text-button" type="button" @click="markAlertRead(alert.id)">
                   {{ alert.read ? '已读' : '标记已读' }}
                 </button>
@@ -111,7 +112,7 @@
         </div>
         <div class="view-heading-actions">
           <button
-            class="button"
+            class="button button-lg"
             :class="settingsDirty ? 'button-primary' : 'button-secondary'"
             type="button"
             :disabled="settingsLoading"
@@ -159,6 +160,22 @@
             ><input v-model="settingsDraft.notifyDesktopSystem" type="checkbox" /><span class="toggle-track"
               ><span></span></span
           ></label>
+        </section>
+        <section v-if="settingsTab === 'workspace'" class="settings-row">
+          <div>
+            <strong>外观</strong>
+            <span>界面主题即时生效，仅保存在本浏览器</span>
+          </div>
+          <div class="theme-options">
+            <label v-for="option in THEME_OPTIONS" :key="option.value" class="theme-option">
+              <input
+                type="radio"
+                name="atlas-theme-option"
+                :checked="(themePreference ?? 'system') === option.value"
+                @change="onThemeChange(option.value)"
+              /><span>{{ option.label }}</span>
+            </label>
+          </div>
         </section>
         <section v-if="settingsTab === 'data'" class="settings-row">
           <div><strong>行情刷新间隔</strong><span>盯盘标的存在时自动刷新</span></div>
@@ -286,12 +303,21 @@
           ><section v-for="source in dataSources" :key="source.id" class="settings-row">
             <div>
               <strong>{{ source.name }}</strong
-              ><span>{{ source.available ? '连接可用' : source.reason || '暂不可用' }}</span>
+              ><span>{{
+                source.circuit === 'open'
+                  ? '上游熔断中（自动降级到备选源，稍后自动重试）'
+                  : source.available
+                    ? '已注册 · 未探测连通性'
+                    : source.reason || '暂不可用'
+              }}</span>
             </div>
             <div>
-              <span :class="['setting-status', { 'setting-status-muted': !source.available }]">{{
-                source.available ? '可用' : '不可用'
-              }}</span
+              <span
+                :class="[
+                  'setting-status',
+                  { 'setting-status-muted': !source.available || source.circuit === 'open' },
+                ]"
+                >{{ source.circuit === 'open' ? '熔断' : source.available ? '已注册' : '不可用' }}</span
               ><span v-if="source.realtime" class="badge badge-blue">实时</span
               ><span v-if="source.history" class="badge badge-green">日线</span
               ><span v-if="source.screener" class="badge badge-orange">选股</span
@@ -334,8 +360,11 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { SETTINGS_TABS } from '@/modules/constants';
+import { viewDetailLabel } from '@/modules/format';
+import { themePreference, setTheme } from '@/modules/theme';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
+import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 
 const workspace = useWorkspaceStore();
@@ -346,10 +375,21 @@ const { hubTab, alertFilter, filteredAlerts } = storeToRefs(alerts);
 const { settingsDirty, settingsLoading, settingsTab, settingsDraft, dataSources, tushareTokenInput } =
   storeToRefs(settings);
 const { clearReadAlerts, markAlertRead } = alerts;
+const { selectStock } = useQuotesStore();
 const { saveSettings, clearTushareToken } = settings;
 const { renderIcons } = workspace;
 
 const settingsTabs = SETTINGS_TABS;
+
+// 外观三态：null = 跟随系统（theme 模块状态内聚，不进 Pinia）
+const THEME_OPTIONS = [
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+  { value: 'system', label: '跟随系统' },
+] as const;
+function onThemeChange(value: 'light' | 'dark' | 'system') {
+  setTheme(value === 'system' ? null : value);
+}
 
 onMounted(() => renderIcons());
 </script>

@@ -107,3 +107,15 @@ def test_get_source_info_eastmoney():
     assert info["screener"] is True
     assert info["fundamental"] is True
     assert info["available"] is True
+
+
+def test_get_source_info_exposes_runtime_circuit():
+    """`available` 是**声明位**（token/依赖是否满足），另附运行时熔断状态供设置页如实展示。"""
+    from backend.sources import eastmoney as em_module
+    from backend.sources.eastmoney import EastMoneySource
+
+    em_module._GUARD.reset()
+    info = get_source_info(EastMoneySource())
+
+    assert info["available"] is True  # 既有字段名与语义保留（声明位，绝不冒充连通性）
+    assert info["circuit"] == "closed"  # 运行时护栏状态：closed/open/half-open

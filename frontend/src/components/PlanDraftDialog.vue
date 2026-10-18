@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { useAssistStore } from '@/stores/useAssistStore';
+import { useOverlayA11y } from '@/modules/overlayA11y';
 import { formatNumber } from '@/modules/format';
 import type { Plan } from '@/types/models';
 import type { AssistRecalcInput } from '@/stores/useAssistStore';
 
 const assist = useAssistStore();
+
+// 统一浮层键盘行为（spec §6）：Esc 关闭仅栈顶、Tab 焦点陷阱、body 滚动锁、焦点归还。
+// v-if 在父级 backdrop 上，面板元素仅打开时存在 → 组合式函数在 nextTick 后取 ref。
+const overlayPanel = ref<HTMLElement | null>(null);
+useOverlayA11y({
+  id: 'plan-draft',
+  isOpen: () => assist.visible,
+  panelRef: overlayPanel,
+  onClose: () => assist.close(),
+});
 
 // 可调参数（本地态；draft 为服务端一次返回的指标原值）
 const params = reactive({
@@ -109,7 +120,13 @@ async function onConfirm() {
 
 <template>
   <div v-if="assist.visible" class="dialog-backdrop" @click.self="assist.close()">
-    <section class="dialog-panel plan-draft-panel" role="dialog" aria-modal="true" aria-label="交易计划草案">
+    <section
+      ref="overlayPanel"
+      class="dialog-panel plan-draft-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="交易计划草案"
+    >
       <header class="plan-draft-head">
         <strong>交易计划草案{{ assist.draft ? ` · ${assist.draft.name || assist.draft.code}` : '' }}</strong>
         <span v-if="assist.draft?.fallbackUsed" class="draft-fallback-badge" data-testid="fallback-badge"

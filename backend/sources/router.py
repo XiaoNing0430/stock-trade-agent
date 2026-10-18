@@ -55,6 +55,25 @@ class DataSourceRouter:
             raise ValueError(f"Source {source_id} is not available")
         return source
 
+    def source_chain(self, source_id: str, capability: Capability, fallback_enabled: bool = True) -> list[DataSource]:
+        """**有序**候选源列表：首选（若支持该能力且声明可用）→ 降级链其余源。
+
+        与 `route_with_fallback` 的区别：后者只返回首选，**请求期失败无从切换**；本方法供调用方
+        在运行时逐个尝试（上游连接被重置时换真实源，绝不造数）。`fallback_enabled=False` 时只返回
+        首选源，首选不可用即抛 ValueError（尊重用户"不自动切换"的选择）。
+        """
+        source = self._sources.get(source_id)
+        preferred_ok = bool(source and capability in source.capabilities and source.available)
+        if not fallback_enabled:
+            if not preferred_ok:
+                raise ValueError(f"Source {source_id} unavailable for {capability} and fallback disabled")
+            assert source is not None  # preferred_ok 蕴含
+            return [source]
+        chain = list(self.fallback_chain(capability, [source_id] if source_id else []))
+        if not chain:
+            raise ValueError(f"No available source for capability {capability}")
+        return chain
+
     def route_with_fallback(self, source_id: str, capability: Capability, fallback_enabled: bool = True) -> DataSource:
         """路由 + 降级链。返回 DataSource，失败时抛 ValueError。"""
         source = self.get_source(source_id) if source_id in self._sources else None

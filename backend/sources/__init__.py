@@ -28,8 +28,18 @@ def build_router() -> DataSourceRouter:
     return DataSourceRouter({source.id: source for source in _registered_sources()})
 
 
-def get_source_info(source: DataSource) -> dict[str, bool | str]:
-    """单个源的元信息 dict（/api/settings sources 条目用）。"""
+def _circuit_state(source: DataSource) -> str | None:
+    """源的运行时护栏状态；未接入护栏的源返回 None（不冒充）。"""
+    getter = getattr(source, "circuit_state", None)
+    return str(getter()) if callable(getter) else None
+
+
+def get_source_info(source: DataSource) -> dict[str, bool | str | None]:
+    """单个源的元信息 dict（/api/settings sources 条目用）。
+
+    `available` 是**声明位**（token/依赖是否满足），**不是连通性探测**；真正的运行时可观测面是
+    `circuit`（closed/open/half-open，上游熔断护栏）。前端据此如实措辞，不得把声明位写成"连接可用"。
+    """
     return {
         "id": source.id,
         "name": source.name,
@@ -38,10 +48,21 @@ def get_source_info(source: DataSource) -> dict[str, bool | str]:
         "screener": "screener" in source.capabilities,
         "fundamental": "fundamental" in source.capabilities,
         "available": source.available,
+        "circuit": _circuit_state(source),
         "providerLabel": source.provider_label,
     }
 
 
-def get_all_sources_info() -> list[dict[str, bool | str]]:
+def get_all_sources_info() -> list[dict[str, bool | str | None]]:
     """所有已注册源元信息（/api/settings sources 列表用）。"""
     return [get_source_info(source) for source in _registered_sources()]
+
+
+def source_circuits() -> dict[str, str]:
+    """各源运行时熔断状态（health 观测位；仅报告接入了护栏的源）。"""
+    out: dict[str, str] = {}
+    for source in _registered_sources():
+        state = _circuit_state(source)
+        if state is not None:
+            out[source.id] = state
+    return out

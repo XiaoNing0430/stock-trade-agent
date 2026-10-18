@@ -1,59 +1,34 @@
 <template>
   <section class="view-panel is-active">
-    <div class="view-heading">
-      <div>
-        <span class="section-kicker">TRADING DESK</span>
-        <h2>今日交易台</h2>
-        <p class="heading-note">市场怎样、有什么机会、策略是否可靠、当前有哪些风险。</p>
-      </div>
-      <div class="view-heading-actions">
-        <span class="data-updated"><span class="live-dot"></span>{{ fetchedLabel }}</span>
-        <span class="strategy-label">{{ todayLabel }}</span>
-      </div>
-    </div>
-
     <div v-if="errorMessage" class="connection-banner">
       <i data-lucide="triangle-alert" aria-hidden="true"></i>
       <span>{{ errorMessage }}</span>
       <button class="text-button" type="button" @click="refreshAll()">重试</button>
     </div>
 
-    <div class="desk-kpis">
-      <section class="desk-kpi surface">
-        <span class="desk-kpi-label">市场状态</span>
+    <div class="desk-status-strip surface">
+      <span class="desk-status-item is-static">
+        <span class="desk-status-label">指数</span>
         <strong :class="trendClass(selectedIndex?.change)">{{
           selectedIndex ? formatPct(selectedIndex.change) : '--'
         }}</strong>
-        <span class="desk-kpi-note"
-          >上证指数 {{ selectedIndex ? formatNumber(selectedIndex.price) : '--' }} · {{ marketStatus }}</span
-        >
-      </section>
-      <section class="desk-kpi surface">
-        <span class="desk-kpi-label">候选数量</span>
-        <strong>{{ screenRows.length }}</strong>
-        <span class="desk-kpi-note">当前条件命中 {{ filteredRows.length }} 只 · {{ presetName }}</span>
-      </section>
-      <section class="desk-kpi surface">
-        <span class="desk-kpi-label">运行中策略</span>
-        <strong>{{ strategyStats.running }}</strong>
-        <span class="desk-kpi-note"
-          >待重新回测 {{ strategyStats.pending }} 个 · 样本外超额
-          {{ strategyStats.latestExcess != null ? formatPct(strategyStats.latestExcess) : '--' }}</span
-        >
-      </section>
-      <section class="desk-kpi surface">
-        <span class="desk-kpi-label">待处理提醒</span>
-        <strong>{{ unreadAlerts }}</strong>
-        <span class="desk-kpi-note">活跃计划 {{ riskStats.active }} 份 · 止损触及 {{ riskStats.stopHit }}</span>
-      </section>
+      </span>
+      <button class="desk-status-item" type="button" @click="switchView('screener')">
+        <span class="desk-status-label">候选</span><strong>{{ screenRows.length }}</strong>
+      </button>
+      <button class="desk-status-item" type="button" @click="switchView('grid')">
+        <span class="desk-status-label">策略</span><strong>{{ strategyStats.running }}</strong>
+      </button>
+      <button class="desk-status-item" type="button" @click="switchView('settings')">
+        <span class="desk-status-label">提醒</span><strong>{{ unreadAlerts }}</strong>
+      </button>
     </div>
 
     <div class="desk-workspaces">
       <section class="desk-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">OPPORTUNITIES</span>
-            <h3>发现机会</h3>
+            <h2>发现机会</h2>
           </div>
           <span class="strategy-label">{{ presetName }}</span>
         </div>
@@ -102,47 +77,7 @@
       <section class="desk-panel surface">
         <div class="surface-heading">
           <div>
-            <span class="section-kicker">STRATEGY VALIDATION</span>
-            <h3>验证策略</h3>
-          </div>
-        </div>
-        <div class="desk-stat-rows">
-          <div class="desk-stat-row">
-            <span>运行中策略</span><strong>{{ strategyStats.running }}</strong>
-          </div>
-          <div class="desk-stat-row">
-            <span>待重新回测</span><strong>{{ strategyStats.pending }}</strong>
-          </div>
-          <div class="desk-stat-row">
-            <span>最近样本外超额</span
-            ><strong :class="trendClass(strategyStats.latestExcess)">{{
-              strategyStats.latestExcess != null ? formatPct(strategyStats.latestExcess) : '--'
-            }}</strong>
-          </div>
-        </div>
-        <div v-if="!gridStrategies.length" class="empty-state compact-empty"><span>还没有保存的网格策略。</span></div>
-        <button class="button button-secondary button-full" type="button" @click="openGridStrategy()">
-          <i data-lucide="grid-3x3" aria-hidden="true"></i>
-          进入网格策略
-        </button>
-      </section>
-
-      <section class="desk-panel surface">
-        <div class="surface-heading">
-          <div>
-            <span class="section-kicker">EXECUTION RISK</span>
-            <h3>执行跟踪</h3>
-          </div>
-        </div>
-        <div class="desk-stat-rows">
-          <div class="desk-stat-row">
-            <span>活跃计划</span><strong>{{ riskStats.active }}</strong>
-          </div>
-          <div class="desk-stat-row desk-stat-row-risk">
-            <span>触及止损</span><strong>{{ riskStats.stopHit }}</strong>
-          </div>
-          <div class="desk-stat-row">
-            <span>未读提醒</span><strong>{{ unreadAlerts }}</strong>
+            <h2>执行跟踪</h2>
           </div>
         </div>
         <div class="activity-list">
@@ -180,8 +115,7 @@
     <section class="market-board surface">
       <div class="surface-heading">
         <div>
-          <span class="section-kicker">MARKET PULSE</span>
-          <h3>盘面温度</h3>
+          <h2>盘面温度</h2>
         </div>
         <button
           class="icon-button"
@@ -207,7 +141,7 @@
           </div>
         </div>
       </div>
-      <div v-else-if="loading" class="empty-state compact-empty">
+      <div v-else-if="loading" class="loading-state compact-empty" role="status">
         <i data-lucide="loader-circle" aria-hidden="true"></i>
         <strong>正在读取指数</strong>
         <span>行情代理返回后会显示最新价。</span>
@@ -233,7 +167,7 @@
           v-html="
             chartSvg(
               indexHistory.map((item: any) => item.close),
-              '#ef6d53',
+              'var(--coral)',
               '上证指数近 40 个交易日走势'
             )
           "
@@ -269,23 +203,19 @@ import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useScreenerStore } from '@/stores/useScreenerStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
-import { useGridStore } from '@/stores/useGridStore';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
 const screener = useScreenerStore();
 const strategy = useStrategyStore();
-const grid = useGridStore();
 
-const { fetchedLabel, todayLabel, errorMessage, selectedIndex, indices, marketStatus, loading, indexHistory } =
-  storeToRefs(quotes);
+const { errorMessage, selectedIndex, indices, loading, indexHistory } = storeToRefs(quotes);
 const { breadth, screenRows, filteredRows, presetName, presetHits } = storeToRefs(screener);
-const { strategyStats, riskStats } = storeToRefs(strategy);
-const { gridStrategies } = storeToRefs(grid);
-const { unreadAlerts, alerts, refreshAll, renderIcons } = workspace;
+const { strategyStats } = storeToRefs(strategy);
+const { unreadAlerts, alerts } = storeToRefs(workspace);
+const { refreshAll, renderIcons } = workspace;
 const { applyPreset } = screener;
 const { switchView, selectStock } = quotes;
-const { openGridStrategy } = grid;
 
 onMounted(() => renderIcons());
 </script>

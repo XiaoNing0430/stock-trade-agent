@@ -198,3 +198,172 @@ def test_screener_paged_does_not_silently_degrade_to_mirror(monkeypatch: pytest.
     monkeypatch.setattr(src, "_http_get", fake)
     with pytest.raises(req.exceptions.HTTPError):
         src.load_screener_paged(page=1, page_size=5, sort_by="changePct", sort_dir="desc")
+
+
+# ---------- 韧性硬化（2026-10-03）：连接级有界重试 / 日志降噪 / 完成标记 / health 观测面 ----------
+
+
+def _clist_ok(_url: str, _params: dict[str, Any]) -> dict[str, Any]:
+    return {"data": {"total": 1, "diff": [{"f12": "600519", "f14": "贵州茅台", "f100": "白酒"}]}}
+
+
+def test_clist_page_retries_connection_error_with_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """行业路径连接被重置 → 同 URL 退避重试（默认 0 次重试保持 API 行为不变）。"""
+    import requests as req
+    from backend.sources import eastmoney as em
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+    calls: list[str] = []
+    sleeps: list[float] = []
+    monkeypatch.setattr(em.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        if len(calls) == 1:
+            raise req.exceptions.ConnectionError("Remote end closed connection")
+        return _clist_ok(url, params)
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    rows, total = src._clist_page(1, 200, retries=2)
+
+    assert calls == [src.CLIST_URL, src.CLIST_URL]  # 主站第二次即成功，未触达镜像
+    assert sleeps == [0.5]  # 只退避一次
+    assert rows and total == 1
+
+
+def test_clist_page_retries_exhausted_falls_back_to_mirror_then_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """主站+镜像各重试到上限后仍失败 → 如实上抛（调用方记日志并保留已写入行）。"""
+    import requests as req
+    from backend.sources import eastmoney as em
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+    calls: list[str] = []
+    monkeypatch.setattr(em.time, "sleep", lambda _seconds: None)
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        raise req.exceptions.ConnectionError("reset")
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    with pytest.raises(req.exceptions.ConnectionError):
+        src._clist_page(1, 200, retries=2)
+
+    assert calls.count(src.CLIST_URL) == 3  # 1 次 + 2 次重试
+    assert calls.count(src.CLIST_MIRROR_URL) == 3
+    assert calls[0] == src.CLIST_URL and calls[-1] == src.CLIST_MIRROR_URL
+
+
+def test_clist_page_zero_retries_keeps_api_latency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """默认 retries=0：主站连接失败立刻换镜像、绝不 sleep（选股器 API 路径延迟不变）。"""
+    import requests as req
+    from backend.sources import eastmoney as em
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+    calls: list[str] = []
+    sleeps: list[float] = []
+    monkeypatch.setattr(em.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        if url == src.CLIST_URL:
+            raise req.exceptions.ConnectionError("reset")
+        return _clist_ok(url, params)
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    rows, _total = src._clist_page(1, 200)
+
+    assert calls == [src.CLIST_URL, src.CLIST_MIRROR_URL]
+    assert sleeps == []
+    assert rows
+
+
+def test_clist_page_http_error_skips_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTTP 错误（4xx/5xx）不是瞬时故障：不重试、不 sleep，直接换镜像。"""
+    import requests as req
+    from backend.sources import eastmoney as em
+    from backend.sources.eastmoney import EastMoneySource
+
+    src = EastMoneySource()
+    calls: list[str] = []
+    sleeps: list[float] = []
+    monkeypatch.setattr(em.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    def fake(url: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(url)
+        if url == src.CLIST_URL:
+            raise req.exceptions.HTTPError("403 Forbidden")
+        return _clist_ok(url, params)
+
+    monkeypatch.setattr(src, "_http_get", fake)
+    src._clist_page(1, 200, retries=2)
+
+    assert calls == [src.CLIST_URL, src.CLIST_MIRROR_URL]
+    assert sleeps == []
+
+
+def test_refresh_marks_completion_flag(tmp_db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """完成标记：整轮跑完=True；中途失败=False（供后台 job 决定是否提前重排）。"""
+    monkeypatch.setattr(im, "_last_refresh_complete", None)  # 进程级状态：显式归零，免用例顺序依赖
+    assert im.last_refresh_complete() is None
+
+    def ok(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        return ([{"code": "600519", "industry": "白酒"}], 1)
+
+    refresh_industry_map(fetch_page=ok)
+    assert im.last_refresh_complete() is True
+
+    def flaky(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        raise ConnectionError("reset")
+
+    refresh_industry_map(fetch_page=flaky)
+    assert im.last_refresh_complete() is False
+
+
+def test_refresh_connection_error_logs_without_traceback(tmp_db: Any, caplog: Any) -> None:
+    """连接级失败是可降级的已知故障：一行 warning，不刷 urllib3 内部栈。"""
+    import logging
+
+    def flaky(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        raise ConnectionError("Remote end closed connection without response")
+
+    with caplog.at_level(logging.WARNING, logger="atlas.industry"):
+        refresh_industry_map(fetch_page=flaky)
+
+    records = [r for r in caplog.records if r.name == "atlas.industry"]
+    assert len(records) == 1
+    assert records[0].exc_info is None  # 降噪：不打 traceback
+    assert "连接" in records[0].getMessage()
+
+
+def test_refresh_unexpected_error_keeps_traceback(tmp_db: Any, caplog: Any) -> None:
+    """非连接级异常（解析/契约错）保留完整栈，便于排查。"""
+    import logging
+
+    def broken(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+        raise ValueError("payload 结构不符")
+
+    with caplog.at_level(logging.WARNING, logger="atlas.industry"):
+        refresh_industry_map(fetch_page=broken)
+
+    records = [r for r in caplog.records if r.name == "atlas.industry"]
+    assert len(records) == 1
+    assert records[0].exc_info is not None
+
+
+def test_industry_health_reports_rows_and_age(tmp_db: Any) -> None:
+    """health 观测面：只做聚合（不拉全表、不触网），空表/新鲜/陈旧三态如实。"""
+    assert im.industry_health()["status"] == "empty"
+
+    refresh_industry_map(fetch_page=lambda page, size: ([{"code": "600519", "industry": "白酒"}], 1))
+    fresh = im.industry_health()
+    assert fresh["status"] == "fresh" and fresh["rows"] == 1
+    assert isinstance(fresh["oldestAgeSeconds"], int) and fresh["oldestAgeSeconds"] >= 0
+
+    tmp_db.age_back(hours=30)
+    stale = im.industry_health()
+    assert stale["status"] == "stale" and stale["rows"] == 1

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { nextTick } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewStockDetail from '@/views/ViewStockDetail.vue';
@@ -166,5 +167,85 @@ describe('ViewStockDetail', () => {
     await clickPeriod(wrapper, '5m');
     expect(toastSpy).toHaveBeenCalledWith('请求过于频繁', 'error');
     expect(wrapper.find('.minute-status').exists()).toBe(false);
+  });
+
+  // ── Task 8 入口可达性（R1）：返回按钮带来源名（VIEW_META[from][0]） ──
+  it('返回按钮显示来源视图名', async () => {
+    const { quotes, wrapper } = await mountDetail();
+    quotes.detailReturnView = 'portfolio';
+    await nextTick(); // flushPromises/mount 后已渲染；改 ref 需等一次更新
+    expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回组合风险');
+    wrapper.unmount();
+  });
+
+  it('来源键未知时返回按钮退回「返回上一页」而不崩溃', async () => {
+    const { quotes, wrapper } = await mountDetail();
+    quotes.detailReturnView = 'unknown-view';
+    await nextTick();
+    expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回上一页');
+    wrapper.unmount();
+  });
+
+  it('来源为详情页自身时同样退回「返回上一页」', async () => {
+    const { quotes, wrapper } = await mountDetail();
+    quotes.detailReturnView = 'stock-detail';
+    await nextTick();
+    expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回上一页');
+    wrapper.unmount();
+  });
+
+  // ── Task 7 加载态：报价区 / 分钟线请求在途 ──
+  it('行情未就绪时报价区显示加载态而非裸 --（spec §7.3-8）', async () => {
+    const quotes = useQuotesStore();
+    quotes.loading = true;
+    quotes.market = { provider: '', fetchedAt: 0, quotes: [], indices: [] } as any;
+    const wrapper = mount(ViewStockDetail);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="detail-loading"]').text()).toContain('正在读取行情');
+    wrapper.unmount();
+  });
+
+  // ── Task 7（延后 minor 收口）：加载态守卫的「已有缓存」半边
+  // 既有加载用例的 fixture 里 selectedStock 恒 null，删掉 `&& !selectedStock` 不会变红。
+  // 本用例种入真实报价（selectedStock 非 null）且 loading=true，钉死「刷新不得掩盖真实值」。
+  it('已有缓存报价时刷新（loading=true）不得被加载态掩盖，仍显示真实值', async () => {
+    const quotes = useQuotesStore();
+    quotes.selectedCode = '600519';
+    quotes.loading = true;
+    // 注意：必须就地改 `market.quotes`——`quoteFor` 闭包持有 store 初始化时的 reactive 对象，
+    // 整体重赋 `quotes.market` 不会改变该闭包读到的数组（会让 selectedStock 仍为 null）。
+    quotes.market.quotes = [
+      {
+        code: '600519',
+        name: '贵州茅台',
+        exchange: '上交所',
+        board: '主板',
+        market: '沪市主板',
+        price: 1700,
+        change: 2.5,
+      },
+    ];
+    const wrapper = mount(ViewStockDetail);
+    await flushPromises();
+    // 有真实值 → 走 summary 分支，绝不显示加载态（`&& !selectedStock` 被删即在此变红）
+    expect(wrapper.find('[data-testid="detail-loading"]').exists()).toBe(false);
+    const summary = wrapper.find('.selected-stock-summary');
+    expect(summary.exists()).toBe(true);
+    expect(summary.text()).toContain('贵州茅台');
+    expect(summary.text()).toContain('1,700.00');
+    wrapper.unmount();
+  });
+
+  it('分钟线请求在途显示加载态（spec §7.3-9）', async () => {
+    let resolveMinute: (value: any) => void = () => {};
+    fetchMinuteMock.mockImplementationOnce(() => new Promise((resolve) => (resolveMinute = resolve)));
+    const wrapper = mount(ViewStockDetail, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('.minute-toolbar button')[1].trigger('click');
+    expect(wrapper.find('[data-testid="minute-loading"]').exists()).toBe(true);
+    resolveMinute(minuteResponse());
+    await flushPromises();
+    expect(wrapper.find('[data-testid="minute-loading"]').exists()).toBe(false);
+    wrapper.unmount();
   });
 });

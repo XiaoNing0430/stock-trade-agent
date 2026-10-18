@@ -875,13 +875,25 @@ def test_grid_strategy_not_found_returns_code():
 
 
 def test_upstream_failure_returns_code(monkeypatch):
-    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+    """降级链上每个源都失败 → 502 UPSTREAM_UNAVAILABLE（统一错误契约）。
 
+    路由经 `_call_with_source_fallback` 调用**适配器实例**的方法（不再是 `data_source` 门面函数，
+    故 patch 门面无效）。`fallbackEnabled=True` 时单个源失败会换源，只有**全链**失败才如实 502
+    （单源失败换源见 test_market_runtime_fallback_switches_source_and_discloses）。
+    """
+    from backend.sources import build_router
+
+    def boom(*args, **kwargs):
+        raise ConnectionError("upstream down")
+
+    chain = list(build_router().source_chain("tencent", "realtime", True))
+    assert chain, "降级链非空——否则 502 会因『无可用源』假通过"
+    for source in chain:
+        monkeypatch.setattr(type(source), "load_market", boom)
     monkeypatch.setattr(
-        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
-    )
-    monkeypatch.setattr(
-        "backend.data_source.load_market", lambda codes: (_ for _ in ()).throw(ConnectionError("upstream down"))
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"realtimeSource": "tencent", "fallbackEnabled": True},
     )
     from fastapi.testclient import TestClient
 
@@ -1487,18 +1499,25 @@ def test_strategy_backtest_history_failure_returns_422(monkeypatch):
 
 
 def test_screener_upstream_failure_returns_502(monkeypatch):
-    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+    """精选选股：降级链上每个源都失败 → 502 UPSTREAM_UNAVAILABLE。"""
+    from backend.sources import build_router
 
+    def boom(*args, **kwargs):
+        raise ConnectionError("upstream down")
+
+    chain = list(build_router().source_chain("tencent", "screener", True))
+    assert chain, "降级链非空——否则 502 会因『无可用源』假通过"
+    for source in chain:
+        monkeypatch.setattr(type(source), "load_screener", boom)
     monkeypatch.setattr(
-        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
-    )
-    monkeypatch.setattr(
-        "backend.data_source.load_screener",
-        lambda market, page_size: (_ for _ in ()).throw(ConnectionError("upstream down")),
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "tencent", "fallbackEnabled": True},
     )
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/screener")
     assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
 
 
 def test_lifespan_survives_storage_init_failure(monkeypatch):
@@ -1647,17 +1666,21 @@ def test_screener_v2_routes_via_router_eastmoney(monkeypatch):
 
 
 def test_screener_v2_upstream_failure_returns_502(monkeypatch):
-    """路由选中源请求失败时返回 502 UPSTREAM_UNAVAILABLE。"""
-    from backend.storage import DEFAULT_WORKSPACE_SETTINGS
+    """全市场分页：降级链上每个源都失败 → 502 UPSTREAM_UNAVAILABLE。"""
+    from backend.sources import build_router
 
-    monkeypatch.setattr(
-        app_module, "get_workspace_settings", lambda workspace_id="default": dict(DEFAULT_WORKSPACE_SETTINGS)
-    )
-
-    def fake_v2(page=1, page_size=50, sort_by="changePct", sort_dir="desc"):
+    def boom(*args, **kwargs):
         raise RuntimeError("全市场选股器请求失败: timeout")
 
-    monkeypatch.setattr("backend.data_source.load_screener_v2", fake_v2)
+    chain = list(build_router().source_chain("tencent", "paged_screener", True))
+    assert chain, "降级链非空——否则 502 会因『无可用源』假通过"
+    for source in chain:
+        monkeypatch.setattr(type(source), "load_screener_paged", boom)
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "tencent", "fallbackEnabled": True},
+    )
     with TestClient(app_module.create_app()) as client:
         resp = client.get("/api/screener/v2")
     assert resp.status_code == 502
@@ -1836,3 +1859,179 @@ def test_http_get_retry_http_error_false_single_hit(monkeypatch):
     with pytest.raises(requests.HTTPError):
         data_source._http_get("u", {})
     assert len(hits) == 1 + 1 + 2
+
+
+# ---------- 行业映射韧性（2026-10-03）：完成标记驱动的提前重排 + health 观测面 ----------
+
+
+def test_industry_warmup_job_reschedules_when_incomplete(monkeypatch):
+    """整轮刷新不完整（页失败中断）→ 提前重排一次（30 分钟），不必等 24h 周期。"""
+    from datetime import datetime as dt
+    from datetime import timedelta as td
+
+    tz = app_module.scheduler.timezone
+    scheduled: list[dict] = []
+
+    class FakeScheduler:
+        timezone = tz
+
+        def get_job(self, job_id):
+            return None
+
+        def add_job(self, func, trigger, **kwargs):
+            scheduled.append({"func": func, "trigger": trigger, **kwargs})
+
+    monkeypatch.setattr(app_module, "scheduler", FakeScheduler())
+    monkeypatch.setattr(app_module, "refresh_industry_map", lambda: 0)
+    monkeypatch.setattr(app_module, "last_refresh_complete", lambda: False)
+
+    app_module._industry_warmup_job()
+
+    retry = next(job for job in scheduled if job.get("id") == "industry-warmup-retry")
+    assert retry["trigger"] == "date" and retry["replace_existing"] is True
+    delta = retry["run_date"] - dt.now(tz)
+    assert td(minutes=25) < delta <= td(minutes=30)
+
+
+def test_industry_warmup_job_clears_retry_when_complete(monkeypatch):
+    """整轮跑完 → 移除可能残留的提前重排 job（避免冗余刷新），且不再新排。"""
+    tz = app_module.scheduler.timezone
+    removed: list[str] = []
+
+    class FakeScheduler:
+        timezone = tz
+
+        def get_job(self, job_id):
+            return object() if job_id == "industry-warmup-retry" else None
+
+        def remove_job(self, job_id):
+            removed.append(job_id)
+
+        def add_job(self, *args, **kwargs):  # pragma: no cover - 断言分支
+            raise AssertionError("完整刷新不应再排重试")
+
+    monkeypatch.setattr(app_module, "scheduler", FakeScheduler())
+    monkeypatch.setattr(app_module, "refresh_industry_map", lambda: 0)
+    monkeypatch.setattr(app_module, "last_refresh_complete", lambda: True)
+
+    app_module._industry_warmup_job()
+
+    assert removed == ["industry-warmup-retry"]
+
+
+def test_health_exposes_industry_status():
+    """health 观测面补齐行业映射状态/行数：陈旧可被看见，不再只靠后台日志。"""
+    with TestClient(app_module.create_app()) as client:
+        body = client.get("/api/health").json()
+
+    assert "industry" in body
+    industry = body["industry"]
+    assert industry["status"] in {"empty", "fresh", "stale", "unavailable"}
+    assert isinstance(industry["rows"], int) and industry["rows"] >= 0
+
+
+# ---------- 运行时降级 + 上游护栏（2026-10-03） ----------
+
+
+def test_market_runtime_fallback_switches_source_and_discloses(monkeypatch):
+    """首选源运行时被上游 reset → 依 fallbackEnabled 换**真实**源并如实披露（不再直接 502）。"""
+    import requests
+    from backend.sources import eastmoney as em_cls
+    from backend.sources import tencent as tx_cls
+
+    monkeypatch.setattr(
+        em_cls.EastMoneySource,
+        "load_market",
+        lambda self, codes: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")),
+    )
+    monkeypatch.setattr(
+        tx_cls.TencentSource,
+        "load_market",
+        lambda self, codes: {
+            "quotes": [{"code": "600519", "name": "贵州茅台", "price": 1263.0}],
+            "indices": [],
+            "fetchedAt": 0,
+            "errors": [],
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"realtimeSource": "eastmoney", "fallbackEnabled": True},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/market?codes=600519")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "Tencent public quote API"
+    assert body["fallbackUsed"] is True
+    assert body["failedSources"] == ["eastmoney"]
+
+
+def test_market_runtime_failure_with_fallback_disabled_returns_502(monkeypatch):
+    """fallbackEnabled=False：尊重用户选择，不换源，如实 502。"""
+    import requests
+    from backend.sources import eastmoney as em_cls
+
+    monkeypatch.setattr(
+        em_cls.EastMoneySource,
+        "load_market",
+        lambda self, codes: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")),
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"realtimeSource": "eastmoney", "fallbackEnabled": False},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/market?codes=600519")
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+def test_screener_v2_runtime_fallback(monkeypatch):
+    """全市场分页同样接运行时降级（此前只换源不换请求，东财被 reset 即 502）。"""
+    import requests
+    from backend.sources import eastmoney as em_cls
+    from backend.sources import tencent as tx_cls
+
+    monkeypatch.setattr(
+        em_cls.EastMoneySource,
+        "load_screener_paged",
+        lambda self, **kwargs: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")),
+    )
+    monkeypatch.setattr(
+        tx_cls.TencentSource,
+        "load_screener_paged",
+        lambda self, **kwargs: {
+            "total": 1,
+            "page": 1,
+            "pageSize": 50,
+            "rows": [{"code": "600519", "name": "贵州茅台"}],
+            "provider": "Tencent rank API",
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "get_workspace_settings",
+        lambda workspace_id="default": {"screenerSource": "eastmoney", "fallbackEnabled": True},
+    )
+    with TestClient(app_module.create_app()) as client:
+        resp = client.get("/api/screener/v2?page=1&pageSize=50")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "Tencent rank API"
+    assert body["fallbackUsed"] is True
+    assert body["failedSources"] == ["eastmoney"]
+
+
+def test_health_exposes_source_circuits():
+    """上游熔断/降级要可观测：health 暴露各源护栏状态。"""
+    with TestClient(app_module.create_app()) as client:
+        body = client.get("/api/health").json()
+
+    assert "sourceCircuits" in body
+    assert body["sourceCircuits"].get("eastmoney") in {"closed", "open", "half-open"}

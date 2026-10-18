@@ -12,6 +12,7 @@ import {
   trendClass,
   escapeHtml,
   validityExpiry,
+  viewDetailLabel,
 } from '@/modules/format';
 
 test('formatNumber 正常值保留指定位数', () => {
@@ -106,4 +107,10 @@ test('validityExpiry 今日/本周/本月/未知', () => {
   assert.equal(new Date(unknown).getDate(), 15); // 回落当日末
 
   assert.equal(validityExpiry(0, '今日'), null);
+});
+
+test('viewDetailLabel：有名称带名称，无名称只用代码（spec §10.2）', () => {
+  assert.equal(viewDetailLabel('600519', '贵州茅台'), '查看 贵州茅台 600519 的详情');
+  assert.equal(viewDetailLabel('600519', null), '查看 600519 的详情');
+  assert.equal(viewDetailLabel('600519', ''), '查看 600519 的详情');
 });
