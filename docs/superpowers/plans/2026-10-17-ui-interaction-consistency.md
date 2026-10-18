@@ -68,7 +68,7 @@
   - `isAnyOverlayOpen(): boolean` / `isOverlayOpen(id: string): boolean` / `topOverlayId(): string | null` / `resetOverlayStack(): void`
   - `focusableWithin(root: HTMLElement): HTMLElement[]` / `nextFocusTarget(elements: HTMLElement[], active: Element | null, shift: boolean): HTMLElement | null`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/overlayA11y.test.ts
@@ -133,12 +133,12 @@ describe('overlayA11y 纯函数', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/frontend/overlayA11y.test.ts`
 Expected: FAIL — `Failed to resolve import "@/modules/overlayA11y"`
 
-- [ ] **Step 3: 实现模块**
+- [x] **Step 3: 实现模块**
 
 ```ts
 // frontend/src/modules/overlayA11y.ts
@@ -291,7 +291,7 @@ export function useOverlayA11y(options: OverlayA11yOptions): void {
 }
 ```
 
-- [ ] **Step 4: 追加行为用例（同一测试文件）**
+- [x] **Step 4: 追加行为用例（同一测试文件）**
 
 ```ts
 describe('useOverlayA11y 行为', () => {
@@ -352,7 +352,7 @@ describe('useOverlayA11y 行为', () => {
 Run: `npx vitest run tests/frontend/overlayA11y.test.ts`
 Expected: PASS（6 例）
 
-- [ ] **Step 5: 加滚动锁 CSS**
+- [x] **Step 5: 加滚动锁 CSS**
 
 追加到 `frontend/src/styles.css`（`.view-panel.is-active` 滚动条规则之后）：
 
@@ -363,7 +363,7 @@ body.overlay-open .view-panel.is-active {
 }
 ```
 
-- [ ] **Step 6: 全量门禁 + 提交**
+- [x] **Step 6: 全量门禁 + 提交**
 
 Run: `npx vitest run` → 全绿；`npx vue-tsc --noEmit` → 0 error
 
@@ -386,7 +386,7 @@ git commit -m "feat: 新增浮层无障碍行为模块（Esc/焦点陷阱/滚动
 - Consumes: Task 1 的 `useOverlayA11y`
 - Produces: 4 个浮层均带 `role="dialog"` + `aria-modal="true"`，Esc 可关、Tab 不出面板、打开时 `document.body.classList.contains('overlay-open')`
 
-- [ ] **Step 1: 写失败测试（AppShell.test.ts 追加）**
+- [x] **Step 1: 写失败测试（AppShell.test.ts 追加）**
 
 ```ts
 describe('浮层键盘行为（spec §6）', () => {
@@ -425,7 +425,7 @@ describe('浮层键盘行为（spec §6）', () => {
 Run: `npx vitest run tests/frontend/AppShell.test.ts`
 Expected: FAIL — `expected undefined to be 'true'`（`aria-modal` 缺失）
 
-- [ ] **Step 2: 接线 4 个浮层**
+- [x] **Step 2: 接线 4 个浮层**
 
 `PlanDraftDialog.vue`（`<script setup>` 内）：
 
@@ -490,7 +490,7 @@ useOverlayA11y({
 });
 ```
 
-- [ ] **Step 3: 追加 PlanDraftDialog 焦点回归用例**
+- [x] **Step 3: 追加 PlanDraftDialog 焦点回归用例**
 
 ```ts
 // tests/frontend/PlanDraftDialog.test.ts
@@ -507,7 +507,7 @@ it('打开时焦点进入面板、Esc 关闭（spec §6）', async () => {
 });
 ```
 
-- [ ] **Step 4: 全量门禁 + 提交**
+- [x] **Step 4: 全量门禁 + 提交**
 
 Run: `npx vitest run` → 全绿；`npx vue-tsc --noEmit` → 0 error
 
@@ -530,7 +530,7 @@ git commit -m "feat: 四个浮层接入统一键盘行为并补齐通知面板 A
 - Consumes: 无
 - Produces: `.loading-state`（`role="status"` + 转圈）与 `.empty-state`（结论 + 动作）语义分开；后续任务的所有加载分支都用 `.loading-state`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/ViewScreener.test.ts（追加）
@@ -573,7 +573,7 @@ it('精选无结果时空态带「重新读取行情」按钮并调用 fetchScre
 Run: `npx vitest run tests/frontend/ViewScreener.test.ts tests/frontend/ViewOverview.test.ts`
 Expected: FAIL — `.loading-state` 不存在 / 空态无按钮
 
-- [ ] **Step 2: 改 CSS（共享版式 + 转圈 + 无障碍降级）**
+- [x] **Step 2: 改 CSS（共享版式 + 转圈 + 无障碍降级）**
 
 `frontend/src/styles.css:2606-2630` 四处选择器改为共享：
 
@@ -618,7 +618,7 @@ Expected: FAIL — `.loading-state` 不存在 / 空态无按钮
 
 （已知既有 quirk，**本批不修**：`.compact-empty` 与 `.empty-state` 同特异性且声明更早，其 padding 早已被后者覆盖；本次仅把选择器扩成 `:is(...)`，声明位置不变，视觉逐字保持原样。）
 
-- [ ] **Step 3: 5 处换类（文案逐字不变，仅类与 role）**
+- [x] **Step 3: 5 处换类（文案逐字不变，仅类与 role）**
 
 | 文件:行 | 改动 |
 |---|---|
@@ -645,12 +645,12 @@ Expected: FAIL — `.loading-state` 不存在 / 空态无按钮
 Run: `npx vitest run tests/frontend/ViewScreener.test.ts tests/frontend/ViewOverview.test.ts`
 Expected: PASS
 
-- [ ] **Step 4: 机械核对无「用空态表示加载」残留**
+- [x] **Step 4: 机械核对无「用空态表示加载」残留**
 
 Run: `npx rg -n -U 'class="empty-state[^"]*"[^>]*>\s*(<i[^>]*loader-circle|[\s\S]{0,200}?loader-circle)' frontend/src --glob '*.vue'`
 Expected: 0 命中（`rg` 若未安装用 `grep -rn` 等价核实）
 
-- [ ] **Step 5: 全量门禁 + 提交**
+- [x] **Step 5: 全量门禁 + 提交**
 
 Run: `npx vitest run` 全绿；`npx vue-tsc --noEmit` 0 error
 
@@ -671,7 +671,7 @@ git commit -m "refactor: 拆分加载态与空态语义并统一版式"
 - Consumes: Task 3 的 `.loading-state`；`gridLoading`/`strategyLoading`（grid/strategy store）、`compare.runLoading`（compare store）、`backtestStrategy()`、`compare.runCompare()`、`previewGrid()`
 - Produces: 三个结果区都先给加载态再给结果/空态
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/ViewGrid.test.ts（追加）
@@ -710,7 +710,7 @@ it('多策略对比运行中显示加载态（spec §7.3-5）', async () => {
 Run: `npx vitest run tests/frontend/ViewGrid.test.ts`
 Expected: FAIL — 找不到 `.loading-state` / 空态里没有按钮
 
-- [ ] **Step 2: 插加载分支（把原 `v-if` 降为 `v-else-if`）**
+- [x] **Step 2: 插加载分支（把原 `v-if` 降为 `v-else-if`）**
 
 网格建议（`:211` 之前插入，`:211` 的 `v-if="gridResult"` 改 `v-else-if="gridResult"`）：
 
@@ -739,7 +739,7 @@ Expected: FAIL — 找不到 `.loading-state` / 空态里没有按钮
         </div>
 ```
 
-- [ ] **Step 3: 两处空态加就地动作按钮**
+- [x] **Step 3: 两处空态加就地动作按钮**
 
 `ViewGrid.vue:503-506` → 追加按钮：
 
@@ -767,7 +767,7 @@ Expected: FAIL — 找不到 `.loading-state` / 空态里没有按钮
 
 （与配置面板同名同动作是**有意为之**：同一动作只写一遍语义，spec §7.4 已披露。）
 
-- [ ] **Step 4: 回归 + 门禁 + 提交**
+- [x] **Step 4: 回归 + 门禁 + 提交**
 
 Run: `npx vitest run tests/frontend/ViewGrid.test.ts` → PASS；`npx vitest run` 全绿；`npx vue-tsc --noEmit` 0 error
 
@@ -788,7 +788,7 @@ git commit -m "feat: 策略视图补齐回测/对比/网格加载态与空态动
 - Consumes: Task 3 的 `.loading-state`；`review.loading`/`review.traceLoading`（review store）、`quotes.switchView('screener')`
 - Produces: 复盘首次加载不再显示一排裸 `--`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/ViewPlans.test.ts（追加）
@@ -816,7 +816,7 @@ it('无计划空态按钮跳转选股器（spec §7.4）', async () => {
 Run: `npx vitest run tests/frontend/ViewPlans.test.ts`
 Expected: FAIL — `review-loading` 不存在
 
-- [ ] **Step 2: 实现**
+- [x] **Step 2: 实现**
 
 `:199-202` 空态：
 
@@ -861,7 +861,7 @@ Expected: FAIL — `review-loading` 不存在
 const { quoteFor, selectStock, switchView } = quotes;
 ```
 
-- [ ] **Step 3: 回归 + 门禁 + 提交**
+- [x] **Step 3: 回归 + 门禁 + 提交**
 
 Run: `npx vitest run tests/frontend/ViewPlans.test.ts` → PASS；全量 vitest + `npx vue-tsc --noEmit` 全绿
 
@@ -882,7 +882,7 @@ git commit -m "feat: 交易计划补齐复盘加载态与空态动作"
 - Consumes: Task 3 的 `.loading-state`；`store.loading`/`kpis`、`quotes.switchView('plans')`
 - Produces: `kpiText(rendered: string): string` —— `store.loading && !kpis` 时返回「计算中」，否则原样返回（缺失仍 `--`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/ViewPortfolio.test.ts（追加）
@@ -917,7 +917,7 @@ it('无净值空态按钮跳转交易计划（spec §7.4）', async () => {
 Run: `npx vitest run tests/frontend/ViewPortfolio.test.ts`
 Expected: FAIL — KPI 区无「计算中」
 
-- [ ] **Step 2: 实现**
+- [x] **Step 2: 实现**
 
 `<script setup>` 追加：
 
@@ -955,7 +955,7 @@ function kpiText(rendered: string): string {
 
 （`switchView` 需从 quotes 解构：`const { quoteFor, selectStock, switchView } = useQuotesStore();` —— `quoteFor` 供 Task 12 使用。）
 
-- [ ] **Step 3: 回归 + 门禁 + 提交**
+- [x] **Step 3: 回归 + 门禁 + 提交**
 
 Run: `npx vitest run tests/frontend/ViewPortfolio.test.ts` → PASS；全量 vitest + `npx vue-tsc --noEmit` 全绿
 
@@ -976,7 +976,7 @@ git commit -m "feat: 组合风险 KPI 加载中显示计算中并补空态入口
 - Consumes: Task 3 的 `.loading-state`；`quotes.loading`、`fetchMinute`
 - Produces: `minuteLoading` ref（请求在途时 true，`finally` 复位）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/ViewStockDetail.test.ts（追加）
@@ -1007,7 +1007,7 @@ it('分钟线请求在途显示加载态（spec §7.3-9）', async () => {
 Run: `npx vitest run tests/frontend/ViewStockDetail.test.ts`
 Expected: FAIL — `detail-loading` / `minute-loading` 不存在
 
-- [ ] **Step 2: 实现**
+- [x] **Step 2: 实现**
 
 模板 `:23-24`（`<section class="selected-stock-panel surface">` 之后、`.selected-stock-summary` 之前）插入，并把 `.selected-stock-summary` 改成 `v-else`：
 
@@ -1062,7 +1062,7 @@ async function loadMinute(period: string) {
 
 （降级态文案映射 `MINUTE_STRIP_TEXT`、429 分支与状态条**一律不动**。）
 
-- [ ] **Step 3: 回归 + 门禁 + 提交**
+- [x] **Step 3: 回归 + 门禁 + 提交**
 
 Run: `npx vitest run tests/frontend/ViewStockDetail.test.ts` → PASS（含既有降级态用例）；全量 vitest + `npx vue-tsc --noEmit` 全绿
 
@@ -1086,7 +1086,7 @@ git commit -m "feat: 个股详情补齐报价与分钟线加载态"
 - Consumes: 无
 - Produces: `TOAST_CAP = 3`、`durationFor(tone)`、`toastKey(tone, message)`、`showToast(message, tone, deps)`、`resetToasts()`；`useWorkspaceStore.showToast(message, tone = 'success')` 签名与返回值不变
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/toastQueue.test.ts
@@ -1169,7 +1169,7 @@ describe('toastQueue 策略', () => {
 Run: `npx vitest run tests/frontend/toastQueue.test.ts`
 Expected: FAIL — `Failed to resolve import "@/modules/toastQueue"`
 
-- [ ] **Step 2: 实现模块**
+- [x] **Step 2: 实现模块**
 
 ```ts
 // frontend/src/modules/toastQueue.ts
@@ -1279,7 +1279,7 @@ export function resetToasts(): void {
 
 注意：`toast-close` 的 `click` 会冒泡到整条 toast 的 click（同样 `remove`）——`remove` 对已移除条目幂等（`indexOf === -1` 仍会重排一次动画定时器，无害）。
 
-- [ ] **Step 3: store 委托 + aria-atomic + CSS**
+- [x] **Step 3: store 委托 + aria-atomic + CSS**
 
 `useWorkspaceStore.ts:73-91` 整体替换：
 
@@ -1341,7 +1341,7 @@ export function resetToasts(): void {
 }
 ```
 
-- [ ] **Step 4: 回归 + 门禁 + 提交**
+- [x] **Step 4: 回归 + 门禁 + 提交**
 
 Run: `npx vitest run tests/frontend/toastQueue.test.ts` → PASS；`npx vitest run` 全绿（既有 toast spy 断言必须仍然通过）；`npx vue-tsc --noEmit` 0 error
 
@@ -1369,7 +1369,7 @@ git commit -m "feat: Toast 去重/上限/可关闭/暂停/分时长策略"
   - `isTypingTarget(target: EventTarget | null): boolean`
   - `shortcutFor(event: KeyboardEvent, ctx: { overlayOpen: boolean; helpOpen: boolean }): ShortcutAction | null`，其中 `ShortcutAction = { type: 'view'; view: string } | { type: 'search' } | { type: 'toggle-help' }`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/shortcuts.test.ts
@@ -1438,7 +1438,7 @@ describe('shortcuts 键表与抑制', () => {
 Run: `npx vitest run tests/frontend/shortcuts.test.ts`
 Expected: FAIL — `Failed to resolve import "@/modules/shortcuts"`
 
-- [ ] **Step 2: 实现模块**
+- [x] **Step 2: 实现模块**
 
 ```ts
 // frontend/src/modules/shortcuts.ts
@@ -1497,7 +1497,7 @@ export function shortcutFor(event: KeyboardEvent, ctx: ShortcutContext): Shortcu
 }
 ```
 
-- [ ] **Step 3: app.ts 重构为派发器**
+- [x] **Step 3: app.ts 重构为派发器**
 
 `frontend/src/app.ts` 顶部补：
 
@@ -1535,7 +1535,7 @@ import { isAnyOverlayOpen } from '@/modules/overlayA11y';
       keydownDisposer = null;
 ```
 
-- [ ] **Step 4: `aria-keyshortcuts` 接线 + AppShell 契约用例**
+- [x] **Step 4: `aria-keyshortcuts` 接线 + AppShell 契约用例**
 
 `App.vue` 导航项按钮（`:24-32` 的 `<button class="nav-item" ...>`）与抽屉项（`:263-269`）各加：
 
@@ -1557,7 +1557,7 @@ it('导航项声明数字键快捷键（含 7 → 个人中心）', () => {
 
 Run: `npx vitest run tests/frontend/shortcuts.test.ts tests/frontend/AppShell.test.ts` → PASS；`npx vitest run` 全绿；`npx vue-tsc --noEmit` 0 error
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add frontend/src/modules/shortcuts.ts frontend/src/app.ts frontend/src/App.vue tests/frontend/shortcuts.test.ts tests/frontend/AppShell.test.ts
@@ -1577,7 +1577,7 @@ git commit -m "feat: 快捷键补齐 1-7 与统一抑制规则并重构为键位
 - Consumes: Task 1 的 `useOverlayA11y`；Task 9 的 `helpOpen`/`toggleHelp`/`VIEW_SHORTCUTS`/`shortcutForView`
 - Produces: `ShortcutHelpDialog.vue`（读模块级 `helpOpen`，关闭写回 `false`）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/ShortcutHelpDialog.test.ts
@@ -1637,7 +1637,7 @@ describe('快捷键帮助浮层（spec §9.3）', () => {
 Run: `npx vitest run tests/frontend/ShortcutHelpDialog.test.ts`
 Expected: FAIL — 组件不存在
 
-- [ ] **Step 2: 实现组件**
+- [x] **Step 2: 实现组件**
 
 ```vue
 <!-- frontend/src/components/ShortcutHelpDialog.vue -->
@@ -1708,7 +1708,7 @@ useOverlayA11y({ id: 'shortcut-help', isOpen: () => helpOpen.value, panelRef: ov
 }
 ```
 
-- [ ] **Step 3: App.vue 接入入口**
+- [x] **Step 3: App.vue 接入入口**
 
 顶栏 `.topbar-actions` 内、`.global-search` 之后：
 
@@ -1749,7 +1749,7 @@ it('顶栏唯一致的一个「键盘快捷键」入口，点击打开帮助浮�
 });
 ```
 
-- [ ] **Step 4: 图标注册守卫 + 门禁 + 提交**
+- [x] **Step 4: 图标注册守卫 + 门禁 + 提交**
 
 `tests/frontend/lucideIcons.test.ts` 的模板扫描用例会自动覆盖新模板（若模板用到未注册图标即失败）。
 
@@ -1772,7 +1772,7 @@ git commit -m "feat: 新增快捷键帮助浮层与顶栏入口"
 - Consumes: 无
 - Produces: 82px 图标条里主题开关只剩居中图标
 
-- [ ] **Step 1: 改 CSS**
+- [x] **Step 1: 改 CSS**
 
 在 `@media (max-width: 1060px)` 的既有隐藏列表里加入主题开关文案，并让按钮居中：
 
@@ -1791,12 +1791,12 @@ git commit -m "feat: 新增快捷键帮助浮层与顶栏入口"
   }
 ```
 
-- [ ] **Step 2: 机械核对**
+- [x] **Step 2: 机械核对**
 
 Run: `Select-String -Path frontend/src/styles.css -Pattern 'sidebar-theme-toggle span' -Context 3,3`
 Expected: 命中位置位于 `@media (max-width: 1060px)` 块内（前后可看到 `.nav-item kbd`）
 
-- [ ] **Step 3: 门禁 + 提交**
+- [x] **Step 3: 门禁 + 提交**
 
 Run: `npx vitest run` 全绿（CSS 改动不影响断言）；`npx vue-tsc --noEmit` 0 error
 
@@ -1818,7 +1818,7 @@ git commit -m "fix: 1060px 图标条隐藏主题开关文案并居中图标"
 - Consumes: `quoteFor(code)`（quotes store，已有）
 - Produces: `viewDetailLabel(code: string, name?: string | null): string` → `` 查看 {name} {code} 的详情 ``（无 name 时 `查看 {code} 的详情`；代码必在，保证逐行唯一）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // tests/frontend/format.test.ts（追加）
@@ -1844,7 +1844,7 @@ it('计划行与复盘行下钻控件带逐行可访问名', async () => {
 Run: `npx vitest run tests/frontend/format.test.ts tests/frontend/ViewPlans.test.ts`
 Expected: FAIL — `viewDetailLabel is not a function`
 
-- [ ] **Step 2: 实现 helper + 5 处接线**
+- [x] **Step 2: 实现 helper + 5 处接线**
 
 `frontend/src/modules/format.ts` 追加：
 
@@ -1867,7 +1867,7 @@ export function viewDetailLabel(code: string, name?: string | null): string {
 
 各文件按需补 `import { viewDetailLabel } from '@/modules/format';`。
 
-- [ ] **Step 3: 各视图断言 + 门禁 + 提交**
+- [x] **Step 3: 各视图断言 + 门禁 + 提交**
 
 在 `ViewPortfolio.test.ts`/`ViewSettings.test.ts`/`AppShell.test.ts` 各补一条：
 
@@ -1896,7 +1896,7 @@ git commit -m "feat: 下钻控件补逐行可访问名"
 - Consumes: 全部前置任务
 - Produces: 验收证据 + 最终状态交接清单
 
-- [ ] **Step 1: 真实浏览器探针**
+- [x] **Step 1: 真实浏览器探针**
 
 以 `npm run dev`（Vite 5173 + FastAPI 4173，真后端）为前置，用 Playwright 真 chromium 脚本逐项断言并截图（1440 / 1060 / 900 / 680 四档）：
 
@@ -1912,7 +1912,7 @@ git commit -m "feat: 下钻控件补逐行可访问名"
 // 6) ≤1060：.sidebar-theme-toggle span 的 computed display === 'none'
 ```
 
-- [ ] **Step 2: 9 条机械断言**
+- [x] **Step 2: 9 条机械断言**
 
 ```bash
 # 1 加载态不再用空态类
@@ -1935,20 +1935,20 @@ npx rg -n 'TOAST_CAP|VIEW_SHORTCUTS' frontend/src --glob '!*/modules/*'         
 npx rg -n 'skeleton|inert' frontend/src                                              # 期望 0 命中
 ```
 
-- [ ] **Step 3: 全量门禁**
+- [x] **Step 3: 全量门禁**
 
 Run: `npm run verify`
 Expected: vitest 全绿（原 309 项 + 新增用例）、`vue-tsc --noEmit` 0 error、pytest 679 通过、覆盖率 ≥80%
 Run: `git diff --stat develop...HEAD -- backend/ tests/`
 Expected: 空（后端零改动；`tests/` 指后端测试目录）
 
-- [ ] **Step 4: 文档收口**
+- [x] **Step 4: 文档收口**
 
 - 计划文档：勾选全部复选框，追加「执行期裁定」节（记录每条偏离与理由）。
 - 账本 `.superpowers/sdd/2026-10-17-ui-interaction-consistency/progress.md`：记录每个任务的复核结论、延后 minor、最终状态与 ③ 批次收口清单。
 - 若验收发现用户可见行为变更超出 spec，回到 spec 补记（不悄悄改行为）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/superpowers/plans/2026-10-17-ui-interaction-consistency.md
@@ -1970,3 +1970,62 @@ Task 13（所有任务完成后）
 ```
 
 并行安全边界：Task 4/5/6/7/11/12 触碰的文件互不重叠（各自视图 + 各自测试文件；Task 12 额外碰 `format.ts` 与 `App.vue`，需与 Task 9/10 的 `App.vue` 改动串行）。
+
+---
+
+## 执行期裁定（Task 13 收口记录）
+
+> 本节记录执行期间**偏离计划逐字样码**的每一处裁定与理由。逐任务的「已批准偏离 / 延后 minor」明细见账本
+> `.superpowers/sdd/2026-10-17-ui-interaction-consistency/progress.md`。
+
+### 1. 工具事实：`npx rg` 不可用 → `Select-String`
+本机 `npx rg` 解析到无关 npm 包 `rg@0.0.2`（**不是 ripgrep**）。Step 2 的 9 条机械断言**全部**改用 PowerShell
+`Select-String` 等价实现（脚本 `mechanical-checks.ps1`）。此为**工具替换**，不影响断言语义。
+
+### 2. `git diff ... -- tests/` 的语义裁定
+计划 Step 3 期望 `git diff --stat develop...HEAD -- backend/ tests/` 为空（括注「`tests/` 指后端测试目录」）。但本仓
+前端 vitest 用例目录**就在 `tests/frontend/`**。故字面命令必然非空；按**意图**（后端零改动）分离核实：
+`-- backend/` 为空 ✓；`-- tests/` 的 14 files / +697 −3 **100%** 为 `tests/frontend/*.test.ts`（本批新增前端用例）。
+裁定：以「`backend/` 零改动」为门禁硬约束，`tests/` 命中项全部为前端用例。
+
+### 3. 验收期望字面值与实际不符（4 条，**不改期望、如实上报**）
+- **C2**（浮层接线数，期望 5）：`useOverlayA11y(` 源码计数为 6 —— 多出的是 `overlayA11y.ts` 内的**函数定义行**；真实调用点为 5（4 浮层组件 + App.vue）。期望漏计定义行。
+- **C5**（`aria-keyshortcuts` 覆盖，期望 ≥10）：源码属性计数为 4；计划期望的「≥10」实为**渲染后 DOM 元素数**（DOM 探针：桌面 9、680px 抽屉展开 12）。两口径不同。
+- **C8**（`TOAST_CAP|VIEW_SHORTCUTS` 在 modules 之外，期望 0）：实际 2 —— `ShortcutHelpDialog.vue:30,36` **合法**
+  `import`/消费 `VIEW_SHORTCUTS`（集中**定义**、组件**消费**）；定义处仍唯一在 `modules/shortcuts.ts`。
+- **C9**（`skeleton|inert` 非目标守卫，期望 0）：实际 1 —— `overlayA11y.ts:39 hasAttribute('inert')` 是**规格 §6.2
+  要求**的 inert 子树过滤；`skeleton` 零命中。
+- 裁定：四者均为**计划期望写错**（非产品缺陷），按纪律不改期望、只上报。
+
+### 4. 真实浏览器验收唯一 fail（既有缺陷，**未修复**）
+选股器视图滚动锁失效：`body.overlay-open` 下 `.view-panel.is-active.screener-view` 的 computed `overflow` 仍为
+`auto`（期望 `hidden`）。根因 `frontend/src/styles.css:604 .screener-view { overflow: auto !important; }` 压过
+`:600` 的锁规则；由 `9162421`（2026-08-29）引入，**早于本批**。总览视图同条件正确为 `hidden`。按纪律不改产品码，上报。
+
+### 5. 环境取证：`/api/workspace` PUT 200/409 交替（既有缺陷，**未修复**）
+前端 `useWorkspaceStore.ts` 的 `scheduleWorkspaceSync`(:137-140)/`syncNow`(:181-184) 成功 PUT 后**不**用响应中的新
+`revision` 更新本地基线；后端 `storage.py:_bump_workspace_revision`(:1246-1251) 每次保存 +1 → 基线永久落后。取证探针
+实测 **4×200 / 4×409 交替**。该缺陷产生杂散 toast「检测到其他页面更新，已自动采用服务器版本」曾插入 Toast 上限观测
+（已用语义判据消解：`count===3` 且最新在、`没有找到对应股票` 已被淘汰）。`useWorkspaceStore.ts` 本批 diff 仅含
+`showToast` 委托，PUT 逻辑未被触碰 → **早于本批**。
+
+### 6. not-exercised 项
+本次真实浏览器验收 **0 项 not-exercised**（`report.json.counts` 无该状态）；所有目标交互均在真后端环境下触达并断言。
+
+### 7. 逐任务偏离（摘要，详见账本）
+- Task 1：按**计划契约**修码而非改契约（`close()` per-instance `opened` 守卫；`onKeydown` 首行 `defaultPrevented` 早退防「一次 Esc 关两层」）。
+- Task 8：计划自带实现（规格 §8.2 的 120ms 淡出窗）与自带断言（到期即消失）自相矛盾 → 以规格为准，断言各多推进 130ms；另授权 `.toast-close svg` 特异性提升、`.toast-leaving { animation: none }`。
+- Task 9：`isTypingTarget` 用 `??` 回退（brief 逐字版在 jsdom 不可通过）；`/` 的 `preventDefault` 改为仅有搜索框时执行。
+- Task 10/11/12：见账本（`X` 图标早已注册、`.dialog-head` 新增面板作用域样式、Task 11 `padding` 惰性声明按 brief 逐字交付、Task 12 name-present 用例落在 `ViewPortfolio.test.ts:381-383`）。
+
+---
+
+## 批次最终状态
+
+- **分支**：`feature/ui-interaction-consistency`（截至 `2d2384a` + 本收口提交）。
+- **门禁**：`npx vitest run` 33 files / **359 tests** 全绿；`npx vue-tsc --noEmit` **exit 0**；`python -m pytest tests/` **679 passed**；后端覆盖率 **93.23% ≥ 80%**；`git diff --stat develop...HEAD -- backend/` **空**。
+- **真实验收**：**28 pass / 1 fail / 0 not-exercised**；唯一 fail 为既有缺陷（选股器滚动锁，§4）。
+- **机械断言**：C1/C3/C4/C6/C7 符合；C2/C5/C8/C9 计划期望写错（§3，非产品缺陷）。
+- **发现（上报，未修）**：① 选股器滚动锁失效（`styles.css:604`，`9162421`）；② `/api/workspace` PUT 200/409 交替（前端不推进 `workspaceRevision`，后端每次 +1）。二者均**早于本批**。
+- **收口提交**：`docs: 勾选第③b批计划步骤并补记执行期裁定与最终状态`（仅提交本计划文档；`.superpowers/` 证据与账本按 `.gitignore:46` 不入库）。
+- **③ 批次收口**：①③ 子批已完成，②③b 本批 13 个任务全部 complete，无阻塞项。
