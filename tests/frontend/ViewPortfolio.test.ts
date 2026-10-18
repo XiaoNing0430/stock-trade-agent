@@ -368,4 +368,78 @@ describe('ViewPortfolio', () => {
     expect(wrapper.find('[data-testid="portfolio-pairs"] tbody tr td').text()).toBe('--');
     wrapper.unmount();
   });
+
+  // ── Task 12 下钻控件逐行可访问名 ──
+  it('交易对下钻控件代码只在手 → 可访问名为代码式', async () => {
+    const wrapper = await mountWith(makePayload());
+    await wrapper.find('[data-testid="portfolio-pairs-toggle"]').trigger('click');
+    expect(wrapper.find('[data-testid="pair-code-link"]').attributes('aria-label')).toBe('查看 600519 的详情');
+  });
+
+  // 名称路径端到端：行情里已有该代码的名称（同一次挂载内已加载，不新增请求）→ 名称式可访问名。
+  it('行情已有名称时，交易对下钻控件可访问名带名称', async () => {
+    const quotes = useQuotesStore();
+    quotes.market.quotes = [{ code: '600519', name: '贵州茅台', price: null, change: null, changePct: null }];
+    const wrapper = await mountWith(makePayload());
+    await wrapper.find('[data-testid="portfolio-pairs-toggle"]').trigger('click');
+    expect(wrapper.find('[data-testid="pair-code-link"]').attributes('aria-label')).toBe('查看 贵州茅台 600519 的详情');
+  });
+
+  // ── Task 6：KPI「计算中」（spec §7.3-10）+ 净值空态跳转入口（spec §7.4） ──
+  // 请求悬挂（永不 resolve）→ store.loading 保持 true，才是真实「首次计算中」的时序；
+  // 否则 flushPromises 后 fetchRisk 已收尾（loading=false），断言会退化为恒真/假阴性。
+  function holdRequest() {
+    vi.mocked(requestJson)
+      .mockReset()
+      .mockReturnValue(new Promise<never>(() => {}));
+  }
+
+  it('加载中且无数据时 KPI 显示「计算中」而非裸 --（spec §7.3-10）', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-kpis"]').text()).toContain('计算中');
+  });
+
+  it('已有数据时重算不清空旧值', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.payload = makePayload();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-kpis"]').text()).not.toContain('计算中');
+  });
+
+  it('首次加载中（请求悬挂）→ 净值区显示「正在计算组合净值」而非空态（spec §7.1）', async () => {
+    holdRequest();
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-nav-loading"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="portfolio-nav-loading"]').text()).toContain('正在计算组合净值');
+    // 请求未回、结论未知 → 绝不渲染「暂无计划持仓」这一断言式空态
+    expect(wrapper.find('[data-testid="portfolio-empty"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-nav-chart"]').exists()).toBe(false);
+  });
+
+  it('已有净值数据时重算 → 仍显示真实曲线（既不显示加载态也不显示空态）', async () => {
+    const store = usePortfolioStore();
+    holdRequest();
+    store.payload = makePayload();
+    store.loading = true;
+    const wrapper = mount(ViewPortfolio);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="portfolio-nav-loading"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-empty"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="portfolio-nav-chart"]').exists()).toBe(true);
+  });
+
+  it('无净值空态按钮跳转交易计划（spec §7.4）', async () => {
+    const wrapper = await mountWith(makePayload({ nav: { dates: [], gross: [], net: [], feeCum: [], feeSum: null } }));
+    const quotes = useQuotesStore();
+    await wrapper.find('[data-testid="portfolio-empty"] button').trigger('click');
+    expect(quotes.view).toBe('plans');
+  });
 });

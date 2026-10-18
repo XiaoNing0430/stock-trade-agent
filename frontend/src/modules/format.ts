@@ -88,3 +88,8 @@ export function validityExpiry(createdAtMs: number | null | undefined, validity:
   }
   return end.getTime();
 }
+
+/** 下钻控件的逐行可访问名：代码必在（保证唯一），有名称时带上名称。 */
+export function viewDetailLabel(code: string, name?: string | null): string {
+  return name ? `查看 ${name} ${code} 的详情` : `查看 ${code} 的详情`;
+}

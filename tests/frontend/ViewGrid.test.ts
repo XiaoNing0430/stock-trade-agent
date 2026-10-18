@@ -6,6 +6,7 @@ vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
 
 import { useCompareStore } from '@/stores/useCompareStore';
+import { useGridStore } from '@/stores/useGridStore';
 import { useStrategyStore } from '@/stores/useStrategyStore';
 import ViewGrid from '@/views/ViewGrid.vue';
 
@@ -69,5 +70,65 @@ describe('ViewGrid 对比 tab', () => {
     useStrategyStore().strategyType = 'compare';
     await flushPromises();
     expect(wrapper.text()).toContain('暂无已保存策略');
+  });
+});
+
+describe('ViewGrid 结果区加载态与空态动作', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('网格建议计算中显示加载态（spec §7.3-3）', async () => {
+    useStrategyStore().strategyType = 'grid';
+    const grid = useGridStore();
+    grid.gridLoading = true;
+    const wrapper = mount(ViewGrid, { global: { plugins: [] } });
+    await flushPromises();
+    const loading = wrapper.find('[data-testid="grid-suggestion-loading"]');
+    expect(loading.exists()).toBe(true);
+    expect(loading.text()).toContain('正在计算网格参数');
+  });
+
+  it('策略回测运行中显示加载态而非空态（spec §7.3-4）', async () => {
+    const strategy = useStrategyStore();
+    strategy.strategyType = 'ma_cross';
+    strategy.strategyLoading = true;
+    const wrapper = mount(ViewGrid, { global: { plugins: [] } });
+    await flushPromises();
+    expect(wrapper.find('.loading-state').text()).toContain('正在回放回测');
+    expect(wrapper.text()).not.toContain('系统会基于历史日线按参数模拟买卖');
+  });
+
+  it('策略空态带「运行回测」按钮并调用 backtestStrategy（spec §7.4）', async () => {
+    const strategy = useStrategyStore();
+    strategy.strategyType = 'ma_cross';
+    const spy = vi.spyOn(strategy, 'backtestStrategy').mockResolvedValue(undefined as any);
+    const wrapper = mount(ViewGrid, { global: { plugins: [] } });
+    await flushPromises();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('运行'));
+    await empty!.find('button').trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('多策略对比运行中显示加载态（spec §7.3-5）', async () => {
+    const strategy = useStrategyStore();
+    strategy.strategyType = 'compare';
+    const compare = useCompareStore();
+    compare.runLoading = true;
+    const wrapper = mount(ViewGrid, { global: { plugins: [] } });
+    await flushPromises();
+    expect(wrapper.find('.loading-state').text()).toContain('正在对比');
+  });
+
+  it('对比空态带「开始对比」按钮并调用 runCompare（spec §7.4）', async () => {
+    const strategy = useStrategyStore();
+    strategy.strategyType = 'compare';
+    const compare = useCompareStore();
+    const spy = vi.spyOn(compare, 'runCompare').mockResolvedValue(undefined as any);
+    const wrapper = mount(ViewGrid, { global: { plugins: [] } });
+    await flushPromises();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('运行多策略对比'));
+    await empty!.find('button').trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

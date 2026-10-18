@@ -193,4 +193,27 @@ describe('ViewStockDetail', () => {
     expect(wrapper.find('[data-testid="back-from-detail"]').text()).toBe('返回上一页');
     wrapper.unmount();
   });
+
+  // ── Task 7 加载态：报价区 / 分钟线请求在途 ──
+  it('行情未就绪时报价区显示加载态而非裸 --（spec §7.3-8）', async () => {
+    const quotes = useQuotesStore();
+    quotes.loading = true;
+    quotes.market = { provider: '', fetchedAt: 0, quotes: [], indices: [] } as any;
+    const wrapper = mount(ViewStockDetail);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="detail-loading"]').text()).toContain('正在读取行情');
+  });
+
+  it('分钟线请求在途显示加载态（spec §7.3-9）', async () => {
+    let resolveMinute: (value: any) => void = () => {};
+    fetchMinuteMock.mockImplementationOnce(() => new Promise((resolve) => (resolveMinute = resolve)));
+    const wrapper = mount(ViewStockDetail, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('.minute-toolbar button')[1].trigger('click');
+    expect(wrapper.find('[data-testid="minute-loading"]').exists()).toBe(true);
+    resolveMinute(minuteResponse());
+    await flushPromises();
+    expect(wrapper.find('[data-testid="minute-loading"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
 });

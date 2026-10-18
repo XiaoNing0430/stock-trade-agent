@@ -28,6 +28,7 @@
             :class="{ 'is-active': view === item.id }"
             type="button"
             :aria-label="item.label"
+            :aria-keyshortcuts="shortcutForView(item.id) || undefined"
             @click="switchView(item.id)"
           >
             <i :data-lucide="item.icon" aria-hidden="true"></i>
@@ -72,10 +73,21 @@
               type="search"
               placeholder="搜索股票代码或名称"
               aria-label="搜索股票代码或名称"
+              aria-keyshortcuts="/"
               @keydown.enter="searchSymbol"
             />
             <kbd>/</kbd>
           </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="键盘快捷键"
+            aria-keyshortcuts="?"
+            data-tooltip="键盘快捷键"
+            @click="toggleHelp"
+          >
+            <i data-lucide="circle-question-mark" aria-hidden="true"></i>
+          </button>
           <div class="notif-wrap">
             <button
               class="icon-button"
@@ -89,8 +101,15 @@
                 unreadTotalCount > 99 ? '99+' : unreadTotalCount
               }}</span>
             </button>
-            <div v-if="notifOpen" class="notif-backdrop" @click="notifOpen = false"></div>
-            <div v-if="notifOpen" class="notif-panel" role="dialog" aria-label="通知中心">
+            <div v-if="notifOpen" class="notif-backdrop" @click.self="notifOpen = false"></div>
+            <div
+              v-if="notifOpen"
+              ref="notifPanel"
+              class="notif-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="通知中心"
+            >
               <div class="notif-head">
                 <strong>通知中心</strong
                 ><button class="text-button" type="button" @click="clearReadAlerts">清空已读</button>
@@ -159,6 +178,7 @@
                       class="text-button"
                       type="button"
                       data-testid="alert-detail-chip"
+                      :aria-label="viewDetailLabel(alert.code, null)"
                       @click="openAlertDetail(alert.code)"
                     >
                       查看详情
@@ -257,7 +277,7 @@
     </nav>
 
     <div v-if="moreSheetOpen" class="more-sheet-backdrop" @click.self="moreSheetOpen = false">
-      <section class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
+      <section ref="moreSheetPanel" class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
         <template v-for="section in moreSections" :key="section.key">
           <div class="more-sheet-group">{{ section.group?.label }}</div>
           <button
@@ -265,6 +285,7 @@
             :key="item.id"
             class="more-sheet-item"
             type="button"
+            :aria-keyshortcuts="shortcutForView(item.id) || undefined"
             @click="goFromMoreSheet(item.id)"
           >
             <i :data-lucide="item.icon" aria-hidden="true"></i><span>{{ item.label }}</span
@@ -276,7 +297,8 @@
       </section>
     </div>
   </div>
-  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <ShortcutHelpDialog />
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
 </template>
 
 <script setup lang="ts">
@@ -284,10 +306,13 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { appOptions } from '@/app';
 import { APP_VERSION, NAV_GROUPS, NAV_ITEMS } from '@/modules/constants';
-import { formatTime } from '@/modules/format';
+import { formatTime, viewDetailLabel } from '@/modules/format';
 import { effectiveTheme, toggleTheme } from '@/modules/theme';
+import { shortcutForView, toggleHelp } from '@/modules/shortcuts';
+import { useOverlayA11y } from '@/modules/overlayA11y';
 import type { Alert } from '@/types/models';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
+import ShortcutHelpDialog from '@/components/ShortcutHelpDialog.vue';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useAlertsStore } from '@/stores/useAlertsStore';
@@ -338,6 +363,28 @@ const MOBILE_BAR_IDS = ['overview', 'screener', 'plans', 'monitor'] as const;
 const mobileBarItems = NAV_ITEMS.filter((item) => (MOBILE_BAR_IDS as readonly string[]).includes(item.id));
 
 const moreSheetOpen = ref(false);
+
+// 统一浮层键盘行为（spec §6）：Esc 关闭仅栈顶、Tab 焦点陷阱、body 滚动锁、焦点归还。
+const notifPanel = ref<HTMLElement | null>(null);
+const moreSheetPanel = ref<HTMLElement | null>(null);
+
+useOverlayA11y({
+  id: 'notif',
+  isOpen: () => notifOpen.value,
+  panelRef: notifPanel,
+  onClose: () => {
+    notifOpen.value = false;
+  },
+});
+
+useOverlayA11y({
+  id: 'more-sheet',
+  isOpen: () => moreSheetOpen.value,
+  panelRef: moreSheetPanel,
+  onClose: () => {
+    moreSheetOpen.value = false;
+  },
+});
 
 /** 抽屉分区：与桌面同一套分组，只保留未出现在底部栏的项。 */
 const moreSections = computed(() =>

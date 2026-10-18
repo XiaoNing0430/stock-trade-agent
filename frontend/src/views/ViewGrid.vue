@@ -208,7 +208,11 @@
             <i data-lucide="play" aria-hidden="true"></i>
           </button>
         </div>
-        <div v-if="gridResult" class="grid-result-body">
+        <div v-if="gridLoading" class="loading-state" data-testid="grid-suggestion-loading" role="status">
+          <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在计算网格参数</strong
+          ><span>基于历史日线给出区间、每格资金与建议投入。</span>
+        </div>
+        <div v-else-if="gridResult" class="grid-result-body">
           <p v-if="gridProvenance" class="grid-provenance">
             <i data-lucide="database" aria-hidden="true"></i>{{ gridProvenance }}
           </p>
@@ -428,7 +432,11 @@
             <i data-lucide="save" aria-hidden="true"></i>保存策略
           </button>
         </div>
-        <div v-if="strategyResult" class="grid-result-body">
+        <div v-if="strategyLoading" class="loading-state" data-testid="strategy-loading" role="status">
+          <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在回放回测</strong
+          ><span>日线逐笔重放完成后显示权益曲线与指标。</span>
+        </div>
+        <div v-else-if="strategyResult" class="grid-result-body">
           <p v-if="strategyProvenance" class="grid-provenance">
             <i data-lucide="database" aria-hidden="true"></i>{{ strategyProvenance }}
           </p>
@@ -502,7 +510,15 @@
         </div>
         <div v-else class="empty-state">
           <i data-lucide="activity" aria-hidden="true"></i><strong>运行{{ strategyTypeLabel }}回测</strong
-          ><span>系统会基于历史日线按参数模拟买卖并给出权益曲线与指标。</span>
+          ><span>系统会基于历史日线按参数模拟买卖并给出权益曲线与指标。</span
+          ><button
+            class="button button-secondary"
+            type="button"
+            :disabled="strategyLoading"
+            @click="backtestStrategy()"
+          >
+            运行回测
+          </button>
         </div>
       </section>
     </div>
@@ -578,7 +594,11 @@
             <h2>对比结果</h2>
           </div>
         </div>
-        <div v-if="compare.runResult" class="grid-result-body">
+        <div v-if="compare.runLoading" class="loading-state" data-testid="compare-loading" role="status">
+          <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在对比</strong
+          ><span>勾选策略将在同一份日线上依次重放。</span>
+        </div>
+        <div v-else-if="compare.runResult" class="grid-result-body">
           <p class="grid-provenance">
             <i data-lucide="database" aria-hidden="true"></i>{{ compare.runResult.barCount }} 个交易日 ·
             {{ compare.runResult.dataSource === 'local' ? '本地缓存' : '实时拉取' }} · 数据截止
@@ -662,7 +682,15 @@
         </div>
         <div v-else class="empty-state">
           <i data-lucide="git-compare" aria-hidden="true"></i><strong>运行多策略对比</strong
-          ><span>同一份历史日线在勾选的策略间重放，对比收益、回撤与夏普。</span>
+          ><span>同一份历史日线在勾选的策略间重放，对比收益、回撤与夏普。</span
+          ><button
+            class="button button-secondary"
+            type="button"
+            :disabled="compare.runLoading"
+            @click="compare.runCompare()"
+          >
+            开始对比
+          </button>
         </div>
       </section>
     </div>

@@ -596,6 +596,12 @@ textarea:focus-visible {
   scrollbar-color: var(--scroll-thumb-soft) transparent;
 }
 
+/* 浮层打开时冻结真实滚动容器（.view-panel.is-active），计数幂等由 overlayA11y 负责 */
+/* !important + 特异性 (0,3,1) 用以压过 .screener-view 的 overflow:auto !important（(0,1,0)） */
+body.overlay-open .view-panel.is-active {
+  overflow: hidden !important;
+}
+
 .screener-view {
   display: block !important;
   overflow: auto !important;
@@ -2603,7 +2609,7 @@ textarea:focus-visible {
   content: '';
 }
 
-.empty-state {
+:is(.empty-state, .loading-state) {
   display: grid;
   justify-items: center;
   gap: var(--space-2);
@@ -2612,21 +2618,32 @@ textarea:focus-visible {
   text-align: center;
 }
 
-.empty-state svg {
+:is(.empty-state, .loading-state) svg {
   width: 23px;
   height: 23px;
   margin-bottom: 2px;
   color: var(--coral);
 }
 
-.empty-state strong {
+:is(.empty-state, .loading-state) strong {
   color: var(--ink-soft);
   font-size: var(--fs-sm);
   font-weight: 500;
 }
 
-.empty-state span {
+:is(.empty-state, .loading-state) span {
   font-size: var(--fs-xs);
+}
+
+/* 加载态 = 与空态同版式 + 转圈；空态图标保持静止（语义靠形状与文案区分） */
+.loading-state svg {
+  animation: spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-state svg {
+    animation: none;
+  }
 }
 
 .settings-grid {
@@ -2778,6 +2795,51 @@ textarea:focus-visible {
   color: var(--red);
 }
 
+.toast {
+  cursor: pointer;
+}
+
+.toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* 特异性修正：`.toast.error svg`(0,2,1) 会压过 `.toast-close svg`(0,1,1)，
+   令错误 toast 的关闭图标误染红色；升到 (0,2,1) 后在两种 tone 下都取 muted。 */
+.toast .toast-close svg {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+
+.toast-pulse {
+  animation: toast-pulse 200ms ease;
+}
+
+/* 填模修正：`.toast` 的 `animation: toast-in ... both` 会以 fill 覆盖普通声明，
+   使 `opacity:0` 失效（节点直接消失、看不到淡出）；置 `animation: none` 让过渡真正执行。 */
+.toast-leaving {
+  animation: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+@keyframes toast-pulse {
+  from {
+    border-color: var(--line-strong);
+  }
+  to {
+    border-color: var(--line);
+  }
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -2857,8 +2919,14 @@ textarea:focus-visible {
   .brand-copy,
   .nav-item span,
   .nav-item kbd,
-  .sidebar-section-label {
+  .sidebar-section-label,
+  .sidebar-theme-toggle span {
     display: none;
+  }
+
+  .sidebar-theme-toggle {
+    justify-content: center;
+    padding: var(--space-2) 0;
   }
 
   .nav-item {
@@ -3294,6 +3362,33 @@ textarea:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-md);
+}
+
+/* ---------- 快捷键帮助浮层（ShortcutHelpDialog） ---------- */
+
+.shortcut-help-panel .dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.shortcut-help-panel .shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcut-table th {
+  width: 84px;
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.shortcut-table td {
+  padding: var(--space-2) 0;
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
 }
 
 .plan-draft-head,

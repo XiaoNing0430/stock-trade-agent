@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
 // App.vue 挂载所需的最小 mock（同 useAlertsStore.test.ts 模式）：图标渲染 + 关闭全局协调副作用。
@@ -12,6 +12,7 @@ vi.mock('@/api/client', async (importOriginal) => {
 });
 
 import App from '@/App.vue';
+import { helpOpen } from '@/modules/shortcuts';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import type { Alert } from '@/types/models';
@@ -34,6 +35,8 @@ const viewStubs = {
 beforeEach(() => {
   localStorage.clear();
   setActivePinia(createPinia());
+  // 模块级 helpOpen 在同一测试文件内共享：用例中途失败不得把开着的帮助浮层漏给后续用例
+  helpOpen.value = false;
 });
 
 describe('桌面侧栏分区（spec §4）', () => {
@@ -54,6 +57,13 @@ describe('桌面侧栏分区（spec §4）', () => {
     expect(wrapper.find('.sidebar-data-note').exists()).toBe(false);
     expect(wrapper.find('.sidebar-note').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('林默');
+    wrapper.unmount();
+  });
+
+  it('导航项声明数字键快捷键（含 7 → 个人中心）', () => {
+    const wrapper = mount(App, { global: viewStubs });
+    const items = wrapper.findAll('.sidebar .nav-item');
+    expect(items.map((node) => node.attributes('aria-keyshortcuts'))).toEqual(['1', '2', '3', '4', '5', '6', '7']);
     wrapper.unmount();
   });
 });
@@ -131,7 +141,77 @@ describe('顶栏行情状态控件与页脚（spec §6/§7）', () => {
     expect(footer.text()).toContain('研究工具不构成投资建议');
     expect(footer.text()).not.toContain('行情接口');
     // 侧栏版本号真实文案
-    expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.1');
+    expect(wrapper.find('.sidebar-version').text()).toBe('v0.7.2');
+    wrapper.unmount();
+  });
+});
+
+describe('快捷键帮助浮层入口（spec §9.3）', () => {
+  it('顶栏唯一致的一个「键盘快捷键」入口，点击打开帮助浮层', async () => {
+    const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
+    const help = wrapper
+      .findAll('.topbar-actions button')
+      .find((node) => node.attributes('aria-label') === '键盘快捷键');
+    expect(help).toBeTruthy();
+    expect(help!.attributes('aria-keyshortcuts')).toBe('?');
+    await help!.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.shortcut-help-panel').exists()).toBe(true);
+    helpOpen.value = false;
+    wrapper.unmount();
+  });
+});
+
+describe('浮层键盘行为（spec §6）', () => {
+  it('通知面板带 aria-modal，Esc 关闭并归还焦点给铃铛', async () => {
+    const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
+    const bell = wrapper.find('.notif-wrap button');
+    // jsdom 不会在 dispatchEvent('click') 时移动焦点，显式聚焦以还原真实浏览器点击后的焦点归位前置条件
+    (bell.element as HTMLElement).focus();
+    await bell.trigger('click');
+    const panel = wrapper.find('.notif-panel');
+    expect(panel.exists()).toBe(true);
+    expect(panel.attributes('aria-modal')).toBe('true');
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(wrapper.find('.notif-panel').exists()).toBe(false);
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+    expect(document.activeElement).toBe(bell.element);
+    wrapper.unmount();
+  });
+
+  it('更多抽屉 Esc 关闭并摘掉滚动锁', async () => {
+    const wrapper = mount(App, { global: viewStubs, attachTo: document.body });
+    await wrapper.find('.bottom-nav button[aria-label="更多"]').trigger('click');
+    expect(wrapper.find('.more-sheet').exists()).toBe(true);
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(wrapper.find('.more-sheet').exists()).toBe(false);
+    expect(document.body.classList.contains('overlay-open')).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+// ── Task 12 下钻控件逐行可访问名 ──
+describe('通知面板下钻控件可访问名（spec §10.2）', () => {
+  it('面板内「查看详情」按钮带代码式可访问名（提醒标题是事件标题，非股票名）', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a12',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    const wrapper = mount(App, { global: viewStubs });
+    await wrapper.find('button[aria-label="通知中心"]').trigger('click');
+    expect(wrapper.find('button[data-testid="alert-detail-chip"]').attributes('aria-label')).toBe('查看 600519 的详情');
     wrapper.unmount();
   });
 });

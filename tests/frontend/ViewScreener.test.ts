@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewScreener from '@/views/ViewScreener.vue';
 import { useScreenerStore } from '@/stores/useScreenerStore';
@@ -14,6 +14,10 @@ vi.mock('@/api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/client')>();
   return { ...actual, requestJson: vi.fn() };
 });
+
+// overlayA11y 的模块级栈/锁跨实例共享：本文件挂载的组件会打开 custom-strategy 浮层，
+// 若不卸载会留下同 id 陈旧实例，抢占后续用例的 Esc（同 Task 2 在 PlanDraftDialog.test.ts 的处理）。
+enableAutoUnmount(afterEach);
 
 const makeRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
   code: '600519',
@@ -334,6 +338,27 @@ describe('ViewScreener', () => {
 
     expect(requestJson).toHaveBeenCalledWith('/api/screener/scan/now', expect.objectContaining({ method: 'POST' }));
     expect(wrapper.find('[data-testid="scan-status"]').text()).toContain('命中 3');
+  });
+
+  it('精选列表加载中显示 .loading-state[role="status"] 而非 .empty-state（spec §7）', async () => {
+    const quotes = useQuotesStore();
+    quotes.loading = true;
+    const wrapper = mount(ViewScreener);
+    await flushPromises();
+    const loadingNode = wrapper.find('.loading-state[role="status"]');
+    expect(loadingNode.exists()).toBe(true);
+    expect(loadingNode.text()).toContain('正在读取真实行情');
+    expect(wrapper.findAll('.empty-state').some((node) => node.text().includes('正在读取真实行情'))).toBe(false);
+  });
+
+  it('精选无结果时空态带「重新读取行情」按钮并调用 fetchScreener（spec §7.4）', async () => {
+    const screener = useScreenerStore();
+    const spy = vi.spyOn(screener, 'fetchScreener').mockResolvedValue(undefined as any);
+    const wrapper = mount(ViewScreener);
+    await flushPromises();
+    const empty = wrapper.findAll('.empty-state').find((node) => node.text().includes('没有找到符合条件的股票'));
+    await empty!.find('button').trigger('click');
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 

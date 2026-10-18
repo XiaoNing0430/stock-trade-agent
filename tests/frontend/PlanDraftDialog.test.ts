@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import PlanDraftDialog from '@/components/PlanDraftDialog.vue';
 import { useAssistStore } from '@/stores/useAssistStore';
@@ -9,6 +10,10 @@ import type { Plan } from '@/types/models';
 
 vi.mock('lucide', () => ({ createIcons: vi.fn(), icons: {} }));
 vi.mock('@/modules/lucideIcons', () => ({ UI_ICONS: {} }));
+
+// overlayA11y 的模块级栈/锁是跨实例共享的：每个用例结束必须卸载，否则残留实例的 window 监听
+// 会截走后续用例的 Esc（栈顶 id 相同）。统一自动卸载以保证用例间隔离。
+enableAutoUnmount(afterEach);
 
 const DRAFT = {
   code: '600519',
@@ -237,5 +242,17 @@ describe('PlanDraftDialog', () => {
     expect((wrapper.find('input[data-testid="risk-pct-input"]').element as HTMLInputElement).value).toBe('1');
     expect((wrapper.find('input[data-testid="cap-pct-input"]').element as HTMLInputElement).value).toBe('25');
     expect(requestSpy).not.toHaveBeenCalled();
+  });
+
+  it('打开时焦点进入面板、Esc 关闭（spec §6）', async () => {
+    const assist = useAssistStore();
+    assist.visible = true;
+    const wrapper = mount(PlanDraftDialog, { attachTo: document.body });
+    await nextTick();
+    expect(document.activeElement?.closest('.dialog-panel')).not.toBeNull();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(assist.visible).toBe(false);
+    wrapper.unmount();
   });
 });

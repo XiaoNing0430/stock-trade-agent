@@ -91,6 +91,26 @@ describe('ViewSettings', () => {
     wrapper.unmount();
   });
 
+  // ── Task 12 下钻控件逐行可访问名 ──
+  it('提醒行下钻控件（本文件无 fetch mock）带代码式可访问名', () => {
+    const workspace = useWorkspaceStore();
+    workspace.alerts = [
+      {
+        id: 'a12',
+        kind: 'alert',
+        title: '触及止损',
+        message: '贵州茅台 触及止损',
+        code: '600519',
+        read: false,
+        time: '刚刚',
+        createdAtMs: 1,
+      } as Alert,
+    ];
+    const wrapper = mount(ViewSettings);
+    expect(wrapper.find('[data-testid="alert-detail-link"]').attributes('aria-label')).toBe('查看 600519 的详情');
+    wrapper.unmount();
+  });
+
   it('数据分组渲染4个动态数据源下拉（实时/日线/选股/基本面）', () => {
     const alerts = useAlertsStore();
     const settings = useSettingsStore();

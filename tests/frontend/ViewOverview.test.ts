@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ViewOverview from '@/views/ViewOverview.vue';
 import { useQuotesStore } from '@/stores/useQuotesStore';
@@ -52,6 +52,14 @@ describe('总览状态带（spec §7）', () => {
     expect(wrapper.text()).not.toContain('验证策略');
     expect(wrapper.text()).not.toContain('待重新回测');
     wrapper.unmount();
+  });
+
+  it('指数加载中显示 .loading-state[role="status"]（spec §7）', async () => {
+    const quotes = useQuotesStore();
+    quotes.loading = true;
+    const wrapper = mount(ViewOverview);
+    await flushPromises();
+    expect(wrapper.find('.loading-state[role="status"]').text()).toContain('正在读取指数');
   });
 
   it('执行跟踪不再渲染与状态带重复的指标行', () => {

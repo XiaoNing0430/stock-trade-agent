@@ -69,47 +69,47 @@
     <!-- ② KPI 行：null → '--'（不造数） -->
     <div class="review-kpis pf-kpis" data-testid="portfolio-kpis">
       <div class="kpi">
-        <b>{{ formatAmount(kpis?.navNow) }}</b
+        <b>{{ kpiText(formatAmount(kpis?.navNow)) }}</b
         ><span>毛净值</span>
       </div>
       <div class="kpi">
-        <b>{{ formatAmount(kpis?.navNowNet) }}</b
+        <b>{{ kpiText(formatAmount(kpis?.navNowNet)) }}</b
         ><span>净净值</span>
       </div>
       <div class="kpi">
-        <b>{{ ratioPct(kpis?.mdd) }}</b
+        <b>{{ kpiText(ratioPct(kpis?.mdd)) }}</b
         ><span>毛最大回撤</span>
       </div>
       <div class="kpi">
-        <b>{{ ratioPct(kpis?.mddNet) }}</b
+        <b>{{ kpiText(ratioPct(kpis?.mddNet)) }}</b
         ><span>净最大回撤</span>
       </div>
       <div class="kpi">
-        <b>{{ ratioPct(kpis?.exposurePct) }}</b
+        <b>{{ kpiText(ratioPct(kpis?.exposurePct)) }}</b
         ><span>期末敞口（市值/毛净值）</span>
       </div>
       <div class="kpi">
-        <b>{{ ratioPct(kpis?.cashPct) }}</b
+        <b>{{ kpiText(ratioPct(kpis?.cashPct)) }}</b
         ><span>现金占比</span>
       </div>
       <div class="kpi">
-        <b>{{ planText }}</b>
+        <b>{{ kpiText(planText) }}</b>
         <span>计划 执行中/已触发/已了结/未入场</span>
       </div>
       <div class="kpi">
-        <b>{{ numText(kpis?.pairCount) }}</b
+        <b>{{ kpiText(numText(kpis?.pairCount)) }}</b
         ><span>交易对</span>
       </div>
       <div class="kpi">
-        <b>{{ numText(kpis?.orphanSellCount) }}</b
+        <b>{{ kpiText(numText(kpis?.orphanSellCount)) }}</b
         ><span>孤儿卖单</span>
       </div>
       <div class="kpi">
-        <b>{{ numText(kpis?.scalingCount) }}</b
+        <b>{{ kpiText(numText(kpis?.scalingCount)) }}</b
         ><span>加仓缩量</span>
       </div>
       <div class="kpi">
-        <b>{{ formatAmount(feeSum) }}</b
+        <b>{{ kpiText(formatAmount(feeSum)) }}</b
         ><span>窗口费用合计</span>
       </div>
       <span class="kpi-note" data-testid="portfolio-fee-note">
@@ -125,10 +125,20 @@
         </div>
         <span v-if="store.loading" class="muted">计算中…</span>
       </div>
-      <div v-if="!hasNavPoints" class="empty-state" data-testid="portfolio-empty">
+      <div
+        v-if="store.loading && !hasNavPoints"
+        class="loading-state"
+        data-testid="portfolio-nav-loading"
+        role="status"
+      >
+        <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在计算组合净值</strong
+        ><span>回放窗口内的计划交易后显示毛/净净值曲线。</span>
+      </div>
+      <div v-else-if="!hasNavPoints" class="empty-state" data-testid="portfolio-empty">
         <i data-lucide="chart-line" aria-hidden="true"></i>
         <strong>暂无计划持仓</strong>
         <span>窗口内还没有可回放的买入计划——先创建并触发买入计划，再回到这里查看毛/净净值曲线。</span>
+        <button class="button button-secondary" type="button" @click="switchView('plans')">去交易计划</button>
       </div>
       <template v-else>
         <div class="pf-chart" data-testid="portfolio-nav-chart" v-html="navSvg"></div>
@@ -251,6 +261,7 @@
                   class="code-link"
                   type="button"
                   data-testid="pair-code-link"
+                  :aria-label="viewDetailLabel(pair.buy.code, quoteFor(pair.buy.code)?.name)"
                   @click="selectStock(pair.buy.code, 'portfolio')"
                 >
                   {{ pair.buy.code }}
@@ -399,7 +410,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { multiLineSvg, type MultiLineSeries } from '@/modules/chart';
-import { formatAmount, formatNumber } from '@/modules/format';
+import { formatAmount, formatNumber, viewDetailLabel } from '@/modules/format';
 import {
   usePortfolioStore,
   type PortfolioDays,
@@ -412,7 +423,7 @@ import { useQuotesStore } from '@/stores/useQuotesStore';
 const store = usePortfolioStore();
 const workspace = useWorkspaceStore();
 const { renderIcons } = workspace;
-const { selectStock } = useQuotesStore();
+const { selectStock, switchView, quoteFor } = useQuotesStore();
 
 // store.setParam 只写参数不 fetch（已读 store 现状）→ 视图在 chip/输入 handler 里显式 fetchRisk，
 // 不引入参数 watch（避免双路径竞态；参数即点即算，语义与 review 面板同款）。
@@ -472,6 +483,14 @@ const planText = computed(() => {
   if (!k) return '-- / -- / -- / --';
   return `${k.active} / ${k.triggered} / ${k.closedInWindow} / ${k.notEntered}`;
 });
+
+// —— KPI 加载态（spec §7.3-10）：首次计算中（有请求飞行且尚无任何结果）值槽显示「计算中」，
+// 网格与标签始终在；已有结果时重算保持旧值不清空（kpiLoading 必须同时满足 loading && !kpis）。
+const kpiLoading = computed(() => store.loading && !kpis.value);
+/** 加载中且无任何结果 → 「计算中」；已加载后字段缺失仍由格式化函数给 `--`（不造数）。 */
+function kpiText(rendered: string): string {
+  return kpiLoading.value ? '计算中' : rendered;
+}
 
 // —— 预热空卡（终审 R3）：有成分但行业零识别 → 整卡预热文案，不误导为「全是未知行业」；
 // concentration 整体 null（store 注释 = 预热态）同样走预热。 ——

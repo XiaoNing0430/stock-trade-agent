@@ -139,6 +139,7 @@
                       class="code-link"
                       type="button"
                       data-testid="plan-code-link"
+                      :aria-label="viewDetailLabel(plan.code, quoteFor(plan.code)?.name)"
                       @click="selectStock(plan.code, 'plans')"
                     >
                       {{ plan.code }}
@@ -198,7 +199,8 @@
         </div>
         <div v-if="!activePlans.length" class="empty-state">
           <i data-lucide="clipboard-plus" aria-hidden="true"></i><strong>还没有交易计划</strong
-          ><span>先写下一个你愿意执行的交易剧本。</span>
+          ><span>先写下一个你愿意执行的交易剧本。</span
+          ><button class="button button-secondary" type="button" @click="switchView('screener')">去选股器挑一只</button>
         </div>
       </section>
 
@@ -226,7 +228,16 @@
               {{ d === 0 ? '全部' : `近 ${d} 天` }}
             </button>
           </div>
-          <div class="review-kpis" data-testid="review-kpis">
+          <div
+            v-if="review.loading && !review.review"
+            class="loading-state compact-empty"
+            data-testid="review-loading"
+            role="status"
+          >
+            <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在回放复盘</strong
+            ><span>按设计口径逐日回放交易计划。</span>
+          </div>
+          <div v-else class="review-kpis" data-testid="review-kpis">
             <div class="kpi">
               <b>{{ review.review?.kpis.total ?? '--' }}</b
               ><span>计划总数</span>
@@ -306,6 +317,7 @@
                     class="code-link"
                     type="button"
                     data-testid="review-code-link"
+                    :aria-label="viewDetailLabel(item.code, quoteFor(item.code)?.name)"
                     @click="selectStock(item.code, 'plans')"
                   >
                     {{ item.code }}
@@ -324,6 +336,14 @@
               </tr>
             </tbody>
           </table>
+          <div
+            v-if="review.traceLoading && !activeScanTrace.length"
+            class="loading-state compact-empty"
+            data-testid="review-trace-loading"
+            role="status"
+          >
+            <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取扫描记录</strong>
+          </div>
           <p v-if="review.traceError" class="plan-draft-error" data-testid="review-trace-error" role="alert">
             {{ review.traceError }}
           </p>
@@ -346,7 +366,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import { formatMoney, formatNumber, formatTime } from '@/modules/format';
+import { formatMoney, formatNumber, formatTime, viewDetailLabel } from '@/modules/format';
 import { calculateRr, calculateShares } from '@/modules/planUtils';
 import type { Plan } from '@/types/models';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
@@ -362,8 +382,7 @@ const review = useReviewStore();
 const { activePlans, draftDirty } = storeToRefs(workspace);
 const { refreshAll, renderIcons, showToast } = workspace;
 const { draft, planOptions, planMetrics } = storeToRefs(plans);
-const { quoteFor, selectStock } = quotes;
-const { switchView } = quotes;
+const { quoteFor, selectStock, switchView } = quotes;
 const { savePlan, monitorPlan, archivePlan, updatePlanLinkage } = plans;
 
 // ── Task 9 交易对关联：sell 行 → 关联建仓下拉 + exitMode 四档 ──

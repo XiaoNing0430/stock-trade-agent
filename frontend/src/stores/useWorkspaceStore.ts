@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, nextTick, ref } from 'vue';
 import { createIcons } from 'lucide';
 import { UI_ICONS } from '@/modules/lucideIcons';
+import { showToast as showToastEntry } from '@/modules/toastQueue';
 import type { Alert, Plan } from '@/types/models';
 import { DEFAULT_ALERTS, DEFAULT_WATCHLIST, STORAGE_KEY } from '@/modules/constants';
 import { useQuotesStore } from './useQuotesStore';
@@ -71,23 +72,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   function showToast(message: string, tone = 'success') {
-    const region = document.getElementById('toast-region');
-    if (!region) return;
-    const messageText = String(message ?? '');
-    const toast = document.createElement('div');
-    toast.className = `toast ${tone === 'error' ? 'error' : ''}`;
-    const icon = document.createElement('i');
-    icon.setAttribute('data-lucide', tone === 'error' ? 'triangle-alert' : 'check-circle-2');
-    icon.setAttribute('aria-hidden', 'true');
-    const text = document.createElement('span');
-    text.textContent = messageText;
-    toast.appendChild(icon);
-    toast.appendChild(text);
-    region.appendChild(toast);
-    renderIcons();
-    setTimeout(() => {
-      toast.remove();
-    }, 3200);
+    showToastEntry(message, tone, { renderIcons });
   }
 
   function persistLocal() {

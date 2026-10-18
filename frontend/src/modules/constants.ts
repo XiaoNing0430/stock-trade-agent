@@ -46,7 +46,7 @@ export const PRESETS = [
 ];
 
 /** 应用版本：与 package.json 保持同步（constants.test.ts 守卫）。侧栏底部展示。 */
-export const APP_VERSION = '0.7.1';
+export const APP_VERSION = '0.7.2';
 
 /** 主导航分区（顺序即侧栏渲染顺序）。总览不属任何分区，置顶展示。 */
 export const NAV_GROUPS = [

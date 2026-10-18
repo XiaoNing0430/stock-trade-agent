@@ -232,7 +232,7 @@
             </tbody>
           </table>
         </div>
-        <div v-if="strategyLoading" class="empty-state">
+        <div v-if="strategyLoading" class="loading-state" role="status">
           <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在运行策略</strong
           ><span>{{ strategyRunMode === 'deep' ? '深度模式需逐票计算因子，请稍候。' : '极速模式筛选中…' }}</span>
         </div>
@@ -407,13 +407,16 @@
             </tbody>
           </table>
         </div>
-        <div v-if="loading && !filteredRows.length" class="empty-state">
+        <div v-if="loading && !filteredRows.length" class="loading-state" role="status">
           <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取真实行情</strong
           ><span>行情列表返回后会显示筛选结果。</span>
         </div>
         <div v-else-if="!filteredRows.length" class="empty-state">
           <i data-lucide="search-x" aria-hidden="true"></i><strong>没有找到符合条件的股票</strong
-          ><span>可以放宽 PE、PB 或涨幅条件再试一次。</span>
+          ><span>可以放宽 PE、PB 或涨幅条件再试一次。</span
+          ><button class="button button-secondary" type="button" :disabled="loading" @click="fetchScreener()">
+            重新读取行情
+          </button>
         </div>
       </section>
     </div>
@@ -502,7 +505,7 @@
           </tbody>
         </table>
       </div>
-      <div v-if="screenerLoading" class="empty-state">
+      <div v-if="screenerLoading" class="loading-state" role="status">
         <i data-lucide="loader-circle" aria-hidden="true"></i><strong>正在读取全市场行情</strong
         ><span>腾讯排名接口返回后会显示结果。</span>
       </div>
@@ -574,6 +577,7 @@ const {
   strategyReferenceDate,
 } = storeToRefs(screener);
 const { loading } = storeToRefs(quotes);
+const { fetchScreener } = screener;
 const { signalClass, signalText } = plans;
 const {
   switchScreenerMode,
