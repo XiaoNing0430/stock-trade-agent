@@ -657,7 +657,7 @@ describe('ViewPlans', () => {
     const wrapper = mount(ViewPlans);
     await flushPromises();
     expect(wrapper.find('[data-testid="ledger-panel"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain('还没有成交记录');
+    expect(wrapper.text()).toContain('暂无持仓');
   });
 
   it('台账面板：渲染真实持仓与成交行', async () => {
@@ -708,6 +708,9 @@ describe('ViewPlans', () => {
     await flushPromises();
     expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('10.050');
     expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('+195.00');
+    // 权重 = 个股市值 / 组合总市值（单一持仓 → 100.0%）
+    expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('权重');
+    expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('100.0%');
     expect(wrapper.get('[data-testid="ledger-fills"]').text()).toContain('买入');
     expect(wrapper.text()).toContain('市值为实时不复权价口径');
   });

@@ -221,13 +221,15 @@
           </div>
         </div>
 
-        <div v-if="ledgerPositions.length" class="ledger-table" data-testid="ledger-positions">
+        <div v-if="ledgerPositions.length" class="ledger-table ledger-table-positions" data-testid="ledger-positions">
           <div class="ledger-row ledger-row-head">
             <span>标的</span><span>数量</span><span>摊薄成本</span><span>现价</span><span>浮动盈亏</span
-            ><span>已实现</span>
+            ><span>已实现</span><span>权重</span>
           </div>
           <div v-for="row in ledgerPositions" :key="row.code" class="ledger-row">
-            <span class="ledger-code">{{ row.name || row.code }} · {{ row.code }}</span>
+            <span class="ledger-code" :title="`${row.name || row.code} · ${row.code}`"
+              >{{ row.name || row.code }} · {{ row.code }}</span
+            >
             <span>{{ row.qty.toLocaleString() }}</span>
             <span>{{ row.avgCost.toFixed(3) }}</span>
             <span>{{ row.lastPrice === null ? '--' : row.lastPrice.toFixed(2) }}</span>
@@ -235,18 +237,20 @@
               {{ row.unrealizedPnl === null ? '--' : formatSigned(row.unrealizedPnl) }}
             </span>
             <span :class="row.realizedPnl >= 0 ? 'trend-up' : 'trend-down'">{{ formatSigned(row.realizedPnl) }}</span>
+            <span>{{ formatWeight(row) }}</span>
           </div>
           <div class="ledger-row ledger-row-total">
             <span>合计</span><span></span><span></span><span></span>
             <span>{{ ledgerTotals.unrealizedPnl === null || ledgerTotals.unrealizedPnl === undefined ? '--' : formatSigned(ledgerTotals.unrealizedPnl) }}</span>
             <span>{{ formatSigned(ledgerTotals.realizedPnl ?? 0) }}</span>
+            <span></span>
           </div>
         </div>
         <p v-else class="muted" data-testid="ledger-empty">
-          还没有成交记录。录入第一笔成交后，这里会显示真实持仓与盈亏。
+          暂无持仓。录入第一笔有效成交后，这里会显示真实持仓与盈亏。
         </p>
 
-        <div class="ledger-table" data-testid="ledger-fills">
+        <div class="ledger-table ledger-table-fills" data-testid="ledger-fills">
           <div class="ledger-row ledger-row-head">
             <span>时间</span><span>方向</span><span>代码</span><span>价格</span><span>数量</span><span>费用</span
             ><span>操作</span>
@@ -492,6 +496,18 @@ const fillPreset = ref<Partial<FillInput>>({});
 function openFillDialog(preset: Partial<FillInput> = {}) {
   fillPreset.value = preset;
   fillDialogOpen.value = true;
+}
+
+/** 持仓权重 = 该标的市值 / 组合总市值。缺价（市值为 null）时显示 --，绝不按成本估算。 */
+function weightOf(row: { marketValue: number | null }): number | null {
+  const total = ledgerTotals.value?.marketValue;
+  if (!total || row.marketValue === null || row.marketValue === undefined) return null;
+  return (row.marketValue / total) * 100;
+}
+
+function formatWeight(row: { marketValue: number | null }): string {
+  const weight = weightOf(row);
+  return weight === null ? '--' : `${weight.toFixed(1)}%`;
 }
 
 async function saveFill(input: FillInput) {

@@ -4677,6 +4677,8 @@ html[data-theme='dark'] {
 .ledger-panel {
   display: grid;
   gap: 12px;
+  /* 台账是整宽面板：跨满 plan-layout 两列，避免表格被窄列挤压截断 */
+  grid-column: 1 / -1;
 }
 
 .ledger-head-actions {
@@ -4701,6 +4703,19 @@ html[data-theme='dark'] {
   background: var(--surface-soft);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
+}
+
+/* 持仓 7 列：标的名 + 六个数值列；成交 7 列：时间短、代码/价格居中 */
+.ledger-table-positions .ledger-row {
+  grid-template-columns:
+    minmax(150px, 1.8fr) repeat(3, minmax(84px, 1fr)) minmax(96px, 1.1fr) minmax(84px, 1fr)
+    minmax(72px, 0.8fr);
+}
+
+.ledger-table-fills .ledger-row {
+  grid-template-columns:
+    minmax(78px, 0.9fr) minmax(56px, 0.6fr) minmax(80px, 0.9fr) minmax(72px, 0.9fr)
+    minmax(72px, 0.9fr) minmax(72px, 0.9fr) minmax(64px, 0.7fr);
 }
 
 .ledger-row-head {

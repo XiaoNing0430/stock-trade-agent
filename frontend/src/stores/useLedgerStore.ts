@@ -44,7 +44,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     error.value = '';
     try {
       const [fillBody, positionBody] = await Promise.all([
-        requestJson<{ items: FillRow[] }>('/api/fills?limit=500'),
+        requestJson<{ items: FillRow[] }>('/api/fills?limit=500&includeVoided=true'),
         requestJson<PositionsPayload>('/api/positions'),
       ]);
       fills.value = Array.isArray(fillBody?.items) ? fillBody.items.filter(isFillRow) : [];

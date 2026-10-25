@@ -68,6 +68,8 @@ describe('useLedgerStore', () => {
     expect(store.positionFor('000001')).toBeNull();
     expect(store.disclosures).toHaveLength(1);
     expect(store.error).toBe('');
+    // 作废保留审计：默认列表要带上已作废行（灰显 + CSV 状态列），否则审计痕迹在界面上不可见
+    expect(requestJson).toHaveBeenCalledWith('/api/fills?limit=500&includeVoided=true');
   });
 
   it('createFill posts payload with client request id and reloads', async () => {
