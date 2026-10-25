@@ -66,6 +66,7 @@
 1. 品牌（`Atlas / 交易工作台`，现状保留）
 2. `总览`（无组标题）
 3. 5 组：组标题 + 组内导航项（复用现有 `.sidebar-section-label` 作为组标题样式——该样式原服务于被删的「数据连接」标题；它在 ≤680px 已被 `display:none`，与手机端不显示组标题的现状一致）
+   - **2026-10-25 更正**：组标题此后只在同组有 **≥2 项**时渲染——研究/验证/风控/系统 各只有 1 项，标题对用户零信息量；仅「执行」（交易计划 + 盯盘中心）保留标题，单成员分区改由首项 `nav-item--section-start` 的上间距保留节奏。契约与用例同步改于 `tests/frontend/AppShell.test.ts`。
 4. 侧栏底部：主题开关（现状）+ 版本号（新增静态文本，值取 `package.json` 版本，构建期注入或硬编码并在 CHANGELOG 同步）
 
 **删除**：`market-switcher`（含 `market-state`）、`sidebar-data-note` 区块与「数据连接」标签、`sidebar-note`（「先计划，再执行」卡）、`user-profile`（含用户菜单按钮）。

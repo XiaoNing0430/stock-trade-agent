@@ -20,12 +20,15 @@
 
       <nav class="primary-nav" aria-label="主导航">
         <template v-for="section in navSections" :key="section.key">
-          <div v-if="section.group" class="sidebar-section-label">{{ section.group.label }}</div>
+          <div v-if="section.showLabel" class="sidebar-section-label">{{ section.group?.label }}</div>
           <button
-            v-for="item in section.items"
+            v-for="(item, index) in section.items"
             :key="item.id"
             class="nav-item"
-            :class="{ 'is-active': view === item.id }"
+            :class="{
+              'is-active': view === item.id,
+              'nav-item--section-start': Boolean(section.group) && !section.showLabel && index === 0,
+            }"
             type="button"
             :aria-label="item.label"
             :aria-keyshortcuts="shortcutForView(item.id) || undefined"
@@ -279,7 +282,7 @@
     <div v-if="moreSheetOpen" class="more-sheet-backdrop" @click.self="moreSheetOpen = false">
       <section ref="moreSheetPanel" class="more-sheet" role="dialog" aria-modal="true" aria-label="更多导航">
         <template v-for="section in moreSections" :key="section.key">
-          <div class="more-sheet-group">{{ section.group?.label }}</div>
+          <div v-if="section.showLabel" class="more-sheet-group">{{ section.group?.label }}</div>
           <button
             v-for="item in section.items"
             :key="item.id"
@@ -346,19 +349,29 @@ const { switchView, searchSymbol } = quotes;
 const { unreadTotalCount, notifOpen, alertFilter, recentNotifs, notificationPermission } = storeToRefs(alerts);
 const { toggleNotifCenter, clearReadAlerts, markAlertRead, markScanSeen, goAlertCenter, requestNotifications } = alerts;
 
-/** 侧栏分区：置顶项（group === null）在前，随后按 NAV_GROUPS 顺序展开。 */
-const navSections = computed(() => [
-  {
-    key: 'top',
-    group: null as { id: string; label: string } | null,
-    items: NAV_ITEMS.filter((item) => item.group === null),
-  },
-  ...NAV_GROUPS.map((group) => ({
-    key: group.id,
-    group: group as { id: string; label: string } | null,
-    items: NAV_ITEMS.filter((item) => item.group === group.id),
-  })),
-]);
+/**
+ * 侧栏分区：置顶项（group === null）在前，随后按 NAV_GROUPS 顺序展开。
+ * 组标题只在同组有 ≥2 项时显示——单成员分组的标题没有信息量（③a 遗留噪音，2026-10-25 收口）；
+ * 无标题分区的分隔感由首个 `nav-item--section-start` 的上间距保留。
+ */
+const navSections = computed(() => {
+  const sections = [
+    {
+      key: 'top',
+      group: null as { id: string; label: string } | null,
+      items: NAV_ITEMS.filter((item) => item.group === null),
+    },
+    ...NAV_GROUPS.map((group) => ({
+      key: group.id,
+      group: group as { id: string; label: string } | null,
+      items: NAV_ITEMS.filter((item) => item.group === group.id),
+    })),
+  ];
+  return sections.map((section) => ({
+    ...section,
+    showLabel: section.group !== null && section.items.length > 1,
+  }));
+});
 
 /** 手机底部栏 4 个直达格（其余进「更多」抽屉）。短标签取自 NAV_ITEMS.shortLabel。 */
 const MOBILE_BAR_IDS = ['overview', 'screener', 'plans', 'monitor'] as const;
@@ -396,7 +409,9 @@ const moreSections = computed(() =>
     items: NAV_ITEMS.filter(
       (item) => item.group === group.id && !(MOBILE_BAR_IDS as readonly string[]).includes(item.id)
     ),
-  })).filter((section) => section.items.length > 0)
+  }))
+    .filter((section) => section.items.length > 0)
+    .map((section) => ({ ...section, showLabel: section.items.length > 1 }))
 );
 
 const isMoreView = computed(() =>
