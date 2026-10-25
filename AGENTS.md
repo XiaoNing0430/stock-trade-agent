@@ -42,6 +42,8 @@ backend/
   grid_scheduler.py       APScheduler 封装，用于每日网格回测（Asia/Shanghai）
   plan_review.py          计划绩效复盘：设计口径日线回放引擎（窗口/微结构/聚合，只读，零写 plans；支持 asOfDate）
   portfolio_risk.py       组合风险引擎：交易对 build_links、名义额静态分配回放、四档 exitMode、NAV 双线、聚合（纯函数，只读）
+ledger.py               成交台账纯函数：A 股申报规则（板块手数/零股/T+1/ETF 软校验）、成交重放（摊薄成本、
+                        已实现盈亏、超卖拦截）、持仓展示行（缺价 null 不插值）
   industry_map.py         行业映射双层缓存（进程 TTL + industry_map 表；API 只读缓存，预热走后台 job；
                           连接级有界重试 + 整轮不完整时 30 分钟提前补跑 + `/api/health.industry` 观测位）
   indicators.py           技术指标库（MA/EMA/BOLL/ATR/Donchian/Momentum/RSI/ADX + closed_bars 反前视截断）
@@ -52,10 +54,10 @@ backend/
   screener/               策略选股管道：pipeline/factors/scan/loader + configs/*.json 声明式策略
   assist/                 交易辅助：build_plan_draft 草案服务 / 单笔风险 calculator / 滑窗限频 limiter
   sources/                数据源适配器（tencent/eastmoney/mock_us + base/router/cn_impl 日历与归一化 + guard 节流/熔断护栏）
-  schemas.py              37 个 Pydantic 请求/响应模型
-  storage.py              SQLAlchemy 模型 + 持久化助手（18 张表，含 4 张 PIT 快照表与 screener_custom_strategies）
+  schemas.py              38 个 Pydantic 请求/响应模型
+  storage.py              SQLAlchemy 模型 + 持久化助手（19 张表，含 4 张 PIT 快照表、screener_custom_strategies 与 trade_fills）
   settings.py             pydantic-settings；环境变量（POSTGRES_*, REDIS_*, TUSHARE_TOKEN, MOCK_US_ENABLED, CROSS_CHECK_ENABLED）
-  migrations/             Alembic 迁移脚本（基线 + 前向迁移，最新 p3pit20260918 PIT 快照四表）
+  migrations/             Alembic 迁移脚本（基线 + 前向迁移，最新 tf20261025 trade_fills 成交台账）
 frontend/
   index.html              Vite 入口 HTML — 引用 /src/main.ts
   src/
@@ -67,21 +69,24 @@ frontend/
     components/
       PlanDraftDialog.vue  交易计划草案对话框（调参重算 → 确认落计划）
       CustomStrategyDialog.vue  自定义选股策略编辑器（粗筛区间 + ≤20 因子行 + fork 内置；409 保留本地编辑仅刷新 version）
+      FillDialog.vue      成交录入对话框（方向/代码/价格/数量/费用/时间/关联计划；费用可按费率估算，仅填建议值；中文内联校验）
     api/
       client.ts           类似 Axios 的 fetch 封装
-    stores/               13 个 Pinia 状态仓库
+    stores/               14 个 Pinia 状态仓库
       useWorkspaceStore.ts / useQuotesStore.ts / useScreenerStore.ts
       useGridStore.ts / useStrategyStore.ts / usePlansStore.ts
       useAlertsStore.ts / useSettingsStore.ts / useAssistStore.ts
       useScanStore.ts / useReviewStore.ts / usePortfolioStore.ts
       useCompareStore.ts    多策略回测对比（同标的横向对比 + 已保存策略快照/现跑）
+      useLedgerStore.ts     成交台账 + 派生持仓/盈亏（运行时形状守卫，坏行不渲染）
     modules/              纯逻辑模块
       constants.ts（VIEW_META/NAV_GROUPS/APP_VERSION） / format.ts / chart.ts / planUtils.ts
       marketUtils.ts / signalUtils.ts / alertUtils.ts
-      assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表） / csv.ts（对比 CSV 组装与公式注入防护） / theme.ts（三态主题：浅/深/跟随系统，localStorage 持久化）
+      assistCalc.ts（草案试算） / lucideIcons.ts（图标注册表） / csv.ts（对比 CSV 组装与公式注入防护） / ledgerCsv.ts（台账 CSV） / theme.ts（三态主题：浅/深/跟随系统，localStorage 持久化）
     views/                8 个 SFC 视图（标题/副标题由 VIEW_META 单一驱动，视图内不再写装饰性标题或英文 kicker）
       ViewSettings.vue / ViewOverview.vue / ViewMonitor.vue
       ViewScreener.vue / ViewStockDetail.vue / ViewGrid.vue / ViewPlans.vue
+      （ViewPlans 含真实成交台账：持仓/成交表 + 录入对话框 + 确认成交 + CSV 导出）
       ViewPortfolio.vue  组合风险（第 8 视图：毛/净 NAV 多线、敞口/集中度、交易对与事件折叠区）
     types/
       models.ts           TypeScript 类型定义
@@ -97,6 +102,8 @@ tests/
   test_portfolio_engine.py   组合回放引擎：core 状态机 + 闭环 exitMode 矩阵 + 复盘微结构等价（equiv 场景）
   test_portfolio_aggregate.py 聚合层：KPI/敞口/行业集中度/信号看板/自选观察指数/假想线
   test_portfolio_api.py   存储校验（交易对五规则/exitMode 白名单）+ /api/portfolio/risk 端点
+  test_ledger.py          成交台账纯函数：板块手数与零股规则、ETF 软校验、T+1、重放（摊薄成本/已实现/超卖）
+  test_ledger_api.py      成交台账存储与 API：CRUD/幂等/作废审计/中文 422 + /api/positions 派生（缺价披露）
   test_industry_map.py    行业映射双层缓存：fresh/stale/empty 判定 + 整表 min() 时龄 +
                           连接级有界重试/完成标记/日志降噪/health 聚合
   test_bars_etl.py        全市场日线 ETL 核心：水位时刻粒度/universe 并集/缺口四档/调度注册/health 位
@@ -112,7 +119,7 @@ tests/
   test_strategy_compare.py  多策略对比：同 bars 重放/白名单上界/部分失败隔离/trades 不截断/快照与现跑零写库
   conftest.py             逐用例隔离 L2 facade + pytest 临时根自愈（提权遗留毒目录回退 .pytest_tmp，离线纪律）
   test_strategy_engines.py
-  frontend/               28 个 vitest 测试文件（共 304 项测试）
+  frontend/               40 个 vitest 测试文件（共 426 项测试）
 docs/superpowers/         文档/计划（设计及实现文档）
 .worktrees/                git worktrees（Git 忽略）
 ```
@@ -151,8 +158,8 @@ python server.py    # 或 python -m backend.main
 
 ```powershell
 npm run verify                        # 完整回归：vitest + vue-tsc + pytest
-npx vitest run                        # 前端单元测试（304 项，28 文件，jsdom + @vue/test-utils）
-python -m pytest tests/ -v            # 后端测试（679 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
+npx vitest run                        # 前端单元测试（426 项，40 文件，jsdom + @vue/test-utils）
+python -m pytest tests/ -v            # 后端测试（719 项，monkeypatch 离线为主；test_bars_etl*.py 直连真实 PG）
 python -m ruff check backend tests server.py
 python -m ruff format --check backend tests server.py
 python -m mypy backend
@@ -181,9 +188,10 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 - **安全性：** XSS 敏感点为 `showToast`（必须使用 `textContent`）和 `chartSvg`（必须使用 `escapeHtml` 转义插值标签）。保持此纪律。
 - **前端轮询** 由 `armRefreshTimer()` 驱动，遵循 `settingsDraft.refreshInterval`；`refreshAll()` 通过 `refreshInFlight` 防止并发运行。
 - **工作区同步修订锁定：** `GET /api/workspace` 返回 `revision`；`PUT /api/workspace` 接受 `baseRevision`（冲突 → 409，`detail.workspace` 包含服务器快照）和 `force=true` 覆盖。前端在 `workspaceRevision` 中维护最新已知修订，**成功 PUT 后必须采用响应里的新 `revision`**（后端每次保存 +1，基线不跟进会让下一次 PUT 立即 409、并以服务器快照覆盖本地未落盘改动），通过 `settingsDraft.conflictPolicy` 解决 409：`server`（默认）自动采用服务器快照，`local` 自动强制保存本地版本，`ask` 显示冲突横幅"采用服务器版本" / "用本地覆盖"——绝不自动重试 409。
+- **成交台账（2026-10-25 M1）：** 真实成交落独立 `trade_fills` 表，**绝不并入 workspace 全量 PUT**（快照语义会抹掉真实成交）；持仓/摊薄成本/已实现盈亏由 `backend/ledger.py` 纯函数重放成交得出（**不落库、不作第二事实源**），市值为实时不复权价、缺价一律 `--` 并写入 `disclosures`。作废写 `voided_at_ms`/`void_reason`（保留审计、不参与重放、不可恢复），不硬删除。数量规则硬 422：沪深主板/创业板 100 股整数倍、科创板 200 股起按 1 股递增、北交所 100 股起按 1 股递增、零股须一次卖完；股票 T+1 硬拒绝（`T1_VIOLATION`）；ETF 申报单位仅 `LOT_WARNING` 软提示且不判 T+1；可转债/未建模品种 `CODE_UNSUPPORTED`。`POST /api/fills` 幂等键 `clientRequestId`（同号同内容返回既有记录，内容不同 422 `IDEMPOTENCY_MISMATCH`）；`planId` 不校验存在性，响应 `planMissing` 如实披露。
 - **网格回测日线分类：** 停牌 = `volume <= 0`。一字板（`high == low`, volume > 0）在涨停时仅可卖出，跌停时仅可买入。计数器：`onePriceLimitUpDays` / `onePriceLimitDownDays`（新增指标字段，累加性）。
 - **自定义选股策略输入语义（2026-10-03 硬化）：** 数字输入留空（Vue `v-model.number` 回写 `''`）= **未填**，绝不猜数：区间两侧皆空即「不设限」整键不发；`topN`/`deepCap`/因子 `period`/`weight` 省略键回落服务端既有默认；因子 `threshold` 无默认值 → 前端中文内联拦截不提交、后端中文 422。后端 `ScreenerStrategyConfig` 对 `''` 做同样归一，挡住直接 API 调用。422 `detail.error` 面向用户须为中文（`detail.code` 保持机器码 `VALIDATION_ERROR`）。
-- **API 错误契约统一（2026-10-03 打磨批）：** 所有错误响应（含 FastAPI 请求模型/查询参数校验失败）一律 `{"detail": {"error": 中文短句, "code": 机器码}}`；请求校验失败由 app 级 `RequestValidationError` handler 转换，`detail` 不再是对 pydantic 错误列表。新增端点请沿用 `api_error(...)`，不要自己拼错误形状。
+- **API 错误契约统一（2026-10-03 打磨批）：** 所有错误响应（含 FastAPI 请求模型/查询参数校验失败）一律 `{"detail": {"error": 中文短句, "code": 机器码}}`；请求校验失败由 app 级 `RequestValidationError` handler 转换，`detail` 不再是对 pydantic 错误列表。新增端点请沿用 `api_error(...)`，不要自己拼错误形状。**前端读法（2026-10-25 修复）：** `api/client.ts` 的 `requestJson` 会先解包 `body.detail` 再取 `error`/`code`（兼容旧式顶层 `{error, code}`），所以 store 里 `error.message` / `error.code` 就是中文原文与机器码；别自己在调用处再拼 `HTTP ${status}`（旧实现正是这样把所有 422 提示吞成「HTTP 422」）。
 - **策略配置白名单（挡在保存前）：** 因子 `name`（7 因子）、`quick_filters` 字段（5 个）、`sort_by`（`changePct`/`amount`/`turnoverRate`/`pe`/`pb`）均为白名单，未知值存前 422——这些字段写错时管道会因行值缺失或 `_sort_key` 返回 `-inf` 而**静默失效**（不报错、结果不对）。
 - **运行时降级与上游护栏（2026-10-03）：** `fallbackEnabled` 是**请求期**真实降级——`/api/market`、`/api/screener`、`/api/screener/v2` 走 `_call_with_source_fallback`：首选源运行时失败即按 `source_chain()` 依次换**真实源**，响应以 `fallbackUsed` + `failedSources` 如实披露（`provider` 为实际应答源）；关掉开关则只试首选、失败如实 502。**别把「选源期可用」当请求期降级**（旧实现只在选源时换源，东财被 reset 就整体 502）。东财 `push2` 域另有护栏：12ms 级最小间隔 + 连接级连败 3 次熔断 300s（半开单探测），熔断期快速失败（`SourceCircuitOpen`，不打上游）；`HTTPError` 说明链路正常，不计入熔断。
 - **`available` 是声明位、不是连通性：** `DataSource.available` 只表示"已注册且 token/依赖满足"（东财/腾讯硬编码 `True`）。设置页必须显示为「已注册 · 未探测连通性」+ 运行时 `circuit`（closed/open/half-open），**禁止**再写成"连接可用"；`/api/health.sourceCircuits` 暴露各源熔断态。
@@ -221,7 +229,7 @@ pre-commit run --all-files            # 运行所有 pre-commit 钩子（ruff/my
 
 ## 存储与数据说明
 
-- PostgreSQL 存储自选股、交易计划、提醒、网格策略/回测、行情 K 线、行业映射、PIT 日快照（snapshot_runs/closes/industries/audits）和工作区设置。Redis 承担两类职责：`storage_status()` ping 检测 + `redis_cache.CacheFacade` 行情 L2 缓存（`data_source.cached` 三级 L1 dict→L2→上游；前缀策略表白名单：`quotes:`/`history:` 走全局路径，`minute:` 120s 窗且**无降级读**，`screener_v2:` 刻意不入 L2；连接失败=down facade，行为与无 Redis 时逐字一致；熔断 3 败/30s 旁路，物理 TTL≥1860s 保降级读）。**全市场日线 bfq 由 `bars_etl` 后台 ETL 落库**（启动 60s 探测自愈 + 交易日 15:20 日补 + 周六 10:30 审计；500 根深回补受腾讯 ifzq ~1500 持续请求 501 全 IP 惩罚窗约束，1500 码/日预算跨数日消化，ETL 专属 3.3rps 节奏）；**ETL 完成后 `snapshot_archive` 幂等归档当日 PIT 快照**（覆盖不足 95% 或有失败码 → degraded 如实披露）；`/api/health.bars` 暴露水位/新鲜数/universe/最后运行/abortReason/crossCheck。HTTP 超时/重试/缓存 TTL 由工作区设置通过 `data_source.apply_runtime_config(...)` 驱动（默认：TTL 8s，超时 10s，重试 1 次）。
+- PostgreSQL 存储自选股、交易计划、提醒、网格策略/回测、行情 K 线、行业映射、PIT 日快照（snapshot_runs/closes/industries/audits）、真实成交台账（`trade_fills`，迁移 `tf20261025`）和工作区设置。Redis 承担两类职责：`storage_status()` ping 检测 + `redis_cache.CacheFacade` 行情 L2 缓存（`data_source.cached` 三级 L1 dict→L2→上游；前缀策略表白名单：`quotes:`/`history:` 走全局路径，`minute:` 120s 窗且**无降级读**，`screener_v2:` 刻意不入 L2；连接失败=down facade，行为与无 Redis 时逐字一致；熔断 3 败/30s 旁路，物理 TTL≥1860s 保降级读）。**全市场日线 bfq 由 `bars_etl` 后台 ETL 落库**（启动 60s 探测自愈 + 交易日 15:20 日补 + 周六 10:30 审计；500 根深回补受腾讯 ifzq ~1500 持续请求 501 全 IP 惩罚窗约束，1500 码/日预算跨数日消化，ETL 专属 3.3rps 节奏）；**ETL 完成后 `snapshot_archive` 幂等归档当日 PIT 快照**（覆盖不足 95% 或有失败码 → degraded 如实披露）；`/api/health.bars` 暴露水位/新鲜数/universe/最后运行/abortReason/crossCheck。HTTP 超时/重试/缓存 TTL 由工作区设置通过 `data_source.apply_runtime_config(...)` 驱动（默认：TTL 8s，超时 10s，重试 1 次）。
 - 选股器自 v0.5.0 起为全市场分页排序（`/api/screener/v2` 按 `screenerSource` 选源）+ 策略选股管道（`backend/screener/`）；`REAL_UNIVERSE` 仍用于「精选 50」标签。
 - 数据库迁移使用 **Alembic**（`backend/migrations/`）。基线迁移在 `c1a08e78583e_baseline_schema.py`。新增迁移通过 `alembic revision --autogenerate -m "描述"` 生成，提交前检查生成的脚本。
 

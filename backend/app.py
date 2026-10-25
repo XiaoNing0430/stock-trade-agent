@@ -16,9 +16,19 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
-from backend import bars_etl, minute_path, plan_review, portfolio_risk, redis_cache, snapshot_archive, snapshot_query
+from backend import (
+    bars_etl,
+    ledger,
+    minute_path,
+    plan_review,
+    portfolio_risk,
+    redis_cache,
+    snapshot_archive,
+    snapshot_query,
+)
 from backend.assist.limiter import SlidingWindowLimiter
 from backend.assist.service import UpstreamError, build_plan_draft
 from backend.data_source import (
@@ -46,6 +56,7 @@ from backend.schemas import (
     CompareSavedOut,
     CustomStrategyIn,
     DeleteOut,
+    FillIn,
     GridBacktestIn,
     GridBacktestOut,
     GridOptimizeIn,
@@ -84,12 +95,15 @@ from backend.storage import (
     DEFAULT_WORKSPACE_SETTINGS,
     CustomStrategyConflict,
     cleanup_legacy_index_qfq,
+    create_trade_fill,
     delete_custom_strategy,
     delete_grid_strategy,
+    find_trade_fill_by_request,
     get_custom_strategy,
     get_grid_strategy,
     get_scan_config,
     get_strategy,
+    get_trade_fill,
     get_workspace,
     get_workspace_revision,
     get_workspace_settings,
@@ -101,6 +115,7 @@ from backend.storage import (
     list_scan_history,
     list_scan_references,
     list_strategies,
+    list_trade_fills,
     load_market_bars,
     save_grid_backtest,
     save_grid_strategy,
@@ -110,9 +125,11 @@ from backend.storage import (
     save_workspace,
     save_workspace_settings,
     storage_status,
+    update_trade_fill,
     upsert_custom_strategy,
     upsert_scan_config,
     validate_plan_links,
+    void_trade_fill,
 )
 from backend.storage import (
     delete_strategy as delete_generic_strategy,
@@ -144,6 +161,24 @@ def _compare_label(strategy_type: str) -> str:
 def _engine_default_config(engine: dict[str, Any]) -> dict[str, Any]:
     """按 configSchema 的 default 生成引擎默认参数（与 /api/strategy/preview 补齐逻辑一致）。"""
     return {field["key"]: field.get("default") for field in engine["configSchema"]}
+
+
+def _load_quotes_for_codes(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """取持仓码的实时行情，返回 ({code: quote}, 缺失码)。行情失败绝不伪造价格。"""
+    if not codes:
+        return {}, []
+    try:
+        settings = get_workspace_settings("default")
+        payload, _provider, _failed = _call_with_source_fallback(
+            "realtime",
+            str(settings.get("realtimeSource", "tencent")),
+            bool(settings.get("fallbackEnabled", True)),
+            lambda source: source.load_market(codes),
+        )
+    except Exception:
+        return {}, list(codes)
+    quotes = {str(row.get("code")): row for row in payload.get("quotes", []) if row.get("code")}
+    return quotes, [code for code in codes if code not in quotes]
 
 
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
@@ -1052,6 +1087,177 @@ def create_app() -> FastAPI:
             int((time.perf_counter() - t0) * 1000),
         )
         return result
+
+    # ---- 成交台账（契约：docs/superpowers/specs/2026-10-25-trade-ledger-design.md）----
+    def _plan_id_set(workspace_id: str = "default") -> set[str]:
+        try:
+            return {str(plan["id"]) for plan in get_workspace(workspace_id).get("plans", []) if plan.get("id")}
+        except Exception:  # 工作区不可读不影响台账本身
+            return set()
+
+    def _fill_fields(payload: FillIn) -> dict[str, Any]:
+        return {
+            "code": (payload.code or "").strip(),
+            "direction": payload.direction,
+            "price": float(payload.price),
+            "qty": int(payload.qty),
+            "fee": float(payload.fee or 0.0),
+            "tradedAtMs": int(payload.tradedAtMs),
+            "planId": payload.planId,
+            "note": (payload.note or "").strip()[:500],
+        }
+
+    def _validate_fill_fields(fields: dict[str, Any]) -> None:
+        if not fields["code"]:
+            raise api_error(422, ERR_VALIDATION_ERROR, "请填写证券代码")
+        if fields["direction"] not in {"buy", "sell"}:
+            raise api_error(422, ERR_VALIDATION_ERROR, "成交方向只能是买入或卖出")
+        if not (fields["price"] > 0):
+            raise api_error(422, ERR_VALIDATION_ERROR, "成交价必须大于 0")
+        if not isinstance(fields["qty"], int) or fields["qty"] <= 0:
+            raise api_error(422, ERR_VALIDATION_ERROR, "成交数量必须是正整数（单位：股/份）")
+        if fields["fee"] < 0:
+            raise api_error(422, ERR_VALIDATION_ERROR, "费用不能为负数")
+        now_ms = int(time.time() * 1000)
+        if fields["tradedAtMs"] <= 0 or fields["tradedAtMs"] < 631152000000:
+            raise api_error(422, ERR_VALIDATION_ERROR, "成交时间不合法（不得早于 1990 年）")
+        if fields["tradedAtMs"] > now_ms + 86_400_000:
+            raise api_error(422, ERR_VALIDATION_ERROR, "成交时间不能晚于明天")
+
+    def _replay_with(candidate: dict[str, Any] | None, *, replace_id: str | None = None) -> ledger.LedgerState:
+        """候选成交并入全量台账（含已作废，重放自行跳过）后重放，规则错误转中文 422。"""
+        rows = list_trade_fills(include_voided=True, limit=5000)
+        skip_id = replace_id or (candidate or {}).get("id")
+        merged = [row for row in rows if row["id"] != skip_id]
+        if candidate is not None:
+            merged.append(candidate)
+        try:
+            return ledger.replay_fills([ledger.Fill.from_row(row) for row in merged])
+        except ledger.LedgerError as exc:
+            raise api_error(422, exc.code, exc.message) from exc
+
+    def _fill_response(row: dict[str, Any], warnings: list[dict[str, str]] | None = None) -> dict[str, Any]:
+        plan_id = row.get("planId")
+        return {
+            "fill": row,
+            "warnings": warnings or [],
+            "planMissing": bool(plan_id) and plan_id not in _plan_id_set(),
+        }
+
+    @app.get("/api/fills")
+    def fills_list(
+        code: str = Query(default=""),
+        planId: str = Query(default=""),
+        includeVoided: bool = Query(default=False),
+        limit: int = Query(default=200, ge=1, le=2000),
+    ) -> dict[str, Any]:
+        try:
+            rows = list_trade_fills(code=code, plan_id=planId, include_voided=includeVoided, limit=limit)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"成交记录读取失败: {exc}") from exc
+        return {"items": rows}
+
+    @app.post("/api/fills", status_code=201)
+    def fills_create(payload: FillIn) -> dict[str, Any]:
+        fields = _fill_fields(payload)
+        _validate_fill_fields(fields)
+        request_id = payload.clientRequestId
+        if request_id:
+            existing = find_trade_fill_by_request(request_id)
+            if existing is not None:
+                same = all(existing.get(key) == value for key, value in fields.items())
+                if not same:
+                    raise api_error(422, "IDEMPOTENCY_MISMATCH", "同一请求号对应的成交内容不一致，请刷新后重试")
+                return _fill_response(existing)
+        candidate = {**fields, "id": payload.id or f"fill_{uuid4().hex[:12]}", "workspaceId": "default"}
+        state = _replay_with(candidate)
+        try:
+            row = create_trade_fill(
+                {
+                    **candidate,
+                    "nowMs": int(time.time() * 1000),
+                    "clientRequestId": request_id,
+                }
+            )
+        except IntegrityError:  # 并发同请求号：回读既有记录（幂等）
+            existing = find_trade_fill_by_request(request_id or "")
+            if existing is None:
+                raise api_error(409, "IDEMPOTENCY_MISMATCH", "成交已存在，请刷新后重试") from None
+            return _fill_response(existing)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"成交保存失败: {exc}") from exc
+        return _fill_response(row, state.warnings)
+
+    @app.put("/api/fills/{fill_id}")
+    def fills_update(fill_id: str, payload: FillIn) -> dict[str, Any]:
+        current = get_trade_fill(fill_id)
+        if current is None:
+            raise api_error(404, "FILL_NOT_FOUND", "未知成交记录")
+        if current.get("voidedAtMs"):
+            raise api_error(422, "FILL_VOIDED", "该成交已作废，不能再修改（如需纠正请重新录入）")
+        merged_fields = _fill_fields(payload)
+        patch = {key: value for key, value in merged_fields.items() if key in payload.model_fields_set}
+        candidate = {**current, **patch, "id": fill_id}
+        _validate_fill_fields(candidate)
+        state = _replay_with(candidate, replace_id=fill_id)
+        try:
+            row = update_trade_fill(fill_id, patch, int(time.time() * 1000))
+        except ValueError:
+            raise api_error(422, "FILL_VOIDED", "该成交已作废，不能再修改") from None
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"成交保存失败: {exc}") from exc
+        if row is None:
+            raise api_error(404, "FILL_NOT_FOUND", "未知成交记录")
+        return _fill_response(row, state.warnings)
+
+    @app.post("/api/fills/{fill_id}/void")
+    def fills_void(fill_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        reason = str((payload or {}).get("reason") or "").strip()[:200]
+        try:
+            row = void_trade_fill(fill_id, reason, int(time.time() * 1000))
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"成交作废失败: {exc}") from exc
+        if row is None:
+            raise api_error(404, "FILL_NOT_FOUND", "未知成交记录")
+        return {"fill": row}
+
+    @app.get("/api/positions")
+    def positions_view() -> dict[str, Any]:
+        """真实持仓派生（只读）：成交重放 + 实时不复权价；缺价如实披露，不造数。"""
+        try:
+            fills = list_trade_fills(limit=5000)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"成交记录读取失败: {exc}") from exc
+        try:
+            state = ledger.replay_fills([ledger.Fill.from_row(row) for row in fills])
+        except ledger.LedgerError as exc:
+            raise api_error(422, exc.code, f"台账数据不一致：{exc.message}") from exc
+        codes = [code for code, pos in state.positions.items() if pos.qty > 0]
+        quotes, missing = _load_quotes_for_codes(codes)
+        prices = {code: float(quote["price"]) for code, quote in quotes.items() if quote.get("price") not in (None, "")}
+        names = {code: str(quote.get("name") or "") for code, quote in quotes.items()}
+        rows = ledger.position_rows(state, prices, names)
+        priced = any(row["marketValue"] is not None for row in rows)
+        disclosures: list[str] = []
+        if missing:
+            disclosures.append(f"以下标的最新价获取失败，市值与浮动盈亏显示为 --：{'、'.join(sorted(missing))}")
+        if rows:
+            disclosures.append("市值为实时不复权价口径；含分红拆股的收益口径在净值曲线中单独披露")
+        return {
+            "positions": rows,
+            "totals": {
+                "marketValue": sum(row["marketValue"] for row in rows if row["marketValue"] is not None)
+                if priced
+                else None,
+                "unrealizedPnl": sum(row["unrealizedPnl"] for row in rows if row["unrealizedPnl"] is not None)
+                if priced
+                else None,
+                "realizedPnl": sum(pos.realized_pnl for pos in state.positions.values()),
+                "costBasis": sum(row["costBasis"] for row in rows),
+            },
+            "warnings": state.warnings,
+            "disclosures": disclosures,
+        }
 
     @app.get("/api/portfolio/risk")
     def portfolio_risk_view(

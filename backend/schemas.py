@@ -473,3 +473,25 @@ class CompareSavedOut(BaseModel):
 
     rerun: bool = False
     results: list[CompareSavedItem] = Field(default_factory=list)
+
+
+class FillIn(BaseModel):
+    """POST/PUT 成交请求体；语义校验在 backend.ledger（中文文案）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    clientRequestId: str | None = None
+    code: str = ""
+    direction: str = "buy"
+    price: float = 0.0
+    qty: int = 0
+    fee: float = 0.0
+    tradedAtMs: int = 0
+    planId: str | None = None
+    note: str = ""
+
+    @field_validator("id", "clientRequestId", "planId", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v: Any) -> Any:
+        return None if v == "" else v

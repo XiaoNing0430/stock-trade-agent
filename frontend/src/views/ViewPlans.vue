@@ -191,7 +191,8 @@
             <div class="plan-card-foot">
               <span>{{ plan.validity }} · {{ calculateShares(plan).toLocaleString() }} 股</span>
               <div class="plan-card-actions">
-                <button type="button" @click="monitorPlan(plan)">盯盘</button
+                <button type="button" data-testid="plan-fill" @click="fillFromPlan(plan)">确认成交</button
+                ><button type="button" @click="monitorPlan(plan)">盯盘</button
                 ><button type="button" @click="archivePlan(plan.id)">归档</button>
               </div>
             </div>
@@ -203,6 +204,97 @@
           ><button class="button button-secondary" type="button" @click="switchView('screener')">去选股器挑一只</button>
         </div>
       </section>
+
+      <section class="ledger-panel surface" data-testid="ledger-panel">
+        <div class="surface-heading">
+          <div>
+            <h2>持仓与成交</h2>
+            <p class="muted">真实成交推导；市值为实时不复权价口径，含分红拆股的收益口径在净值曲线中单独披露</p>
+          </div>
+          <div class="ledger-head-actions">
+            <button class="button button-secondary" type="button" data-testid="fill-export" @click="exportFills">
+              导出 CSV
+            </button>
+            <button class="button button-primary" type="button" data-testid="fill-new" @click="openFillDialog()">
+              录入成交
+            </button>
+          </div>
+        </div>
+
+        <div v-if="ledgerPositions.length" class="ledger-table ledger-table-positions" data-testid="ledger-positions">
+          <div class="ledger-row ledger-row-head">
+            <span>标的</span><span>数量</span><span>摊薄成本</span><span>现价</span><span>浮动盈亏</span
+            ><span>已实现</span><span>权重</span>
+          </div>
+          <div v-for="row in ledgerPositions" :key="row.code" class="ledger-row">
+            <span class="ledger-code" :title="`${row.name || row.code} · ${row.code}`"
+              >{{ row.name || row.code }} · {{ row.code }}</span
+            >
+            <span>{{ row.qty.toLocaleString() }}</span>
+            <span>{{ row.avgCost.toFixed(3) }}</span>
+            <span>{{ row.lastPrice === null ? '--' : row.lastPrice.toFixed(2) }}</span>
+            <span :class="row.unrealizedPnl === null ? '' : row.unrealizedPnl >= 0 ? 'trend-up' : 'trend-down'">
+              {{ row.unrealizedPnl === null ? '--' : formatSigned(row.unrealizedPnl) }}
+            </span>
+            <span :class="row.realizedPnl >= 0 ? 'trend-up' : 'trend-down'">{{ formatSigned(row.realizedPnl) }}</span>
+            <span>{{ formatWeight(row) }}</span>
+          </div>
+          <div class="ledger-row ledger-row-total">
+            <span>合计</span><span></span><span></span><span></span>
+            <span>{{ ledgerTotals.unrealizedPnl === null || ledgerTotals.unrealizedPnl === undefined ? '--' : formatSigned(ledgerTotals.unrealizedPnl) }}</span>
+            <span>{{ formatSigned(ledgerTotals.realizedPnl ?? 0) }}</span>
+            <span></span>
+          </div>
+        </div>
+        <p v-else class="muted" data-testid="ledger-empty">
+          暂无持仓。录入第一笔有效成交后，这里会显示真实持仓与盈亏。
+        </p>
+
+        <div class="ledger-table ledger-table-fills" data-testid="ledger-fills">
+          <div class="ledger-row ledger-row-head">
+            <span>时间</span><span>方向</span><span>代码</span><span>价格</span><span>数量</span><span>费用</span
+            ><span>操作</span>
+          </div>
+          <div
+            v-for="fill in ledgerFills"
+            :key="fill.id"
+            :class="['ledger-row', fill.voidedAtMs ? 'is-voided' : '']"
+          >
+            <span>{{ formatTime(fill.tradedAtMs) }}</span>
+            <span>{{ fill.direction === 'buy' ? '买入' : '卖出' }}</span>
+            <span>{{ fill.code }}</span>
+            <span>{{ fill.price.toFixed(2) }}</span>
+            <span>{{ fill.qty.toLocaleString() }}</span>
+            <span>{{ fill.fee.toFixed(2) }}</span>
+            <span>
+              <button
+                v-if="!fill.voidedAtMs"
+                class="text-button"
+                type="button"
+                data-testid="fill-void"
+                @click="voidFill(fill.id)"
+              >
+                作废
+              </button>
+              <span v-else class="muted">已作废</span>
+            </span>
+          </div>
+          <p v-if="!ledgerFills.length" class="muted">暂无成交记录。</p>
+        </div>
+
+        <p v-for="text in ledgerDisclosures" :key="text" class="muted">{{ text }}</p>
+        <p v-for="warn in ledgerWarnings" :key="warn.message" class="muted" data-testid="ledger-warning">
+          {{ warn.message }}
+        </p>
+      </section>
+
+      <FillDialog
+        :open="fillDialogOpen"
+        :preset="fillPreset"
+        :plans="activePlans"
+        @update:open="fillDialogOpen = $event"
+        @submit="saveFill"
+      />
 
       <section class="review-panel surface">
         <button class="review-toggle" data-testid="review-toggle" type="button" @click="review.toggle()">
@@ -364,15 +456,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { formatMoney, formatNumber, formatTime, viewDetailLabel } from '@/modules/format';
 import { calculateRr, calculateShares } from '@/modules/planUtils';
-import type { Plan } from '@/types/models';
+import { downloadCsv } from '@/modules/csv';
+import { buildFillsCsv } from '@/modules/ledgerCsv';
+import type { FillInput, Plan } from '@/types/models';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { useQuotesStore } from '@/stores/useQuotesStore';
 import { usePlansStore } from '@/stores/usePlansStore';
 import { useReviewStore, type ReviewItem } from '@/stores/useReviewStore';
+import { useLedgerStore } from '@/stores/useLedgerStore';
+import FillDialog from '@/components/FillDialog.vue';
 
 const workspace = useWorkspaceStore();
 const quotes = useQuotesStore();
@@ -384,6 +480,68 @@ const { refreshAll, renderIcons, showToast } = workspace;
 const { draft, planOptions, planMetrics } = storeToRefs(plans);
 const { quoteFor, selectStock, switchView } = quotes;
 const { savePlan, monitorPlan, archivePlan, updatePlanLinkage } = plans;
+
+// ── 成交台账（M1）：真实成交 → 持仓/已实现盈亏。台账是 append 语义，独立于 workspace 快照 ──
+const ledger = useLedgerStore();
+const {
+  positions: ledgerPositions,
+  fills: ledgerFills,
+  disclosures: ledgerDisclosures,
+  warnings: ledgerWarnings,
+  totals: ledgerTotals,
+} = storeToRefs(ledger);
+const fillDialogOpen = ref(false);
+const fillPreset = ref<Partial<FillInput>>({});
+
+function openFillDialog(preset: Partial<FillInput> = {}) {
+  fillPreset.value = preset;
+  fillDialogOpen.value = true;
+}
+
+/** 持仓权重 = 该标的市值 / 组合总市值。缺价（市值为 null）时显示 --，绝不按成本估算。 */
+function weightOf(row: { marketValue: number | null }): number | null {
+  const total = ledgerTotals.value?.marketValue;
+  if (!total || row.marketValue === null || row.marketValue === undefined) return null;
+  return (row.marketValue / total) * 100;
+}
+
+function formatWeight(row: { marketValue: number | null }): string {
+  const weight = weightOf(row);
+  return weight === null ? '--' : `${weight.toFixed(1)}%`;
+}
+
+async function saveFill(input: FillInput) {
+  const result = await ledger.createFill(input);
+  if (!result.ok) {
+    showToast(result.message || '成交保存失败', 'error');
+    return;
+  }
+  fillDialogOpen.value = false;
+  showToast('成交已保存');
+}
+
+async function voidFill(id: string) {
+  const result = await ledger.voidFill(id, '用户作废');
+  showToast(result.ok ? '成交已作废' : result.message || '作废失败', result.ok ? 'info' : 'error');
+}
+
+function fillFromPlan(plan: Plan) {
+  openFillDialog({
+    code: plan.code,
+    direction: plan.direction,
+    price: plan.entry,
+    qty: calculateShares(plan),
+    planId: plan.id,
+  });
+}
+
+function formatSigned(value: number) {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+}
+
+function exportFills() {
+  downloadCsv('成交台账.csv', buildFillsCsv(ledger.fills));
+}
 
 // ── Task 9 交易对关联：sell 行 → 关联建仓下拉 + exitMode 四档 ──
 // 后端语义（storage.validate_plan_links）：仅 sell 可携带 relatedPlan；目标须存在/buy/同 code/非归档；
@@ -497,5 +655,8 @@ function sourceLabel(source: string): string {
   return source;
 }
 
-onMounted(() => renderIcons());
+onMounted(() => {
+  renderIcons();
+  void ledger.load();
+});
 </script>

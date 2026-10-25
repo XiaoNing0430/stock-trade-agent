@@ -103,6 +103,14 @@ describe('ViewPlans', () => {
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());
+    vi.mocked(requestJson).mockReset();
+    vi.mocked(requestJson).mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).startsWith('/api/positions')
+          ? { positions: [], totals: {}, warnings: [], disclosures: [] }
+          : { items: [] }
+      )
+    );
   });
 
   it('渲染执行中计划列表', () => {
@@ -216,10 +224,13 @@ describe('ViewPlans', () => {
   });
 
   it('复盘明细代码缺失 → 渲染 -- 且不产生可点链接（绝不造可点元素）', async () => {
-    vi.mocked(requestJson).mockResolvedValue({
-      ...reviewPayload,
-      items: [{ ...reviewPayload.items[0], code: '' }],
-    });
+    vi.mocked(requestJson).mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).includes('/api/plans/review')
+          ? { ...reviewPayload, items: [{ ...reviewPayload.items[0], code: '' }] }
+          : { items: [] }
+      )
+    );
     const wrapper = mount(ViewPlans);
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
     await flushPromises();
@@ -640,5 +651,77 @@ describe('ViewPlans', () => {
     await wrapper.find('[data-testid="review-toggle"]').trigger('click');
     await flushPromises();
     expect(wrapper.find('[data-testid="review-code-link"]').attributes('aria-label')).toBe('查看 300750 的详情');
+  });
+
+  it('台账面板：无成交时渲染中文空态', async () => {
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="ledger-panel"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('暂无持仓');
+  });
+
+  it('台账面板：渲染真实持仓与成交行', async () => {
+    vi.mocked(requestJson).mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).startsWith('/api/positions')
+          ? {
+              positions: [
+                {
+                  code: '600519',
+                  name: '贵州茅台',
+                  qty: 100,
+                  avgCost: 10.05,
+                  costBasis: 1005,
+                  lastPrice: 12,
+                  marketValue: 1200,
+                  unrealizedPnl: 195,
+                  realizedPnl: 0,
+                },
+              ],
+              totals: { marketValue: 1200, unrealizedPnl: 195, realizedPnl: 0, costBasis: 1005 },
+              warnings: [],
+              disclosures: ['市值为实时不复权价口径'],
+            }
+          : {
+              items: [
+                {
+                  id: 'fill_a1',
+                  clientRequestId: null,
+                  code: '600519',
+                  direction: 'buy',
+                  price: 10,
+                  qty: 100,
+                  fee: 5,
+                  tradedAtMs: 1760000000000,
+                  planId: null,
+                  note: '',
+                  voidedAtMs: null,
+                  voidReason: null,
+                  createdAtMs: 1,
+                  updatedAtMs: 1,
+                },
+              ],
+            }
+      )
+    );
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('10.050');
+    expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('+195.00');
+    // 权重 = 个股市值 / 组合总市值（单一持仓 → 100.0%）
+    expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('权重');
+    expect(wrapper.get('[data-testid="ledger-positions"]').text()).toContain('100.0%');
+    expect(wrapper.get('[data-testid="ledger-fills"]').text()).toContain('买入');
+    expect(wrapper.text()).toContain('市值为实时不复权价口径');
+  });
+
+  it('计划行「确认成交」预填代码、方向与建议股数', async () => {
+    const workspace = useWorkspaceStore();
+    workspace.plans = [activePlan];
+    const wrapper = mount(ViewPlans);
+    await flushPromises();
+    await wrapper.get('[data-testid="plan-fill"]').trigger('click');
+    expect((wrapper.get('[data-testid="fill-code"]').element as HTMLInputElement).value).toBe('600519');
+    expect((wrapper.get('[data-testid="fill-qty"]').element as HTMLInputElement).value).not.toBe('');
   });
 });

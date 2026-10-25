@@ -88,3 +88,56 @@ export interface AssistDraft {
   /** 入口归因（前端 openFor 写入，非后端响应字段）：scan:{strategyId} | screener | monitor | manual */
   source?: string;
 }
+
+export interface FillRow {
+  id: string;
+  clientRequestId: string | null;
+  code: string;
+  direction: 'buy' | 'sell';
+  price: number;
+  qty: number;
+  fee: number;
+  tradedAtMs: number;
+  planId: string | null;
+  note: string;
+  voidedAtMs: number | null;
+  voidReason: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface FillInput {
+  code: string;
+  direction: 'buy' | 'sell';
+  price: number;
+  qty: number;
+  fee: number;
+  tradedAtMs: number;
+  planId?: string | null;
+  note?: string;
+  clientRequestId?: string;
+}
+
+export interface PositionRow {
+  code: string;
+  name: string;
+  qty: number;
+  avgCost: number;
+  costBasis: number;
+  lastPrice: number | null;
+  marketValue: number | null;
+  unrealizedPnl: number | null;
+  realizedPnl: number;
+}
+
+export interface LedgerWarning {
+  code: string;
+  message: string;
+}
+
+export interface LedgerTotals {
+  marketValue?: number | null;
+  unrealizedPnl?: number | null;
+  realizedPnl?: number;
+  costBasis?: number;
+}
