@@ -10,8 +10,11 @@ from pydantic import ValidationError
 from redis import Redis
 from sqlalchemy import (
     JSON,
+    BigInteger,
+    CheckConstraint,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -73,9 +76,36 @@ class TradePlan(Base):
     )
 
 
+class TradeFill(Base):
+    """真实成交（append + 作废语义）。独立表：绝不并入 workspace 全量快照。"""
+
+    __tablename__ = "trade_fills"
+    __table_args__ = (
+        UniqueConstraint("client_request_id", name="uq_trade_fills_request_id"),
+        CheckConstraint("qty > 0", name="ck_trade_fills_qty_positive"),
+        CheckConstraint("direction IN ('buy','sell')", name="ck_trade_fills_direction"),
+        Index("ix_trade_fills_ws_code_time", "workspace_id", "code", "traded_at_ms"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    client_request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    code: Mapped[str] = mapped_column(String(32), index=True)
+    direction: Mapped[str] = mapped_column(String(8))
+    price: Mapped[float] = mapped_column(Float)
+    qty: Mapped[int] = mapped_column(Integer)
+    fee: Mapped[float] = mapped_column(Float, default=0.0)
+    traded_at_ms: Mapped[int] = mapped_column(BigInteger, index=True)
+    plan_id: Mapped[str | None] = mapped_column(String(96), nullable=True, index=True)
+    note: Mapped[str] = mapped_column(String(500), default="")
+    voided_at_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    updated_at_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 class Alert(Base):
     __tablename__ = "alerts"
-
     id: Mapped[str] = mapped_column(String(96), primary_key=True)
     workspace_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
     kind: Mapped[str] = mapped_column(String(16))
@@ -1177,6 +1207,124 @@ def _normalize_workspace_settings(payload: dict[str, Any]) -> dict[str, Any]:
     # 组合风险视图：总仓位上限 int 化 + clamp（照 defaultCapital 行式）
     data["totalPositionCapPct"] = max(20, min(int(data["totalPositionCapPct"]), 300))
     return data
+
+
+def _fill_row_to_dict(row: TradeFill) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "clientRequestId": row.client_request_id,
+        "code": row.code,
+        "direction": row.direction,
+        "price": row.price,
+        "qty": row.qty,
+        "fee": row.fee,
+        "tradedAtMs": row.traded_at_ms,
+        "planId": row.plan_id,
+        "note": row.note,
+        "voidedAtMs": row.voided_at_ms,
+        "voidReason": row.void_reason,
+        "createdAtMs": row.created_at_ms,
+        "updatedAtMs": row.updated_at_ms,
+    }
+
+
+def list_trade_fills(
+    *,
+    code: str = "",
+    plan_id: str = "",
+    include_voided: bool = False,
+    limit: int = 500,
+    workspace_id: str = "default",
+) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit or 500), 5000))
+    with SessionLocal() as session:
+        stmt = select(TradeFill).where(TradeFill.workspace_id == workspace_id)
+        if code:
+            stmt = stmt.where(TradeFill.code == code)
+        if plan_id:
+            stmt = stmt.where(TradeFill.plan_id == plan_id)
+        if not include_voided:
+            stmt = stmt.where(TradeFill.voided_at_ms.is_(None))
+        rows = session.scalars(
+            stmt.order_by(TradeFill.traded_at_ms.desc(), TradeFill.created_at_ms.desc(), TradeFill.id.desc()).limit(
+                limit
+            )
+        ).all()
+        return [_fill_row_to_dict(r) for r in rows]
+
+
+def get_trade_fill(fill_id: str) -> dict[str, Any] | None:
+    with SessionLocal() as session:
+        row = session.get(TradeFill, fill_id)
+        return _fill_row_to_dict(row) if row else None
+
+
+def find_trade_fill_by_request(request_id: str) -> dict[str, Any] | None:
+    if not request_id:
+        return None
+    with SessionLocal() as session:
+        row = session.scalar(select(TradeFill).where(TradeFill.client_request_id == request_id))
+        return _fill_row_to_dict(row) if row else None
+
+
+def create_trade_fill(data: dict[str, Any]) -> dict[str, Any]:
+    now_ms = int(data.get("nowMs") or 0)
+    row = TradeFill(
+        id=str(data["id"]),
+        client_request_id=data.get("clientRequestId") or None,
+        workspace_id=str(data.get("workspaceId") or "default"),
+        code=str(data["code"]),
+        direction=str(data["direction"]),
+        price=float(data["price"]),
+        qty=int(data["qty"]),
+        fee=float(data.get("fee") or 0.0),
+        traded_at_ms=int(data["tradedAtMs"]),
+        plan_id=data.get("planId") or None,
+        note=str(data.get("note") or ""),
+        created_at_ms=now_ms,
+        updated_at_ms=now_ms,
+    )
+    with SessionLocal.begin() as session:
+        session.add(row)
+    return _fill_row_to_dict(row)
+
+
+def update_trade_fill(fill_id: str, patch: dict[str, Any], now_ms: int) -> dict[str, Any] | None:
+    with SessionLocal.begin() as session:
+        row = session.get(TradeFill, fill_id)
+        if row is None:
+            return None
+        if row.voided_at_ms is not None:  # 已作废不可改
+            raise ValueError("voided")
+        for key, column in (
+            ("price", "price"),
+            ("qty", "qty"),
+            ("fee", "fee"),
+            ("tradedAtMs", "traded_at_ms"),
+            ("planId", "plan_id"),
+            ("note", "note"),
+        ):
+            if key in patch:
+                value = patch[key]
+                if key == "fee":
+                    value = float(value or 0.0)
+                setattr(row, column, value)
+        row.updated_at_ms = now_ms
+        session.flush()
+        return _fill_row_to_dict(row)
+
+
+def void_trade_fill(fill_id: str, reason: str, now_ms: int) -> dict[str, Any] | None:
+    with SessionLocal.begin() as session:
+        row = session.get(TradeFill, fill_id)
+        if row is None:
+            return None
+        if row.voided_at_ms is None:  # 重复作废保持首次时间与原因
+            row.voided_at_ms = now_ms
+            row.void_reason = reason or None
+            row.updated_at_ms = now_ms
+            session.flush()
+        return _fill_row_to_dict(row)
 
 
 def validate_plan_links(plans_payload: list[dict[str, Any]]) -> str | None:
