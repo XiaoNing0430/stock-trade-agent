@@ -40,13 +40,17 @@ beforeEach(() => {
 });
 
 describe('桌面侧栏分区（spec §4）', () => {
-  it('按 5 个分区渲染组标题，且总览在分区之外置顶', () => {
+  it('组标题只出现在多成员分区（执行）；单成员分区改用上间距保留节奏', () => {
     const wrapper = mount(App, { global: viewStubs });
     const labels = wrapper.findAll('.sidebar .sidebar-section-label').map((node) => node.text());
-    expect(labels).toEqual(['研究', '验证', '执行', '风控', '系统']);
+    // 研究/验证/风控/系统 各只有 1 项：标题对用户零信息量，故不渲染
+    expect(labels).toEqual(['执行']);
     const navItems = wrapper.findAll('.sidebar .nav-item');
     expect(navItems.length).toBe(7);
     expect(navItems[0].text()).toContain('总览');
+    // 无标题分区的首项承接分区上间距；执行分区有标题、置顶分区在首屏，均不需要
+    const sectionStarts = wrapper.findAll('.sidebar .nav-item--section-start').map((node) => node.find('span').text());
+    expect(sectionStarts).toEqual(['选股器', '策略', '组合风险', '个人中心']);
     wrapper.unmount();
   });
 
@@ -83,7 +87,8 @@ describe('手机底部栏与更多抽屉（spec §5）', () => {
     await wrapper.find('.bottom-nav button[aria-label="更多"]').trigger('click');
     const sheet = wrapper.find('.more-sheet');
     expect(sheet.exists()).toBe(true);
-    expect(sheet.findAll('.more-sheet-group').map((node) => node.text())).toEqual(['验证', '风控', '系统']);
+    // 抽屉里三组都是单成员（4 项直达格已拿走）→ 组标题全不渲染，退化为纯列表
+    expect(sheet.findAll('.more-sheet-group').length).toBe(0);
     expect(sheet.findAll('.more-sheet-item span').map((node) => node.text())).toEqual(['策略', '组合风险', '个人中心']);
     wrapper.unmount();
   });

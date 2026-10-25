@@ -322,6 +322,11 @@ textarea:focus-visible {
   letter-spacing: 0.04em;
 }
 
+/* 单成员分区不显示组标题（见 App.vue navSections 注释）：用与标题等价的上间距保留分区节奏。 */
+.nav-item--section-start {
+  margin-top: var(--space-7);
+}
+
 .status-dot {
   width: 7px;
   height: 7px;
@@ -2928,6 +2933,11 @@ body.overlay-open .view-panel.is-active {
   .nav-item {
     justify-content: center;
     padding: 0;
+  }
+
+  /* 图标条里标题本就隐藏（title 由 aria-label 承担），分区上间距一并收平，保持等距图标列。 */
+  .nav-item--section-start {
+    margin-top: 0;
   }
 
   .nav-item svg {
