@@ -4,6 +4,15 @@ All notable changes to this project. 版本更新清单。
 
 ## [未发布]
 
+### 成交台账 M1：真实成交 → 真实持仓（2026-10-25）
+
+- **`GET/POST /api/fills`、`PUT /api/fills/{id}`、`POST /api/fills/{id}/void`**：独立 `trade_fills` 表（append + 作废审计，绝不并入 workspace 全量快照）。`clientRequestId` 幂等（同号同内容返回既有记录，内容不同 422 `IDEMPOTENCY_MISMATCH`）；`planId` 不校验存在性，响应 `planMissing` 如实标注。
+- **A 股申报规则硬校验（422 中文）**：沪深主板/创业板 100 股起且 100 股整数倍；科创板 200 股起、超 200 按 1 股递增；北交所 100 股起、1 股递增；零股须一次性卖出。股票 T+1 硬拒绝（`T1_VIOLATION`）；ETF 申报单位仅软提示（`LOT_WARNING`，货币/债券/跨境/科创 ETF 单位各异且无品种数据）；可转债/未建模品种 `CODE_UNSUPPORTED`。
+- **`GET /api/positions`**：纯函数重放成交（`backend/ledger.py`）推导持仓、摊薄成本、已实现/浮动盈亏，市值用实时不复权价；行情缺失 → `--` + `disclosures` 点名，绝不插值。
+- **前端 ViewPlans「持仓与成交」面板**：持仓表（摊薄成本/现价/浮盈/已实现/权重）+ 台账表（作废灰显保留审计）+ 录入对话框（方向/代码/价格/数量/费用/时间/关联计划/备注，费用可按费率估算且只填建议值）+ 计划行「确认成交」预填（代码/方向/入场价/建议股数/计划 id）+ 台账 CSV 导出（复用 `csv.ts` 公式注入防护，含「状态」列）。
+- **全站错误提示修复（顺带）**：`api/client.ts` 原先只在响应体顶层找 `error`，而后端统一契约是 `{"detail": {"error", "code"}}`，导致所有 422 都退化成「HTTP 422」——台账的数量规则/超卖/T+1 中文提示传不到界面。现优先解包 `detail`（兼容旧式顶层形状），中文规则原文可见，机器码进 `error.code`。
+- **测试**：新增 `tests/test_ledger.py`（规则 + 重放 26 例）、`tests/test_ledger_api.py`（存储 + API + 持仓派生 14 例）与 4 个前端测试文件（store / 对话框 / CSV / `api/client` 错误解包 + ViewPlans 面板），前端 426 项全绿。
+
 ### 导航分区标题减噪（③a 遗留收口，2026-10-25）
 
 - **组标题只在同组有 ≥2 项时渲染**：研究/验证/风控/系统 各只有 1 项，标题对用户零信息量，故不渲染；仅「执行」（交易计划 + 盯盘中心）保留标题。
