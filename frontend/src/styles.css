@@ -4672,3 +4672,106 @@ html[data-theme='dark'] {
   color: var(--ink-soft);
   cursor: pointer;
 }
+
+/* ── 成交台账（M1）：持仓表 + 台账表 + 录入对话框 ───────────────── */
+.ledger-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.ledger-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ledger-table {
+  display: grid;
+  gap: 2px;
+  overflow-x: auto;
+}
+
+.ledger-row {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(6, minmax(72px, 1fr));
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-row-head {
+  background: transparent;
+  color: var(--muted);
+}
+
+.ledger-row-total {
+  background: transparent;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+}
+
+.ledger-row.is-voided {
+  opacity: 0.55;
+}
+
+.ledger-row.is-voided > span {
+  text-decoration: line-through;
+}
+
+.ledger-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fill-dialog {
+  max-width: 560px;
+}
+
+.fill-dialog-head,
+.fill-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fill-dialog-foot {
+  justify-content: flex-end;
+}
+
+.fill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.fill-field-wide {
+  grid-column: 1 / -1;
+}
+
+.fill-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fill-hint {
+  color: var(--red);
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 680px) {
+  .ledger-row {
+    grid-template-columns: repeat(3, minmax(64px, 1fr));
+  }
+
+  .fill-grid {
+    grid-template-columns: 1fr;
+  }
+}

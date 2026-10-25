@@ -5,6 +5,18 @@ import type { FillInput, FillRow, LedgerTotals, LedgerWarning, PositionRow } fro
 
 type WriteResult = { ok: boolean; message?: string; warnings?: LedgerWarning[] };
 
+/** 运行时形状守卫：台账行必须带 id/price/qty，避免异常响应把坏数据渲染进表格（绝不猜值）。 */
+function isFillRow(row: unknown): row is FillRow {
+  if (!row || typeof row !== 'object') return false;
+  const candidate = row as Partial<FillRow>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.price === 'number' &&
+    typeof candidate.qty === 'number' &&
+    typeof candidate.tradedAtMs === 'number'
+  );
+}
+
 type PositionsPayload = {
   positions: PositionRow[];
   totals: LedgerTotals;
@@ -35,11 +47,11 @@ export const useLedgerStore = defineStore('ledger', () => {
         requestJson<{ items: FillRow[] }>('/api/fills?limit=500'),
         requestJson<PositionsPayload>('/api/positions'),
       ]);
-      fills.value = fillBody.items ?? [];
-      positions.value = positionBody.positions ?? [];
-      totals.value = positionBody.totals ?? {};
-      warnings.value = positionBody.warnings ?? [];
-      disclosures.value = positionBody.disclosures ?? [];
+      fills.value = Array.isArray(fillBody?.items) ? fillBody.items.filter(isFillRow) : [];
+      positions.value = Array.isArray(positionBody?.positions) ? positionBody.positions : [];
+      totals.value = positionBody?.totals ?? {};
+      warnings.value = Array.isArray(positionBody?.warnings) ? positionBody.warnings : [];
+      disclosures.value = Array.isArray(positionBody?.disclosures) ? positionBody.disclosures : [];
       return { ok: true };
     } catch (exc) {
       error.value = exc instanceof Error ? exc.message : '台账加载失败';
