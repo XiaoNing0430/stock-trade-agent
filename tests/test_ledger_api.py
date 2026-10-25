@@ -73,3 +73,85 @@ def test_void_fill_is_idempotent_and_hidden_by_default(factory):
 def test_missing_fill_returns_none(factory):
     assert storage.update_trade_fill("nope", {"price": 1.0}, 1) is None
     assert storage.void_trade_fill("nope", "", 1) is None
+
+
+# ---------------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------------
+
+from backend import app as app_module  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+
+@pytest.fixture()
+def client(factory, monkeypatch):
+    monkeypatch.setattr(storage, "SessionLocal", factory)
+    with TestClient(app_module.create_app()) as test_client:
+        yield test_client
+
+
+def _post(client, **kw):
+    payload = {
+        "code": "600519",
+        "direction": "buy",
+        "price": 10.0,
+        "qty": 100,
+        "fee": 5.0,
+        "tradedAtMs": 1_760_000_000_000,
+        "clientRequestId": "req_x",
+    }
+    payload.update(kw)
+    return client.post("/api/fills", json=payload)
+
+
+def test_create_fill_returns_row(client):
+    res = _post(client)
+    assert res.status_code == 201
+    body = res.json()
+    assert body["fill"]["code"] == "600519" and body["fill"]["qty"] == 100
+    assert body["warnings"] == []
+    assert body["planMissing"] is False
+
+
+def test_duplicate_request_id_is_idempotent(client):
+    first = _post(client).json()["fill"]
+    second = _post(client).json()["fill"]
+    assert second["id"] == first["id"]
+    assert len(client.get("/api/fills").json()["items"]) == 1
+
+
+def test_request_id_payload_mismatch_rejected(client):
+    _post(client)
+    res = _post(client, qty=200)
+    assert res.status_code == 422
+    assert res.json()["detail"]["code"] == "IDEMPOTENCY_MISMATCH"
+
+
+def test_board_lot_violation_is_chinese_422(client):
+    res = _post(client, qty=150)
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert detail["code"] == "QTY_NOT_LOT" and "100 股" in detail["error"]
+
+
+def test_sell_without_position_rejected(client):
+    res = _post(client, direction="sell", qty=100)
+    assert res.status_code == 422
+    assert res.json()["detail"]["code"] == "SELL_EXCEEDS_POSITION"
+
+
+def test_update_and_void_flow(client):
+    fill = _post(client).json()["fill"]
+    updated = client.put(f"/api/fills/{fill['id']}", json={"price": 11.0, "note": "改价"})
+    assert updated.status_code == 200 and updated.json()["fill"]["price"] == 11.0
+    voided = client.post(f"/api/fills/{fill['id']}/void", json={"reason": "录错"})
+    assert voided.status_code == 200 and voided.json()["fill"]["voidReason"] == "录错"
+    again = client.put(f"/api/fills/{fill['id']}", json={"price": 12.0})
+    assert again.status_code == 422 and again.json()["detail"]["code"] == "FILL_VOIDED"
+    assert client.get("/api/fills").json()["items"] == []
+    assert len(client.get("/api/fills?includeVoided=true").json()["items"]) == 1
+
+
+def test_unknown_fill_is_404(client):
+    res = client.put("/api/fills/nope", json={"price": 1.0})
+    assert res.status_code == 404 and res.json()["detail"]["code"] == "FILL_NOT_FOUND"
