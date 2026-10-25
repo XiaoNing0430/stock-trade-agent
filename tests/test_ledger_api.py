@@ -155,3 +155,30 @@ def test_update_and_void_flow(client):
 def test_unknown_fill_is_404(client):
     res = client.put("/api/fills/nope", json={"price": 1.0})
     assert res.status_code == 404 and res.json()["detail"]["code"] == "FILL_NOT_FOUND"
+
+
+def test_positions_derived_with_quote(client, monkeypatch):
+    _post(client)
+    monkeypatch.setattr(
+        app_module,
+        "_load_quotes_for_codes",
+        lambda codes: ({"600519": {"code": "600519", "name": "贵州茅台", "price": 12.0}}, []),
+    )
+    body = client.get("/api/positions").json()
+    pos = body["positions"][0]
+    assert pos["code"] == "600519" and pos["qty"] == 100
+    assert pos["avgCost"] == pytest.approx(10.05)
+    assert pos["lastPrice"] == 12.0 and pos["marketValue"] == pytest.approx(1200.0)
+    assert pos["unrealizedPnl"] == pytest.approx(195.0)
+    assert body["totals"]["marketValue"] == pytest.approx(1200.0)
+    assert any("不复权" in text for text in body["disclosures"])
+
+
+def test_positions_without_quote_are_blank(client, monkeypatch):
+    _post(client)
+    monkeypatch.setattr(app_module, "_load_quotes_for_codes", lambda codes: ({}, ["600519"]))
+    body = client.get("/api/positions").json()
+    pos = body["positions"][0]
+    assert pos["lastPrice"] is None and pos["marketValue"] is None and pos["unrealizedPnl"] is None
+    assert body["totals"]["marketValue"] is None
+    assert any("600519" in text for text in body["disclosures"])

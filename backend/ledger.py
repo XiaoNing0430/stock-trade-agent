@@ -189,3 +189,28 @@ def replay_fills(fills: Iterable[Fill]) -> LedgerState:
             pos.qty = 0
             pos.cost_basis = 0.0
     return LedgerState(positions=positions, warnings=warnings)
+
+
+def position_rows(state: LedgerState, prices: dict[str, float], names: dict[str, str]) -> list[dict[str, Any]]:
+    """持仓展示行：市值为「实时不复权价 × 数量」；缺价一律 None（不插值）。"""
+    rows: list[dict[str, Any]] = []
+    for code, pos in state.positions.items():
+        if pos.qty <= 0:
+            continue
+        price = prices.get(code)
+        market_value = None if price is None else pos.qty * price
+        rows.append(
+            {
+                "code": code,
+                "name": names.get(code) or "",
+                "qty": pos.qty,
+                "avgCost": pos.avg_cost,
+                "costBasis": pos.cost_basis,
+                "lastPrice": price,
+                "marketValue": market_value,
+                "unrealizedPnl": None if market_value is None else market_value - pos.cost_basis,
+                "realizedPnl": pos.realized_pnl,
+            }
+        )
+    rows.sort(key=lambda row: (row["marketValue"] is None, -(row["marketValue"] or 0.0), row["code"]))
+    return rows

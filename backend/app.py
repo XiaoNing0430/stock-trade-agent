@@ -163,6 +163,24 @@ def _engine_default_config(engine: dict[str, Any]) -> dict[str, Any]:
     return {field["key"]: field.get("default") for field in engine["configSchema"]}
 
 
+def _load_quotes_for_codes(codes: list[str]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """取持仓码的实时行情，返回 ({code: quote}, 缺失码)。行情失败绝不伪造价格。"""
+    if not codes:
+        return {}, []
+    try:
+        settings = get_workspace_settings("default")
+        payload, _provider, _failed = _call_with_source_fallback(
+            "realtime",
+            str(settings.get("realtimeSource", "tencent")),
+            bool(settings.get("fallbackEnabled", True)),
+            lambda source: source.load_market(codes),
+        )
+    except Exception:
+        return {}, list(codes)
+    quotes = {str(row.get("code")): row for row in payload.get("quotes", []) if row.get("code")}
+    return quotes, [code for code in codes if code not in quotes]
+
+
 def api_error(status_code: int, code: str, message: str, **extras) -> HTTPException:
     """统一错误构造：detail = {"error": message, "code": code, **extras}。"""
     return HTTPException(status_code=status_code, detail={"error": message, "code": code, **extras})
@@ -1202,6 +1220,44 @@ def create_app() -> FastAPI:
         if row is None:
             raise api_error(404, "FILL_NOT_FOUND", "未知成交记录")
         return {"fill": row}
+
+    @app.get("/api/positions")
+    def positions_view() -> dict[str, Any]:
+        """真实持仓派生（只读）：成交重放 + 实时不复权价；缺价如实披露，不造数。"""
+        try:
+            fills = list_trade_fills(limit=5000)
+        except Exception as exc:
+            raise api_error(502, ERR_STORAGE_UNAVAILABLE, f"成交记录读取失败: {exc}") from exc
+        try:
+            state = ledger.replay_fills([ledger.Fill.from_row(row) for row in fills])
+        except ledger.LedgerError as exc:
+            raise api_error(422, exc.code, f"台账数据不一致：{exc.message}") from exc
+        codes = [code for code, pos in state.positions.items() if pos.qty > 0]
+        quotes, missing = _load_quotes_for_codes(codes)
+        prices = {code: float(quote["price"]) for code, quote in quotes.items() if quote.get("price") not in (None, "")}
+        names = {code: str(quote.get("name") or "") for code, quote in quotes.items()}
+        rows = ledger.position_rows(state, prices, names)
+        priced = any(row["marketValue"] is not None for row in rows)
+        disclosures: list[str] = []
+        if missing:
+            disclosures.append(f"以下标的最新价获取失败，市值与浮动盈亏显示为 --：{'、'.join(sorted(missing))}")
+        if rows:
+            disclosures.append("市值为实时不复权价口径；含分红拆股的收益口径在净值曲线中单独披露")
+        return {
+            "positions": rows,
+            "totals": {
+                "marketValue": sum(row["marketValue"] for row in rows if row["marketValue"] is not None)
+                if priced
+                else None,
+                "unrealizedPnl": sum(row["unrealizedPnl"] for row in rows if row["unrealizedPnl"] is not None)
+                if priced
+                else None,
+                "realizedPnl": sum(pos.realized_pnl for pos in state.positions.values()),
+                "costBasis": sum(row["costBasis"] for row in rows),
+            },
+            "warnings": state.warnings,
+            "disclosures": disclosures,
+        }
 
     @app.get("/api/portfolio/risk")
     def portfolio_risk_view(
